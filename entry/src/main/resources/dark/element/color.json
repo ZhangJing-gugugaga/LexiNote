@@ -1,0 +1,120 @@
+{
+  "color": [
+    {
+      "name": "start_window_background",
+      "value": "#12131B"
+    },
+    {
+      "name": "background",
+      "value": "#12131B"
+    },
+    {
+      "name": "surface",
+      "value": "#20212D"
+    },
+    {
+      "name": "soft_surface",
+      "value": "#2D2F3E"
+    },
+    {
+      "name": "text_primary",
+      "value": "#F5F3FB"
+    },
+    {
+      "name": "text_secondary",
+      "value": "#C6C2D4"
+    },
+    {
+      "name": "brand",
+      "value": "#C7B3FF"
+    },
+    {
+      "name": "brand_soft",
+      "value": "#3A3157"
+    },
+    {
+      "name": "divider",
+      "value": "#4B465F"
+    },
+    {
+      "name": "success",
+      "value": "#86CDB5"
+    },
+    {
+      "name": "warning",
+      "value": "#F0B86E"
+    },
+    {
+      "name": "error",
+      "value": "#FF9EAB"
+    },
+    {
+      "name": "hero",
+      "value": "#29233D"
+    },
+    {
+      "name": "inverse_text",
+      "value": "#20162E"
+    },
+    {
+      "name": "brand_ink",
+      "value": "#E0D4FF"
+    },
+    {
+      "name": "dock_light",
+      "value": "#B9A1EB"
+    },
+    {
+      "name": "dock_fallback",
+      "value": "#F020212D"
+    },
+    {
+      "name": "title_chip_active",
+      "value": "#CC4B396E"
+    },
+    {
+      "name": "title_chip_surface",
+      "value": "#CC2A2B3A"
+    },
+    {
+      "name": "canvas_surface",
+      "value": "#181A24"
+    },
+    {
+      "name": "title_scrim",
+      "value": "#E612131B"
+    },
+    {
+      "name": "dock_surface",
+      "value": "#D920212D"
+    },
+    {
+      "name": "workspace_rail",
+      "value": "#1D1A29"
+    },
+    {
+      "name": "workspace_sidebar",
+      "value": "#242030"
+    },
+    {
+      "name": "workspace_tabs",
+      "value": "#211E2C"
+    },
+    {
+      "name": "workspace_page",
+      "value": "#191822"
+    },
+    {
+      "name": "workspace_inspector",
+      "value": "#1E1C29"
+    },
+    {
+      "name": "workspace_selection",
+      "value": "#403355"
+    },
+    {
+      "name": "workspace_line",
+      "value": "#3B354C"
+    }
+  ]
+}

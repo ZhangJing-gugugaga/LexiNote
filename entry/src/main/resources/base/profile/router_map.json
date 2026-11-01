@@ -1,0 +1,34 @@
+{
+  "routerMap": [
+    {
+      "name": "trash",
+      "pageSourceFile": "src/main/ets/pages/TrashPage.ets",
+      "buildFunction": "trashPageBuilder"
+    },
+    {
+      "name": "noteEditor",
+      "pageSourceFile": "src/main/ets/pages/NoteEditorPage.ets",
+      "buildFunction": "noteEditorBuilder"
+    },
+    {
+      "name": "mindMapEditor",
+      "pageSourceFile": "src/main/ets/pages/MindMapPage.ets",
+      "buildFunction": "mindMapEditorBuilder"
+    },
+    {
+      "name": "canvasEditor",
+      "pageSourceFile": "src/main/ets/pages/CanvasPage.ets",
+      "buildFunction": "canvasEditorBuilder"
+    },
+    {
+      "name": "help",
+      "pageSourceFile": "src/main/ets/pages/HelpPage.ets",
+      "buildFunction": "helpPageBuilder"
+    },
+    {
+      "name": "workspaceManager",
+      "pageSourceFile": "src/main/ets/pages/WorkspacesPage.ets",
+      "buildFunction": "workspacesPageBuilder"
+    }
+  ]
+}

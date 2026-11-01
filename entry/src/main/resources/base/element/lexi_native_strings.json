@@ -1,0 +1,12 @@
+{
+  "string": [
+    {
+      "name": "lexi_microphone_reason",
+      "value": "仅在你点击录音时使用麦克风，在本机将语音转换为笔记文字。"
+    },
+    {
+      "name": "lexi_share_label",
+      "value": "知萤收件箱"
+    }
+  ]
+}

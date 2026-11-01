@@ -1,0 +1,120 @@
+{
+  "color": [
+    {
+      "name": "start_window_background",
+      "value": "#F6F4FB"
+    },
+    {
+      "name": "background",
+      "value": "#F6F4FB"
+    },
+    {
+      "name": "surface",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "soft_surface",
+      "value": "#EEEAF8"
+    },
+    {
+      "name": "text_primary",
+      "value": "#231B36"
+    },
+    {
+      "name": "text_secondary",
+      "value": "#6E6385"
+    },
+    {
+      "name": "brand",
+      "value": "#6E44D9"
+    },
+    {
+      "name": "brand_soft",
+      "value": "#E9E0FF"
+    },
+    {
+      "name": "divider",
+      "value": "#E4DDF2"
+    },
+    {
+      "name": "success",
+      "value": "#348672"
+    },
+    {
+      "name": "warning",
+      "value": "#C9822B"
+    },
+    {
+      "name": "error",
+      "value": "#C44D62"
+    },
+    {
+      "name": "hero",
+      "value": "#E9E0FF"
+    },
+    {
+      "name": "inverse_text",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "brand_ink",
+      "value": "#4E2B9E"
+    },
+    {
+      "name": "dock_light",
+      "value": "#D8C7FF"
+    },
+    {
+      "name": "dock_fallback",
+      "value": "#EEFFFFFF"
+    },
+    {
+      "name": "title_chip_active",
+      "value": "#386E44D9"
+    },
+    {
+      "name": "title_chip_surface",
+      "value": "#33FFFFFF"
+    },
+    {
+      "name": "canvas_surface",
+      "value": "#1C162B"
+    },
+    {
+      "name": "title_scrim",
+      "value": "#00F6F4FB"
+    },
+    {
+      "name": "dock_surface",
+      "value": "#26FFFFFF"
+    },
+    {
+      "name": "workspace_rail",
+      "value": "#EAE4F5"
+    },
+    {
+      "name": "workspace_sidebar",
+      "value": "#F4F0FA"
+    },
+    {
+      "name": "workspace_tabs",
+      "value": "#F0EBF8"
+    },
+    {
+      "name": "workspace_page",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "workspace_inspector",
+      "value": "#FCFAFF"
+    },
+    {
+      "name": "workspace_selection",
+      "value": "#E4D8FA"
+    },
+    {
+      "name": "workspace_line",
+      "value": "#DDD5EA"
+    }
+  ]
+}

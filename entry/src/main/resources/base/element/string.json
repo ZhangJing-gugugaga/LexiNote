@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "知萤 LexiNote 本地优先知识管理与思维导图应用"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "知萤 LexiNote"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "知萤"
+    }
+  ]
+}

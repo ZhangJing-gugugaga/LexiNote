@@ -1,0 +1,36 @@
+# DevEco Studio, Hvigor and dependencies
+.idea/
+.hvigor/
+**/build/
+**/oh_modules/
+**/node_modules/
+**/.preview/
+**/.cxx/
+**/.test/
+.appanalyzer/
+local.properties
+
+# Local signing configuration and credentials
+/build-profile.json5
+*.p12
+*.p7b
+*.cer
+*.pem
+*.key
+
+# Generated packages, exports and local working material
+*.hap
+*.hsp
+*.app
+/exports/
+/docs/
+/*.docx
+/design-qa.md
+*.log
+
+# OS and editor temporary files
+.DS_Store
+Thumbs.db
+~$*
+*.swp
+*.swo

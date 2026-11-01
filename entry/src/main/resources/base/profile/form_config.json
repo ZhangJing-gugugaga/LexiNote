@@ -1,0 +1,34 @@
+{
+  "forms": [
+    {
+      "name": "LexiQuick",
+      "displayName": "$string:lexi_form_quick_name",
+      "description": "$string:lexi_form_quick_description",
+      "src": "./ets/lexiform/pages/LexiQuickCard.ets",
+      "uiSyntax": "arkts",
+      "window": { "designWidth": 720, "autoDesignWidth": true },
+      "colorMode": "auto",
+      "isDynamic": true,
+      "isDefault": true,
+      "updateEnabled": true,
+      "updateDuration": 1,
+      "defaultDimension": "2*2",
+      "supportDimensions": ["2*2"]
+    },
+    {
+      "name": "LexiToday",
+      "displayName": "$string:lexi_form_today_name",
+      "description": "$string:lexi_form_today_description",
+      "src": "./ets/lexiform/pages/LexiTodayCard.ets",
+      "uiSyntax": "arkts",
+      "window": { "designWidth": 720, "autoDesignWidth": true },
+      "colorMode": "auto",
+      "isDynamic": true,
+      "isDefault": false,
+      "updateEnabled": true,
+      "updateDuration": 1,
+      "defaultDimension": "2*4",
+      "supportDimensions": ["2*4"]
+    }
+  ]
+}

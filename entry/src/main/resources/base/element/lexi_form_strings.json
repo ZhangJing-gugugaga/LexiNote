@@ -1,0 +1,8 @@
+{
+  "string": [
+    { "name": "lexi_form_quick_name", "value": "知萤灵感速记" },
+    { "name": "lexi_form_quick_description", "value": "一键打开灵感速记、语音记录和今日笔记。" },
+    { "name": "lexi_form_today_name", "value": "知萤今日与回顾" },
+    { "name": "lexi_form_today_description", "value": "显示当前工作区的今日待办与旧笔记，直接点选待办即可安全保存。" }
+  ]
+}

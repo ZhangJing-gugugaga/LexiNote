@@ -1,0 +1,15 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const ts = require(process.env.LEXI_TYPESCRIPT || '/Applications/DevEco-Studio.app/Contents/tools/hvigor/hvigor/node_modules/typescript');
+const file = require('node:path').resolve(__dirname, '../../entry/src/main/ets/core/LexiCodeFence.ets');
+const js = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
+const mod = { exports: {} }; vm.runInThisContext('(function(module,exports){' + js + '\n})')(mod, mod.exports);
+const fence = mod.exports.LexiCodeFence;
+const original = '  ~~~~custom options\r\na\r\n~~~\r\n  ~~~~';
+assert.equal(fence.update(original, fence.parse(original).body, 'custom'), original);
+assert.equal(fence.update(original, 'a\r\n~~~\r\nb', 'custom'), '  ~~~~custom options\r\na\r\n~~~\r\nb\r\n  ~~~~');
+assert.equal(fence.update('```js\nx\n```', 'x\n```\ny', 'js'), '````js\nx\n```\ny\n````');
+assert.equal(fence.update('```js\nx', 'y', 'js'), '```js\ny');
+assert.equal(fence.parse('````ts\n```\n# code\n````').body, '```\n# code');
+console.log('PASS code fence preservation and embedded fence handling');
