@@ -80,6 +80,9 @@ module.exports = class SamplePlugin extends Plugin {
 
     this.registerView(SAMPLE_VIEW, (leaf) => new SamplePanelView(leaf));
     this.addSettingTab(new SampleSettingTab(this.app, this));
+    this.addRibbonIcon('dice', '示例插件', () => {
+      new Notice('示例 Ribbon:插件底座运行中');
+    });
 
     // 代码块处理器:阅读视图中以插件槽位渲染 ```plugin-demo
     this.registerMarkdownCodeBlockProcessor('plugin-demo', (source, el) => {

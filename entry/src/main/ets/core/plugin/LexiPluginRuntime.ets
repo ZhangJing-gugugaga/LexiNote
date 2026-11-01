@@ -204,6 +204,8 @@ export class LexiPluginManager {
   private settingDefs: Map<string, string> = new Map();
   private codeBlockPlugins: Map<string, string> = new Map();
   private pluginSources: Map<string, string> = new Map();
+  private ribbonItems: Map<string, LexiRibbonRow> = new Map();
+  private iconPaths: Map<string, string> = new Map();
 
   static get shared(): LexiPluginManager | null {
     return LexiPluginManager.instanceRef;
@@ -316,6 +318,25 @@ export class LexiPluginManager {
 
   private bumpPluginRevision(): void {
     AppStorage.setOrCreate<number>('lexiPluginRevision', (AppStorage.get<number>('lexiPluginRevision') || 0) + 1);
+  }
+
+  /** 插件 Ribbon(左侧栏图标),宿主按修订号增量渲染。 */
+  ribbonRows(): LexiRibbonRow[] {
+    const rows: LexiRibbonRow[] = [];
+    this.ribbonItems.forEach((row: LexiRibbonRow): void => { rows.push(row); });
+    return rows;
+  }
+
+  iconSvgPath(iconId: string): string {
+    return this.iconPaths.get(iconId) || '';
+  }
+
+  /** 点击 Ribbon:派发到插件侧回调。 */
+  async invokeRibbon(pluginId: string, title: string): Promise<void> {
+    const body: Record<string, Object> = { 'pluginId': pluginId as Object, 'title': title as Object };
+    await this.runtime.dispatchWithTimeout('invoke.ribbon', JSON.stringify(body), LOAD_TIMEOUT_MS).catch((error: Error): void => {
+      pluginError('Ribbon 回调派发失败: ' + String(error));
+    });
   }
 
   private static positionOf(raw: Object | undefined): LexiEditorPosition {
@@ -592,8 +613,49 @@ export class LexiPluginManager {
       if (manager.uiHost) { manager.uiHost.toast(rpcString(request, 'message')); }
       return okResponse(manager.uiHost !== null);
     });
-    runtime.registerHandler('ui.placeholder', async (_payload: string): Promise<string> => {
-      return okResponse('rendered-in-p1');
+    runtime.registerHandler('ui.addRibbon', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const pluginId = rpcString(request, 'pluginId');
+      const title = rpcString(request, 'title');
+      const iconId = rpcString(request, 'icon');
+      if (!pluginId || !title) { return failResponse('Ribbon 参数不完整'); }
+      const row = new LexiRibbonRow();
+      row.pluginId = pluginId;
+      row.title = title;
+      row.iconId = iconId;
+      row.iconPath = manager.iconSvgPath(iconId);
+      manager.ribbonItems.set(`${pluginId}:${title}`, row);
+      pluginLog('插件 Ribbon 注册: ' + pluginId + ' / ' + title);
+      manager.bumpPluginRevision();
+      return okResponse(null);
+    });
+    runtime.registerHandler('ui.removeRibbon', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      manager.ribbonItems.delete(`${rpcString(request, 'pluginId')}:${rpcString(request, 'title')}`);
+      manager.bumpPluginRevision();
+      return okResponse(null);
+    });
+    runtime.registerHandler('ui.addIcon', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const iconId = rpcString(request, 'iconId').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const svg = rpcString(request, 'svgContent');
+      if (!iconId || !svg) { return failResponse('图标参数不完整'); }
+      try {
+        if (manager.context) {
+          const dir = `${manager.context.cacheDir}/plugin-icons`;
+          if (!fs.accessSync(dir)) { fs.mkdirSync(dir, true); }
+          const path = `${dir}/${iconId}.svg`;
+          manager.writeTextFile(path, svg);
+          manager.iconPaths.set(iconId, path);
+          manager.ribbonItems.forEach((row: LexiRibbonRow): void => {
+            if (row.iconId === iconId) { row.iconPath = path; }
+          });
+          manager.bumpPluginRevision();
+        }
+      } catch (error) {
+        return failResponse(String(error));
+      }
+      return okResponse(null);
     });
     runtime.registerHandler('views.add', async (payload: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
@@ -1053,6 +1115,11 @@ export class LexiPluginManager {
     LexiPluginViewRegistry.removePlugin(pluginId);
     this.settingDefs.delete(pluginId);
     this.pluginSources.delete(pluginId);
+    const doomedRibbons: string[] = [];
+    this.ribbonItems.forEach((row: LexiRibbonRow, key: string): void => {
+      if (row.pluginId === pluginId) { doomedRibbons.push(key); }
+    });
+    for (const key of doomedRibbons) { this.ribbonItems.delete(key); }
     const languages: string[] = [];
     this.codeBlockPlugins.forEach((owner: string, language: string): void => {
       if (owner === pluginId) { languages.push(language); }
@@ -1079,4 +1146,11 @@ class HostEventSubscription {
   events: LexiEvents = new LexiEvents();
   name: string = '';
   listener: (payload: Object | null) => void = (_payload: Object | null): void => {};
+}
+
+export class LexiRibbonRow {
+  pluginId: string = '';
+  title: string = '';
+  iconId: string = '';
+  iconPath: string = '';
 }

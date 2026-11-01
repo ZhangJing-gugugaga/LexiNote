@@ -14,7 +14,8 @@ import { LexiExploreTab } from '../components/LexiExploreTab';
 import { LexiContextActionHost } from '../components/LexiContextActionHost';
 import { LexiContextTarget } from '../core/LexiContextModels';
 import { LexiNoteDestinationPicker } from '../components/LexiNoteDestinationPicker';
-import { LexiSettingsTab } from '../components/LexiSettingsTab';
+
+import { LexiSettingsWindow } from '../components/LexiSettingsWindow';
 import { LexiTemplatePicker } from '../components/LexiTemplatePicker';
 import { LexiTemplateItem } from '../core/LexiTemplateLibrary';
 import { LexiTemplates } from '../core/LexiTemplates';
@@ -86,6 +87,7 @@ struct Index {
   @State quickText: string = '';
   @State quickSaving: boolean = false;
   @State private showTemplates: boolean = false;
+  @State private showSettingsWindow: boolean = false;
   @State private noteTemplates: LexiTemplateItem[] = [];
   @State private dailyTemplateId: string = '';
   @State private templateBusy: boolean = false;
@@ -1114,26 +1116,7 @@ struct Index {
               onOpenNote: (noteId: string): void => { this.openNote(noteId); }
             })
           } else {
-            LexiSettingsTab({
-              isWide: this.wide(),
-              pagePadding: this.pagePadding(),
-              bottomInset: this.bottomInset,
-              titleCollapsed: this.titleCollapsed[3],
-              theme: this.theme,
-              defaultTier: this.defaultTier,
-              busy: this.busy,
-              dataStatus: this.dataStatus,
-              lastBackup: this.lastBackup,
-              onSelectTheme: (theme: string): void => { this.setTheme(theme); },
-              onSelectTier: (tier: string): void => { this.setDefaultTier(tier); },
-              onExportBackup: (): void => { this.exportBackup(); },
-              onExportMarkdown: (): void => { this.exportMarkdown(); },
-              onImportFiles: (): void => { this.importFiles(); },
-              onRebuildIndex: (): void => { this.rebuildIndex(); },
-              onOpenHelp: (): void => { this.openHelp(); },
-              onOpenTrash: (): void => { this.pathStack.pushPathByName('trash', undefined); },
-              onShowInfo: (title: string, msg: string): void => { this.information(title, msg); }
-            })
+            this.settingsEntryPage()
           }
         }
         .width('100%')
@@ -1166,6 +1149,45 @@ struct Index {
       .height('100%')
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     }
+  }
+
+  @Builder
+  private settingsEntryPage() {
+    Column({ space: 14 }) {
+      Text('我的')
+        .fontSize(30)
+        .fontWeight(FontWeight.Bold)
+        .fontColor($r('app.color.text_primary'))
+        .width('100%')
+
+      Button('打开设置', { type: ButtonType.Normal })
+        .width('100%')
+        .height(52)
+        .fontSize(15)
+        .borderRadius(18)
+        .backgroundColor($r('app.color.brand'))
+        .fontColor($r('app.color.inverse_text'))
+        .onClick((): void => { this.showSettingsWindow = true; })
+
+      Text('外观、编辑器、插件、社区市场、数据备份与帮助都收敛在同一个设置窗口。')
+        .fontSize(12)
+        .fontColor($r('app.color.text_secondary'))
+        .width('100%')
+
+      Button('回收站  →', { type: ButtonType.Normal, buttonStyle: ButtonStyleMode.TEXTUAL })
+        .width('100%').height(48).fontSize(14).borderRadius(14)
+        .backgroundColor($r('app.color.surface')).fontColor($r('app.color.brand_ink'))
+        .onClick((): void => { this.pathStack.pushPathByName('trash', undefined); })
+
+      Button('使用说明  →', { type: ButtonType.Normal, buttonStyle: ButtonStyleMode.TEXTUAL })
+        .width('100%').height(48).fontSize(14).borderRadius(14)
+        .backgroundColor($r('app.color.surface')).fontColor($r('app.color.brand_ink'))
+        .onClick((): void => { this.openHelp(); })
+    }
+    .width('100%')
+    .constraintSize({ maxWidth: 860 })
+    .padding({ left: this.pagePadding(), right: this.pagePadding(), bottom: 48 })
+    .alignItems(HorizontalAlign.Start)
   }
 
   @Builder
@@ -1228,26 +1250,7 @@ struct Index {
               onOpenNote: (noteId: string): void => { this.openNote(noteId); }
             })
           } else {
-            LexiSettingsTab({
-              isWide: this.wide(),
-              pagePadding: this.pagePadding(),
-              bottomInset: this.bottomInset,
-              titleCollapsed: this.titleCollapsed[3],
-              theme: this.theme,
-              defaultTier: this.defaultTier,
-              busy: this.busy,
-              dataStatus: this.dataStatus,
-              lastBackup: this.lastBackup,
-              onSelectTheme: (theme: string): void => { this.setTheme(theme); },
-              onSelectTier: (tier: string): void => { this.setDefaultTier(tier); },
-              onExportBackup: (): void => { this.exportBackup(); },
-              onExportMarkdown: (): void => { this.exportMarkdown(); },
-              onImportFiles: (): void => { this.importFiles(); },
-              onRebuildIndex: (): void => { this.rebuildIndex(); },
-              onOpenHelp: (): void => { this.openHelp(); },
-              onOpenTrash: (): void => { this.pathStack.pushPathByName('trash', undefined); },
-              onShowInfo: (title: string, msg: string): void => { this.information(title, msg); }
-            })
+            this.settingsEntryPage()
         }
       }.width('100%').constraintSize({ maxWidth: 1160 }).padding({ top: 32, bottom: 32 })
     }.width('100%').height('100%').align(Alignment.Top).backgroundColor($r('app.color.workspace_page'))
@@ -1284,7 +1287,8 @@ struct Index {
         const param = new NoteEditorRouteParam(); param.noteId = noteId;
         this.pathStack.pushPathByName('noteEditor', param);
       },
-      onOpenHelp: (): void => { this.openHelp(); }
+      onOpenHelp: (): void => { this.openHelp(); },
+      onOpenSettings: (): void => { this.showSettingsWindow = true; }
     })
   }
 
@@ -1370,6 +1374,25 @@ struct Index {
       }
       LexiContextActionHost({ onOpen: (id: string, mode: string): void => { this.openContextContent(id, mode); },
         onSearch: (target: LexiContextTarget): void => { this.searchContext(target); } })
+      if (this.showSettingsWindow) {
+        LexiSettingsWindow({
+          theme: this.theme,
+          defaultTier: this.defaultTier,
+          busy: this.busy,
+          dataStatus: this.dataStatus,
+          lastBackup: this.lastBackup,
+          onSelectTheme: (theme: string): void => { this.setTheme(theme); },
+          onSelectTier: (tier: string): void => { this.setDefaultTier(tier); },
+          onExportBackup: (): void => { this.exportBackup(); },
+          onExportMarkdown: (): void => { this.exportMarkdown(); },
+          onImportFiles: (): void => { this.importFiles(); },
+          onRebuildIndex: (): void => { this.rebuildIndex(); },
+          onOpenHelp: (): void => { this.openHelp(); },
+          onOpenTrash: (): void => { this.pathStack.pushPathByName('trash', undefined); },
+          onShowInfo: (title: string, msg: string): void => { this.information(title, msg); },
+          onClose: (): void => { this.showSettingsWindow = false; }
+        })
+      }
       }.width('100%').height('100%')
         .bindSheet($$this.showTemplates, this.templateSheet, {
           height: this.wide() ? Math.min(720, Math.max(280, this.viewportHeight - this.titleTopInset - this.bottomInset - 96)) : SheetSize.LARGE,

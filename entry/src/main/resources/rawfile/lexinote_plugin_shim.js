@@ -19,6 +19,7 @@
   var lastEditorState = null; // latest {active, noteId, text, selection} snapshot
   var viewCreators = new Map(); // view type -> creator(leaf) (spawned inside the view slot)
   var codeBlockTable = new Map(); // language -> handler (rendered inside code-block slots)
+  var ribbonTable = new Map(); // pluginId:title -> click callback
 
   var API_VERSION = '1.0.0';
 
@@ -523,8 +524,15 @@
   };
   PluginShim.prototype.addRibbonIcon = function (icon, title, callback) {
     var self = this;
-    hostCall('ui.placeholder', { kind: 'ribbon', pluginId: self.manifest.id, icon: icon, title: title }).catch(function () {});
-    self.register(function () { hostCall('ui.placeholder', { kind: 'ribbon.remove', pluginId: self.manifest.id, title: title }).catch(function () {}); });
+    var key = self.manifest.id + ':' + title;
+    if (typeof callback === 'function') { ribbonTable.set(key, callback); }
+    hostCall('ui.addRibbon', {
+      pluginId: self.manifest.id, title: String(title), icon: String(icon || '')
+    }).catch(function (err) { console.warn('[lexinote] Ribbon 注册失败', err); });
+    self.register(function () {
+      ribbonTable.delete(key);
+      hostCall('ui.removeRibbon', { pluginId: self.manifest.id, title: String(title) }).catch(function () {});
+    });
     return null;
   };
   PluginShim.prototype.addStatusBarItem = function () {
@@ -946,6 +954,15 @@
         });
         return;
       }
+      if (method === 'invoke.ribbon') {
+        var ribbon = ribbonTable.get(message.pluginId + ':' + message.title);
+        if (typeof ribbon === 'function') {
+          Promise.resolve().then(function () { return ribbon(new MouseEvent('click')); }).catch(function (err) {
+            console.warn('[lexinote] Ribbon 回调失败', err);
+          });
+        }
+        return;
+      }
       if (method === 'settings.values') {
         var pluginInstance = plugins.get(message.pluginId);
         var tab = pluginInstance && pluginInstance._settingTab;
@@ -999,7 +1016,11 @@
     Keymap: { isModifier: function () { return false; } },
     ItemView: ComponentShim,
     View: ComponentShim,
-    addIcon: function () {},
+    addIcon: function (iconId, svgContent) {
+      hostCall('ui.addIcon', { iconId: String(iconId), svgContent: String(svgContent) }).catch(function (err) {
+        console.warn('[lexinote] 图标注册失败', err);
+      });
+    },
     setIcon: function () {},
     prepareFuzzySearch: function (query) {
       var needle = String(query).toLowerCase();

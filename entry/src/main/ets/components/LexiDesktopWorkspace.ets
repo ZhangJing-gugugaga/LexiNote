@@ -22,6 +22,12 @@ class LexiWorkspaceTabFrame extends FrameCallback {
   onIdle(_remaining: number): void { this.perform(); }
 }
 
+class LexiRibbonRowState {
+  pluginId: string = '';
+  title: string = '';
+  iconPath: string = '';
+}
+
 interface LexiWorkspaceActionParams {
   iconName: string;
   label: string;
@@ -37,6 +43,8 @@ function lexiWorkspaceEmptySlot() {}
 @Component
 export struct LexiDesktopWorkspace {
   @StorageProp('lexiTopInset') topInset: number = 0;
+  @StorageProp('lexiPluginRevision') @Watch('pluginRevisionChanged') private pluginRevision: number = 0;
+  @State private ribbonRows: LexiRibbonRowState[] = [];
   @StorageProp('lexiWindowButtonsInset') windowButtonsInset: number = 0;
   @Prop projects: LexiProject[] = [];
   @Prop @Watch('projectChanged') activeProjectId: string = '';
@@ -83,6 +91,7 @@ export struct LexiDesktopWorkspace {
   onConvertMap: (noteId: string) => void = (_id: string): void => {};
   onOpenAdvancedNote: (noteId: string) => void = (_id: string): void => {};
   onOpenHelp: () => void = (): void => {};
+  onOpenSettings: () => void = (): void => {};
   onExecuteCommand: (command: string, noteId: string, title: string) => Promise<void> =
     async (_command: string, _id: string, _title: string): Promise<void> => {};
 
@@ -93,7 +102,29 @@ export struct LexiDesktopWorkspace {
       manager.setViewOpenHandler((viewType: string): void => { this.openPluginView(viewType); });
       manager.setViewCloseHandler((viewType: string): void => { this.closePluginView(viewType); });
     }
+    this.refreshRibbons();
     this.openInitialDocument();
+  }
+
+  private pluginRevisionChanged(): void {
+    this.refreshRibbons();
+  }
+
+  private refreshRibbons(): void {
+    const manager = LexiPluginManager.shared;
+    if (!manager) {
+      this.ribbonRows = [];
+      return;
+    }
+    const rows: LexiRibbonRowState[] = [];
+    for (const row of manager.ribbonRows()) {
+      const state = new LexiRibbonRowState();
+      state.pluginId = row.pluginId;
+      state.title = row.title;
+      state.iconPath = row.iconPath;
+      rows.push(state);
+    }
+    this.ribbonRows = rows;
   }
 
   aboutToDisappear(): void { this.tabLayoutRevision++; }
@@ -319,7 +350,7 @@ export struct LexiDesktopWorkspace {
       else if (command === 'convert' && this.selectedId && !this.selectedId.startsWith('map:')) { this.onConvertMap(this.selectedId); }
       else if (command === 'graph') { await this.showAuxiliary(2); }
       else if (command === 'library') { await this.showAuxiliary(4); }
-      else if (command === 'settings') { await this.showAuxiliary(3); }
+      else if (command === 'settings') { this.onOpenSettings(); }
       else if (command === 'workspaces') { await this.manageWorkspaces(); }
       else if (command === 'help') { this.onOpenHelp(); }
       else if (await LexiPluginManager.tryExecuteCommand(command)) { return; }
@@ -437,8 +468,23 @@ export struct LexiDesktopWorkspace {
         .accessibilityText('切换编辑与阅读 Ctrl+E').keyboardShortcut('e', [ModifierKey.CTRL], (): void => { this.executeCommand('reading'); })
         .onClick((): void => { this.executeCommand('reading'); })
       this.iconButton({ iconName: 'graph', label: '笔记关联', action: (): void => { this.showAuxiliary(2); }, selected: this.activeSection === 2 })
+      ForEach(this.ribbonRows, (row: LexiRibbonRowState) => {
+        Button({ type: ButtonType.Normal, buttonStyle: ButtonStyleMode.TEXTUAL }) {
+          if (row.iconPath.length > 0) {
+            Image(row.iconPath).width(19).height(19).objectFit(ImageFit.Contain)
+          } else {
+            LexiIcon({ name: 'note', iconSize: 19 })
+          }
+        }
+        .id(`ribbon-${row.pluginId}-${row.title}`).width(40).height(40).padding(0).borderRadius(9)
+        .backgroundColor(Color.Transparent).accessibilityText(row.title)
+        .onClick((): void => {
+          const manager = LexiPluginManager.shared;
+          if (manager) { manager.invokeRibbon(row.pluginId, row.title).catch((): void => {}); }
+        })
+      }, (row: LexiRibbonRowState): string => `${row.pluginId}-${row.title}`)
       Blank()
-      this.iconButton({ iconName: 'dock-profile', label: '我的', action: (): void => { this.showAuxiliary(3); }, selected: this.activeSection === 3 })
+      this.iconButton({ iconName: 'dock-profile', label: '我的', action: (): void => { this.onOpenSettings(); }, selected: false })
     }
     .width(56).height('100%').padding({ top: 16, bottom: this.inlineContextMenus() ? 10 : 14 }).backgroundColor($r('app.color.workspace_rail'))
     .border({ width: { right: 0.5 }, color: $r('app.color.workspace_line') })
