@@ -1,0 +1,22 @@
+name: validate community plugins
+
+on:
+  pull_request:
+    paths:
+      - 'community-plugins.json'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Validate index structure
+        run: node scripts/validate.mjs
+      - name: Validate GitHub repositories and releases
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/validate.mjs --remote

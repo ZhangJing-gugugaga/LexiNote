@@ -1,0 +1,11 @@
+[
+  {
+    "id": "market-demo",
+    "name": "Market Demo",
+    "author": "LexiNote Team",
+    "description": "演示插件:展示社区市场安装链路(命令 + Notice)。",
+    "repo": "ZhangJing-gugugaga/lexinote-market-demo",
+    "version": "1.0.0",
+    "zipUrl": "https://github.com/ZhangJing-gugugaga/lexinote-market-demo/releases/latest/download/plugin.zip"
+  }
+]
