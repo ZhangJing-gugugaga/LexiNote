@@ -12,6 +12,7 @@ export interface LexiPluginCommand {
   name: string;
   icon?: string;
   hotkeys?: LexiHotkey[];
+  editorOnly?: boolean;
   callback?: () => void | Promise<void>;
   checkCallback?: (checking: boolean) => boolean;
   editorCallback?: (editor: Object, ctx: Object) => void | Promise<void>;
@@ -158,6 +159,7 @@ export class LexiCommandRegistry {
       name: spec.name,
       icon: spec.icon,
       hotkeys: spec.hotkeys,
+      editorOnly: spec.editorOnly === true,
       callback: spec.callback,
       checkCallback: spec.checkCallback,
       editorCallback: spec.editorCallback

@@ -8,6 +8,7 @@ import { LexiStorageService } from '../LexiStorageService';
 import { LexiFrontmatter } from '../LexiFrontmatter';
 import { LexiPluginBus, LexiNoteChange } from './LexiPluginBus';
 import { LexiEvents } from './LexiPluginKernel';
+import { LexiEditorRegistry } from './LexiEditorRegistry';
 import {
   buildVaultIndex,
   fileBaseName,
@@ -127,9 +128,11 @@ export class LexiVaultFacade {
   async modify(file: LexiTFile, data: string): Promise<void> {
     const note = await this.noteByFile(file);
     if (!note) { throw new Error('笔记不存在: ' + file.path); }
-    if (LexiOpenEditorLink.hasApplier()) {
+    const controller = LexiEditorRegistry.controllerFor(note.id);
+    if (controller) {
       // The document is open: write through the live editor so the optimistic save boundary holds.
-      await LexiOpenEditorLink.applier!(note.id, data);
+      const current = controller.getText();
+      controller.replaceRange(0, current.length, data);
       await this.rebuildAndEmit('modify', file);
       return;
     }

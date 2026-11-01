@@ -124,6 +124,82 @@ const tests=[
   await dispatch('unload.plugin',{id:'event-probe'});
   await until(()=>calls.some((c,i)=>i>=unloadCalls&&c.method==='events.off'),'events.off cleanup');
  }],
+ ['editor commands receive a working Editor proxy and route writes through editor.replace',async()=>{
+  let captured=null;
+  global.__capture=(value)=>{captured=value;};
+  const probe=`module.exports = class extends require('obsidian').Plugin {
+    async onload(){
+      this.addCommand({
+        id: 'editor-probe',
+        name: '编辑器探针',
+        editorCallback: (editor) => {
+          global.__capture({
+            text: editor.getValue(),
+            selection: editor.getSelection(),
+            cursor: editor.getCursor(),
+            lines: editor.lineCount()
+          });
+        }
+      });
+    }
+  };`;
+  await dispatch('load.plugin',{manifest:{id:'editor-probe'},code:probe});
+  await until(()=>calls.some(c=>c.method==='commands.add'&&c.payload.command.editorOnly===true),'editorOnly flag');
+  await dispatch('invoke.editorCommand',{
+    fullId:'editor-probe:editor-probe',
+    editor:{active:true,noteId:'n1',text:'第一行\n第二行',selection:{start:4,end:7}}
+  });
+  await until(()=>captured!==null,'editor callback');
+  assert.equal(captured.text,'第一行\n第二行');
+  assert.equal(captured.selection,'第二行');
+  assert.deepEqual(captured.cursor,{line:1,ch:3});
+  assert.equal(captured.lines,2);
+  await dispatch('unload.plugin',{id:'editor-probe'});
+ }],
+ ['editor.replaceSelection sends exact offsets and refreshes the snapshot',async()=>{
+  let applied=null;
+  const originalCall=global.window.lexiHost.call;
+  global.window.lexiHost.call=function(callId,method,payloadJson){
+    const payload=safeParse(payloadJson,{});
+    if(method==='editor.replace'){
+      applied={start:payload.start,end:payload.end,text:payload.text};
+      const merged={active:true,noteId:'n1'};
+      merged.text=payloadJson===undefined?'':('第一行\n==第二行==');
+      merged.selection={start:4,end:4};
+      return Promise.resolve(JSON.stringify({ok:true,result:merged}));
+    }
+    return originalCall.apply(this,arguments);
+  };
+  let snapshot={};
+  global.__capture=(value)=>{ if(value&&value.textAfter!==undefined){snapshot=value;} };
+  try{
+   const probe=`module.exports = class extends require('obsidian').Plugin {
+     async onload(){
+       this.addCommand({
+         id: 'wrap',
+         name: '包裹',
+         editorCallback: (editor) => {
+           editor.replaceSelection('==第二行==').then(function(){
+             global.__capture({ textAfter: editor.getValue(), selectionAfter: editor.listSelections() });
+           });
+         }
+       });
+     }
+   };`;
+   await dispatch('load.plugin',{manifest:{id:'wrap-probe'},code:probe});
+   await dispatch('invoke.editorCommand',{
+     fullId:'wrap-probe:wrap',
+     editor:{active:true,noteId:'n1',text:'第一行\n第二行',selection:{start:4,end:7}}
+   });
+   await until(()=>applied!==null,'editor.replace call');
+   assert.deepEqual(applied,{start:4,end:7,text:'==第二行=='});
+   await until(()=>snapshot.textAfter!==undefined,'snapshot refresh');
+   assert.equal(snapshot.textAfter,'第一行\n==第二行==');
+   await dispatch('unload.plugin',{id:'wrap-probe'});
+  }finally{
+   global.window.lexiHost.call=originalCall;
+  }
+ }],
  ['unloading clears registered intervals and command table',async()=>{
   await dispatch('load.plugin',{manifest:sampleManifest,code:sampleCode});
   const removeCount=calls.filter(c=>c.method==='commands.remove').length;

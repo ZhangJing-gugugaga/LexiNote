@@ -8,6 +8,7 @@ import { LexiAnchorNavigation } from '../core/LexiAnchorNavigation';
 import { LexiIcon } from './LexiIcon';
 import { LexiLiveMarkdownEditor } from './LexiLiveMarkdownEditor';
 import { LexiLiveEditorController } from '../core/LexiLiveMarkdown';
+import { LexiEditorRegistry } from '../core/plugin/LexiEditorRegistry';
 import { NoteItem, NoteLink, OutlineHeading } from '../core/LexiModels';
 import { LexiWorkspaceEditorController } from '../core/LexiWorkspaceModels';
 import { LexiStorageService } from '../core/LexiStorageService';
@@ -107,6 +108,7 @@ export struct LexiWorkspaceEditor {
       await this.flush();
     };
     this.editorController.toggleReading = (): void => { this.toggleSourceMode(); };
+    LexiEditorRegistry.register(this.noteId, this.liveController);
     this.loading = this.load();
     this.loading.catch((): void => { this.loadFailed = true; this.statusText = '文档读取失败'; });
   }
@@ -119,6 +121,7 @@ export struct LexiWorkspaceEditor {
     LexiContinuationSession.deactivate(this.context(), this.continuationOwner);
     if (this.saveTimer >= 0) { clearTimeout(this.saveTimer); }
     this.editorController.toggleReading = (): void => {};
+    LexiEditorRegistry.unregister(this.noteId);
     this.flush().catch((): void => {});
   }
 

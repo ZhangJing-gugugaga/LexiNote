@@ -41,6 +41,29 @@ module.exports = class SamplePlugin extends Plugin {
       }
     });
 
+    this.addCommand({
+      id: 'wrap-selection',
+      name: '示例:高亮选中文本（编辑器命令）',
+      editorCallback: (editor) => {
+        const selected = editor.getSelection();
+        if (selected) {
+          editor.replaceSelection(`==${selected}==`);
+        } else {
+          editor.replaceSelection('==插件已接管编辑==');
+        }
+      }
+    });
+
+    this.addCommand({
+      id: 'editor-stats',
+      name: '示例:读取编辑器状态',
+      editorCallback: (editor) => {
+        const text = editor.getValue();
+        const cursor = editor.getCursor();
+        new Notice(`字符数:${text.length} 行数:${editor.lineCount()} 光标:${cursor.line}:${cursor.ch}`);
+      }
+    });
+
     this.registerInterval(window.setInterval(() => { /* heartbeat */ }, 5 * 60 * 1000));
   }
 

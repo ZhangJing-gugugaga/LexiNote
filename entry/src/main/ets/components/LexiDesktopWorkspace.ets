@@ -10,6 +10,7 @@ import { MarkdownEngine } from '../core/MarkdownEngine';
 import { LexiSearch } from '../core/LexiSearch';
 import { LexiCommandPalette } from './LexiCommandPalette';
 import { LexiPluginManager } from '../core/plugin/LexiPluginRuntime';
+import { LexiEditorRegistry } from '../core/plugin/LexiEditorRegistry';
 import { FrameCallback } from '@kit.ArkUI';
 import { LexiTabStripLayout } from '../core/LexiTabStripLayout';
 
@@ -173,6 +174,7 @@ export struct LexiDesktopWorkspace {
       this.tabs = this.tabs.concat([new LexiWorkspaceTab(noteId)]);
     }
     this.selectedId = noteId;
+    LexiEditorRegistry.activate(noteId);
     if (activatePane) {
       this.routingStack.clear();
       if (this.activeSection > 1) { this.onSelectSection(1); }

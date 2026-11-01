@@ -14,6 +14,7 @@ import { LexiInstalledPlugin, LexiPluginManifest, manifestCompatible, parsePlugi
 import { LexiMetadataCache } from './LexiMetadataCache';
 import { LexiVaultFacade } from './LexiVaultFacade';
 import { LexiTFolder, LexiTFile } from './LexiVaultModel';
+import { LexiEditorRegistry } from './LexiEditorRegistry';
 
 const LOAD_TIMEOUT_MS: number = 5000;
 const PLUGIN_DIR_NAME: string = 'plugins';
@@ -276,8 +277,9 @@ export class LexiPluginManager {
       const code = decoder.decodeToString(new Uint8Array(codeBuffer));
       const dir = `${this.pluginsRoot()}/lexi-sample-plugin`;
       if (!fs.accessSync(dir)) { fs.mkdirSync(dir, true); }
-      if (!fs.accessSync(`${dir}/manifest.json`)) { this.writeTextFile(`${dir}/manifest.json`, manifestJson); }
-      if (!fs.accessSync(`${dir}/main.js`)) { this.writeTextFile(`${dir}/main.js`, code); }
+      // 内置示范插件随应用版本更新:始终覆盖清单与代码,但保留其 data.json 用户配置
+      this.writeTextFile(`${dir}/manifest.json`, manifestJson);
+      this.writeTextFile(`${dir}/main.js`, code);
     } catch { /* sample assets are optional; the manager still works without them */ }
   }
 
@@ -358,14 +360,18 @@ export class LexiPluginManager {
       const pluginId = rpcString(request, 'pluginId');
       const rawCommand = request['command'] as RpcRequest;
       if (!pluginId || !rawCommand) { return failResponse('命令注册缺少参数'); }
+      const editorOnly = rpcBool(rawCommand, 'editorOnly');
       const spec: LexiPluginCommand = {
         id: rpcString(rawCommand, 'id'),
         name: rpcString(rawCommand, 'name'),
         icon: rpcString(rawCommand, 'icon'),
-        callback: (): Promise<void> => manager.invokePluginCommand(pluginId, `${pluginId}:${rpcString(rawCommand, 'id')}`)
+        editorOnly: editorOnly,
+        callback: (): Promise<void> => editorOnly
+          ? manager.invokeEditorCommand(pluginId, `${pluginId}:${rpcString(rawCommand, 'id')}`)
+          : manager.invokePluginCommand(pluginId, `${pluginId}:${rpcString(rawCommand, 'id')}`)
       };
       manager.commands.registerPluginCommand(pluginId, spec);
-      pluginLog('插件命令注册: ' + pluginId + ':' + rpcString(rawCommand, 'id'));
+      pluginLog('插件命令注册: ' + pluginId + ':' + rpcString(rawCommand, 'id') + (editorOnly ? ' (编辑器)' : ''));
       return okResponse(null);
     });
     runtime.registerHandler('commands.remove', async (payload: string): Promise<string> => {
@@ -416,6 +422,29 @@ export class LexiPluginManager {
     });
     manager.registerVaultHandlers();
     manager.registerMetadataHandlers();
+    manager.registerEditorHandlers();
+  }
+
+  private registerEditorHandlers(): void {
+    const manager = this;
+    const runtime = this.runtime;
+    runtime.registerHandler('editor.state', async (_payload: string): Promise<string> => {
+      return okResponse(manager.editorStateJson() as Object);
+    });
+    runtime.registerHandler('editor.replace', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const controller = LexiEditorRegistry.activeController();
+      if (!controller) { return failResponse('当前没有打开的编辑器'); }
+      controller.replaceRange(rpcNumber(request, 'start'), rpcNumber(request, 'end'), rpcString(request, 'text'));
+      return okResponse(manager.editorStateJson() as Object);
+    });
+    runtime.registerHandler('editor.selection', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const controller = LexiEditorRegistry.activeController();
+      if (!controller) { return failResponse('当前没有打开的编辑器'); }
+      controller.setTextSelection(rpcNumber(request, 'start'), rpcNumber(request, 'end'));
+      return okResponse(manager.editorStateJson() as Object);
+    });
   }
 
   private registerVaultHandlers(): void {
@@ -568,20 +597,58 @@ export class LexiPluginManager {
     await this.runtime.dispatchWithTimeout('invoke.command', JSON.stringify(body), LOAD_TIMEOUT_MS).catch((): void => {});
   }
 
+  private editorStateJson(): Record<string, Object> {
+    const controller = LexiEditorRegistry.activeController();
+    const body: Record<string, Object> = { 'active': controller !== null };
+    if (controller) {
+      const selection = controller.getSelection();
+      const sel: Record<string, Object> = {
+        'start': selection.start as Object,
+        'end': selection.end as Object
+      };
+      body['noteId'] = LexiEditorRegistry.activeNote() as Object;
+      body['text'] = controller.getText() as Object;
+      body['selection'] = sel as Object;
+    }
+    return body;
+  }
+
+  private async invokeEditorCommand(pluginId: string, fullId: string): Promise<void> {
+    const controller = LexiEditorRegistry.activeController();
+    pluginLog('派发编辑器命令: ' + fullId + ' 编辑器=' + (controller !== null ? LexiEditorRegistry.activeNote() : '无'));
+    if (!controller) { return; }
+    const body: Record<string, Object> = {
+      'fullId': fullId as Object,
+      'pluginId': pluginId as Object,
+      'editor': this.editorStateJson() as Object
+    };
+    await this.runtime.dispatchWithTimeout('invoke.editorCommand', JSON.stringify(body), LOAD_TIMEOUT_MS).catch((error: Error): void => {
+      pluginError('编辑器命令派发失败: ' + String(error));
+    });
+  }
+
   /** Palette/workspace fallback entry: executes a plugin command and reports whether it existed. */
   static async tryExecuteCommand(fullId: string): Promise<boolean> {
     const manager = LexiPluginManager.shared;
     if (!manager || manager.safeMode || !manager.ready) { return false; }
-    if (!manager.commands.get(fullId)) { return false; }
+    const command = manager.commands.get(fullId);
+    if (!command) { return false; }
     const colon = fullId.indexOf(':');
     if (colon <= 0) { return false; }
+    if (command.editorOnly) {
+      if (!LexiEditorRegistry.hasActive()) { return false; }
+      await manager.invokeEditorCommand(fullId.substring(0, colon), fullId);
+      return true;
+    }
     await manager.invokePluginCommand(fullId.substring(0, colon), fullId);
     return true;
   }
 
   static commandList(): LexiPluginCommand[] {
     const manager = LexiPluginManager.shared;
-    return manager ? manager.commands.list() : [];
+    if (!manager) { return []; }
+    const hasEditor = LexiEditorRegistry.hasActive();
+    return manager.commands.list().filter((command: LexiPluginCommand): boolean => !command.editorOnly || hasEditor);
   }
 
   async attachRuntime(controller: webview.WebviewController): Promise<void> {

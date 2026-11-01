@@ -11,11 +11,12 @@
   var callSeq = 0;
   var pendingCalls = new Map();
   var hostReadyQueue = [];
-  var commandTable = new Map(); // fullId -> callback
+  var commandTable = new Map(); // fullId -> command descriptor (callbacks stay plugin-side)
   var hostEventTable = new Map(); // refId -> callback (payload already rehydrated)
   var hostEventSeq = 0;
   var plugins = new Map(); // pluginId -> instance
   var fileCache = new Map(); // path -> TFile instance
+  var lastEditorState = null; // latest {active, noteId, text, selection} snapshot
 
   var API_VERSION = '1.0.0';
 
@@ -371,6 +372,10 @@
   var workspace = {
     on: function (name, callback) { return subscribeTopic('workspace', name, callback); },
     off: function (name, callback) { topicFor('workspace').off(name, callback); },
+    get activeEditor() {
+      if (!lastEditorState || lastEditorState.active === false) { return null; }
+      return { app: app, file: null, editor: new EditorProxy(lastEditorState) };
+    },
     getActiveFile: function () { return Promise.resolve(null); },
     getActiveViewOfType: function () { return Promise.resolve(null); },
     getLeavesOfType: function () { return Promise.resolve([]); },
@@ -476,7 +481,10 @@
     commandTable.set(fullId, command);
     hostCall('commands.add', {
       pluginId: self.manifest.id,
-      command: { id: command.id, name: command.name, icon: command.icon || '', hotkeys: command.hotkeys || [] }
+      command: {
+        id: command.id, name: command.name, icon: command.icon || '', hotkeys: command.hotkeys || [],
+        editorOnly: typeof command.editorCallback === 'function'
+      }
     }).catch(function (err) { console.warn('[lexinote] 命令注册失败', err); });
     self.register(function () {
       commandTable.delete(fullId);
@@ -532,6 +540,117 @@
   PluginShim.prototype.onUserEnable = function () {};
 
   // ---------------------------------------------------------------- UI primitives
+
+  // ---------------------------------------------------------------- editor proxy
+
+  function lineOffsets(text) {
+    var offsets = [0];
+    for (var i = 0; i < text.length; i++) {
+      if (text.charAt(i) === '\n') { offsets.push(i + 1); }
+    }
+    return offsets;
+  }
+
+  function offsetToPos(text, offset) {
+    var safe = Math.max(0, Math.min(text.length, offset));
+    var offsets = lineOffsets(text);
+    var line = 0;
+    while (line + 1 < offsets.length && offsets[line + 1] <= safe) { line++; }
+    return { line: line, ch: safe - offsets[line] };
+  }
+
+  function posToOffset(text, pos) {
+    if (typeof pos === 'number') { return Math.max(0, Math.min(text.length, pos)); }
+    var offsets = lineOffsets(text);
+    var line = Math.max(0, Math.min(offsets.length - 1, Math.floor(pos && pos.line ? pos.line : 0)));
+    var lineStart = offsets[line];
+    var lineEnd = line + 1 < offsets.length ? offsets[line + 1] - 1 : text.length;
+    var ch = Math.max(0, Math.min(pos && typeof pos.ch === 'number' ? pos.ch : 0, lineEnd - lineStart));
+    return lineStart + ch;
+  }
+
+  function acceptEditorState(state) {
+    if (!state || state.active === false) { return; }
+    lastEditorState = state;
+  }
+
+  function EditorProxy(state) {
+    this._text = state && typeof state.text === 'string' ? state.text : '';
+    var selection = (state && state.selection) || { start: 0, end: 0 };
+    this._selection = {
+      start: Math.max(0, selection.start || 0),
+      end: Math.max(0, typeof selection.end === 'number' ? selection.end : (selection.start || 0))
+    };
+    this._noteId = (state && state.noteId) || '';
+  }
+  EditorProxy.prototype._apply = function (method, payload) {
+    var self = this;
+    return hostCall(method, payload).then(function (state) {
+      acceptEditorState(state);
+      if (state && typeof state.text === 'string') { self._text = state.text; }
+      if (state && state.selection) { self._selection = { start: state.selection.start, end: state.selection.end }; }
+      return state;
+    });
+  };
+  EditorProxy.prototype.getValue = function () { return this._text; };
+  EditorProxy.prototype.setValue = function (content) {
+    return this._apply('editor.replace', { start: 0, end: this._text.length, text: String(content) });
+  };
+  EditorProxy.prototype.getSelection = function () {
+    return this._text.substring(this._selection.start, this._selection.end);
+  };
+  EditorProxy.prototype.somethingSelected = function () { return this._selection.end > this._selection.start; };
+  EditorProxy.prototype.replaceSelection = function (replacement) {
+    return this._apply('editor.replace', { start: this._selection.start, end: this._selection.end, text: String(replacement) });
+  };
+  EditorProxy.prototype.replaceRange = function (replacement, from, to) {
+    var start = posToOffset(this._text, from);
+    var end = to ? posToOffset(this._text, to) : start;
+    return this._apply('editor.replace', { start: start, end: Math.max(start, end), text: String(replacement) });
+  };
+  EditorProxy.prototype.getRange = function (from, to) {
+    return this._text.substring(posToOffset(this._text, from), posToOffset(this._text, to));
+  };
+  EditorProxy.prototype.getLine = function (line) {
+    var lines = this._text.split('\n');
+    return line >= 0 && line < lines.length ? lines[line] : '';
+  };
+  EditorProxy.prototype.lineCount = function () { return this._text.split('\n').length; };
+  EditorProxy.prototype.lastLine = function () { return this.lineCount() - 1; };
+  EditorProxy.prototype.getCursor = function (side) {
+    var offset = side === 'from' || side === 'anchor' ? this._selection.start : this._selection.end;
+    return offsetToPos(this._text, offset);
+  };
+  EditorProxy.prototype.setCursor = function (pos, ch) {
+    var offset = posToOffset(this._text, typeof pos === 'number' ? { line: pos, ch: ch || 0 } : pos);
+    return this._apply('editor.selection', { start: offset, end: offset });
+  };
+  EditorProxy.prototype.setSelection = function (anchor, head) {
+    var a = posToOffset(this._text, anchor);
+    var b = head ? posToOffset(this._text, head) : a;
+    return this._apply('editor.selection', { start: Math.min(a, b), end: Math.max(a, b) });
+  };
+  EditorProxy.prototype.setSelections = function (ranges) {
+    if (!ranges || ranges.length === 0) { return Promise.resolve(); }
+    return this.setSelection(ranges[0].anchor, ranges[0].head);
+  };
+  EditorProxy.prototype.listSelections = function () {
+    return [{ anchor: offsetToPos(this._text, this._selection.start), head: offsetToPos(this._text, this._selection.end) }];
+  };
+  EditorProxy.prototype.posToOffset = function (pos) { return posToOffset(this._text, pos); };
+  EditorProxy.prototype.offsetToPos = function (offset) { return offsetToPos(this._text, offset); };
+  EditorProxy.prototype.focus = function () {};
+  EditorProxy.prototype.blur = function () {};
+  EditorProxy.prototype.hasFocus = function () { return true; };
+  EditorProxy.prototype.getScrollInfo = function () { return { top: 0, left: 0 }; };
+  EditorProxy.prototype.scrollTo = function () {};
+  EditorProxy.prototype.scrollIntoView = function () {};
+  EditorProxy.prototype.undo = function () { console.warn('[lexinote] Editor.undo 暂未支持'); };
+  EditorProxy.prototype.redo = function () { console.warn('[lexinote] Editor.redo 暂未支持'); };
+  EditorProxy.prototype.exec = function () { console.warn('[lexinote] Editor.exec 暂未支持'); };
+  EditorProxy.prototype.transaction = function () { console.warn('[lexinote] Editor.transaction 暂未支持'); };
+  EditorProxy.prototype.wordAt = function () { return null; };
+  EditorProxy.prototype.processLines = function () { console.warn('[lexinote] Editor.processLines 暂未支持'); };
 
   function Notice(message, duration) {
     this.message = typeof message === 'string' ? message : (message && message.textContent) || String(message || '');
@@ -713,6 +832,18 @@
             if (command.checkCallback && !command.checkCallback(false)) { return; }
             if (command.callback) { return command.callback(); }
           }).catch(function (err) { console.warn('[lexinote] 命令执行失败', err); });
+        }
+        return;
+      }
+      if (method === 'invoke.editorCommand') {
+        acceptEditorState(message.editor);
+        var editorCommand = commandTable.get(message.fullId);
+        if (editorCommand && typeof editorCommand.editorCallback === 'function') {
+          var editor = new EditorProxy(message.editor || {});
+          var ctx = { app: app, file: null, editor: editor };
+          Promise.resolve().then(function () {
+            return editorCommand.editorCallback(editor, ctx);
+          }).catch(function (err) { console.warn('[lexinote] 编辑器命令执行失败', err); });
         }
         return;
       }
