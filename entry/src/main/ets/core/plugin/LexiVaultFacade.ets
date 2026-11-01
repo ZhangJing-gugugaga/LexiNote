@@ -3,6 +3,7 @@
 // save-boundary optimistic lock (saveNoteIfCurrent).
 
 import { common } from '@kit.AbilityKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { NoteItem } from '../LexiModels';
 import { LexiStorageService } from '../LexiStorageService';
 import { LexiFrontmatter } from '../LexiFrontmatter';
@@ -42,31 +43,63 @@ export class LexiVaultFacade {
   private context: common.Context | null = null;
   private index: LexiVaultIndex = new LexiVaultIndex();
   private notes: NoteItem[] = [];
+  private activeVaultId: string = '';
   private dirty: boolean = true;
   events: LexiEvents = new LexiEvents();
 
   async init(context: common.Context): Promise<void> {
     this.context = context;
     await LexiStorageService.init(context);
-    LexiPluginBus.on('lexi.note.changed', (_payload: Object): void => { this.dirty = true; });
+    LexiPluginBus.on('lexi.note.changed', (payload: Object): void => {
+      // 单一事件源:任何笔记变更(含编辑器保存)都在这里桥接为 vault 事件
+      const change = payload as LexiNoteChange;
+      this.dirty = true;
+      this.refresh().then((): void => {
+        const file = this.index.fileByNoteId.get(change.noteId);
+        hilog.info(0x1051, 'LexiPlugin', '%{public}s',
+          `vault事件桥接: kind=${change.kind} note=${change.noteId} file=${file ? file.path : 'none'} listeners=${this.events.listenerCount(change.kind)}`);
+        if (file) {
+          const eventPayload = new LexiFileEventPayload();
+          eventPayload.file = file;
+          eventPayload.oldPath = '';
+          this.events.trigger(change.kind, eventPayload);
+        } else if (change.kind === 'delete') {
+          const sparse = new LexiTFile();
+          sparse.noteId = change.noteId;
+          sparse.vaultId = change.vaultId;
+          sparse.name = change.title;
+          sparse.path = '';
+          const eventPayload = new LexiFileEventPayload();
+          eventPayload.file = sparse;
+          this.events.trigger('delete', eventPayload);
+        }
+      }).catch((): void => {});
+    });
     await this.refresh();
   }
 
   async refresh(): Promise<void> {
-    // ArkTS 禁止解构声明,顺序取回三类数据
-    const notes = await LexiStorageService.getNotes('');
-    const vaults = await LexiStorageService.getVaults(true);
-    const projects = await LexiStorageService.getProjects('', true);
-    const vaultNames = new Map<string, string>();
-    for (const vault of vaults) { vaultNames.set(vault.id, vault.name); }
+    // Obsidian 语义:插件看到的路径相对"当前库",切换工作区即切换根
+    const activeVaultId = await LexiStorageService.getActiveVaultId();
+    const allNotes = await LexiStorageService.getNotes('');
+    const projects = await LexiStorageService.getProjects(activeVaultId, true);
     const projectNames = new Map<string, string>();
     for (const project of projects) { projectNames.set(project.id, project.name); }
-    this.notes = notes;
-    this.index = buildVaultIndex(notes, vaultNames, projectNames);
+    const scoped: NoteItem[] = [];
+    for (const note of allNotes) {
+      if (note.vaultId === activeVaultId) { scoped.push(note); }
+    }
+    this.activeVaultId = activeVaultId;
+    this.notes = scoped;
+    this.index = buildVaultIndex(scoped, projectNames);
     this.dirty = false;
   }
 
   private async ensureFresh(): Promise<void> {
+    if (!this.dirty) {
+      const current = await LexiStorageService.getActiveVaultId();
+      if (current !== this.activeVaultId) { this.dirty = true; }
+    }
     if (this.dirty) { await this.refresh(); }
   }
 
@@ -75,12 +108,8 @@ export class LexiVaultFacade {
     return this.notes.find((note: NoteItem): boolean => note.id === file.noteId);
   }
 
-  private async rebuildAndEmit(kind: string, file: LexiTFile, oldPath: string = ''): Promise<void> {
+  private async rebuild(): Promise<void> {
     await this.refresh();
-    const payload = new LexiFileEventPayload();
-    payload.file = file;
-    payload.oldPath = oldPath;
-    this.events.trigger(kind, payload);
   }
 
   getRoot(): LexiTFolder {
@@ -133,7 +162,7 @@ export class LexiVaultFacade {
       // The document is open: write through the live editor so the optimistic save boundary holds.
       const current = controller.getText();
       controller.replaceRange(0, current.length, data);
-      await this.rebuildAndEmit('modify', file);
+      await this.rebuild();
       return;
     }
     const incoming = JSON.parse(JSON.stringify(note)) as NoteItem;
@@ -142,12 +171,13 @@ export class LexiVaultFacade {
       LexiFrontmatter.apply(incoming, data);
     }
     await this.saveNoteThroughStorage(incoming);
-    await this.rebuildAndEmit('modify', file);
+    await this.rebuild();
   }
 
-  private async saveNoteThroughStorage(note: NoteItem): Promise<void> {
+  /** 存储层在内部深拷贝后才分配 id,必须使用返回值定位新笔记。 */
+  private async saveNoteThroughStorage(note: NoteItem): Promise<NoteItem> {
     if (!this.context) { throw new Error('Vault 尚未初始化'); }
-    await LexiStorageService.saveNote(this.context, note);
+    return await LexiStorageService.saveNote(this.context, note);
   }
 
   async create(path: string, data: string): Promise<LexiTFile> {
@@ -155,23 +185,19 @@ export class LexiVaultFacade {
     const normalized = normalizePath(path);
     if (!normalized.toLowerCase().endsWith('.md')) { throw new Error('插件暂只支持创建 Markdown 笔记'); }
     const segments = normalized.split('/').filter((segment: string): boolean => segment.length > 0);
-    if (segments.length < 2) { throw new Error('路径必须位于工作区目录下: ' + path); }
+    if (segments.length < 2) { throw new Error('路径必须包含文件夹: ' + path); }
     const fileName = segments[segments.length - 1];
     const title = fileName.substring(0, fileName.length - 3);
     const folderPath = segments.slice(0, segments.length - 1);
-    const vaultName = folderPath[0];
-    const vaultId = this.index.vaultIdByName.get(vaultName);
-    if (!vaultId) { throw new Error('未知工作区: ' + vaultName); }
+    // 路径相对当前库:<项目?>/<文件夹>/<标题>.md
     let projectId = '';
-    let notebook = '';
-    if (folderPath.length >= 3) {
-      projectId = this.index.projectIdByName.get(folderPath[1]) || '';
-      notebook = folderPath[2];
-    } else {
+    let notebook = folderPath[0];
+    if (folderPath.length >= 2) {
+      projectId = this.index.projectIdByName.get(folderPath[0]) || '';
       notebook = folderPath[1];
     }
     const note = new NoteItem();
-    note.vaultId = vaultId;
+    note.vaultId = this.activeVaultId;
     note.projectId = projectId;
     note.notebook = notebook;
     note.title = title;
@@ -180,19 +206,11 @@ export class LexiVaultFacade {
     note.content = data;
     LexiFrontmatter.apply(note, data);
     note.content = data;
-    await this.saveNoteThroughStorage(note);
+    const saved = await this.saveNoteThroughStorage(note);
     await this.refresh();
-    const created = this.index.fileByNoteId.get(note.id);
+    const created = this.index.fileByNoteId.get(saved.id);
     if (!created) { throw new Error('笔记创建失败: ' + path); }
-    await this.emitEvent('create', created, '');
     return created;
-  }
-
-  private async emitEvent(kind: string, file: LexiTFile, oldPath: string): Promise<void> {
-    const payload = new LexiFileEventPayload();
-    payload.file = file;
-    payload.oldPath = oldPath;
-    this.events.trigger(kind, payload);
   }
 
   async delete(file: LexiTFile, force: boolean = false): Promise<void> {
@@ -204,9 +222,8 @@ export class LexiVaultFacade {
       await LexiStorageService.deleteNotePermanently(note.id);
     } else {
       await LexiStorageService.setNoteTrash(this.context, note.id, true);
-      await this.refresh();
     }
-    await this.emitEvent('delete', file, file.path);
+    await this.refresh();
   }
 
   async rename(file: LexiTFile, newPath: string): Promise<void> {
@@ -217,13 +234,7 @@ export class LexiVaultFacade {
     if (newTitle.endsWith('.md')) { throw new Error('无效的文件名'); }
     const title = newTitle.substring(0, newTitle.length - 3);
     await LexiStorageService.renameNote(this.context, file.noteId, title);
-    const payloadFile = new LexiTFile();
-    payloadFile.path = file.path;
-    payloadFile.noteId = file.noteId;
     await this.refresh();
-    const renamed = this.index.fileByNoteId.get(file.noteId);
-    await this.emitEvent('rename', renamed || file, file.path);
-    void payloadFile;
   }
 
   async process(file: LexiTFile, fn: (data: string) => string): Promise<string> {

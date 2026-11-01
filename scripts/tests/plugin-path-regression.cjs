@@ -26,16 +26,15 @@ function note(id,vaultId,title,notebook,projectId,content){
  item.createdAt=900;return item;
 }
 
-const vaultNames=new Map([['v1','我的工作区'],['v2','研究库']]);
+// 调用方只传入当前活动库的笔记(与 LexiVaultFacade.refresh 一致)
 const projectNames=new Map([['p1','毕业论文']]);
 
 const index=buildVaultIndex([
  note('a1','v1','日记','日常记录 / 日记'),
  note('a2','v1','读书笔记','学习笔记','p1'),
  note('a3','v1','读书笔记','学习笔记','p1'),        // 同笔记本同名 → id 后缀
- note('a4','v2','实验记录','课程'),
  note('a5','v1','被删除的笔记','日常记录 / 日记')
-].map(n=>{if(n.id==='a5'){n.trashedAt=42;}return n;}),vaultNames,projectNames);
+].map(n=>{if(n.id==='a5'){n.trashedAt=42;}return n;}),projectNames);
 
 const tests=[
  ['normalizePath collapses slashes and trims edges',()=>{
@@ -43,35 +42,34 @@ const tests=[
   assert.equal(normalizePath('/root/'),'root');
   assert.equal(normalizePath(''),'');
  }],
- ['virtual paths follow vault/project/notebook/title',()=>{
+ ['virtual paths are vault-relative like Obsidian (project/notebook/title)',()=>{
   // Notebooks keep their display name; illegal path chars (including '/') are sanitized.
-  const file=resolvePath(index,'/我的工作区/日常记录 _ 日记/日记.md');
+  const file=resolvePath(index,'/日常记录 _ 日记/日记.md');
   assert.ok(file instanceof LexiTFile);
   assert.equal(file.noteId,'a1');
   assert.equal(file.basename,'日记');
   assert.equal(file.stat.mtime,1002);
-  const nested=resolvePath(index,'/我的工作区/毕业论文/学习笔记/读书笔记.md');
+  const nested=resolvePath(index,'/毕业论文/学习笔记/读书笔记.md');
   assert.ok(nested instanceof LexiTFile);
   assert.equal(nested.noteId,'a2');
-  const folder=resolvePath(index,'/我的工作区/毕业论文');
+  const folder=resolvePath(index,'毕业论文');
   assert.ok(folder instanceof LexiTFolder);
   assert.equal(folder.children.length,1);
  }],
  ['duplicate titles inside one notebook get a stable id suffix',()=>{
-  const first=resolvePath(index,'/我的工作区/毕业论文/学习笔记/读书笔记.md');
-  const second=resolvePath(index,'/我的工作区/毕业论文/学习笔记/读书笔记 a3.md');
+  const first=resolvePath(index,'/毕业论文/学习笔记/读书笔记.md');
+  const second=resolvePath(index,'/毕业论文/学习笔记/读书笔记 a3.md');
   assert.equal(first.noteId,'a2');
   assert.equal(second.noteId,'a3');
  }],
  ['trashed notes are invisible in the path space',()=>{
-  assert.equal(resolvePath(index,'/我的工作区/日常记录 _ 日记/被删除的笔记.md'),null);
+  assert.equal(resolvePath(index,'/日常记录 _ 日记/被删除的笔记.md'),null);
  }],
- ['name maps enable vault lookup by display name',()=>{
-  assert.equal(index.vaultIdByName.get('研究库'),'v2');
+ ['project names map to ids for path resolution',()=>{
   assert.equal(index.projectIdByName.get('毕业论文'),'p1');
  }],
  ['folders resolve even without notes beneath, unknown roots stay null',()=>{
-  assert.ok(resolvePath(index,'我的工作区') instanceof LexiTFolder);
+  assert.ok(resolvePath(index,'毕业论文') instanceof LexiTFolder);
   assert.equal(resolvePath(index,'不存在/路径.md'),null);
  }]
 ];

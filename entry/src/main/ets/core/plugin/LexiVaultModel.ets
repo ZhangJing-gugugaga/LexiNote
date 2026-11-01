@@ -116,23 +116,24 @@ function registerFile(index: LexiVaultIndex, note: NoteItem, segments: string[],
   index.fileByNoteId.set(note.id, file);
 }
 
-/** Rebuilds the whole virtual tree; note counts in a personal vault make a full rebuild the simplest correct move. */
-export function buildVaultIndex(notes: NoteItem[], vaultNames: Map<string, string>,
-  projectNames: Map<string, string>): LexiVaultIndex {
+/**
+ * Rebuilds the whole virtual tree for the active vault.
+ * Paths are vault-relative like Obsidian's (`<project?>/<notebook>/<title>.md`);
+ * the caller supplies only the notes of the active vault.
+ */
+export function buildVaultIndex(notes: NoteItem[], projectNames: Map<string, string>): LexiVaultIndex {
   const index = new LexiVaultIndex();
   index.root.kind = 'folder';
   index.root.name = '';
   index.root.path = '';
   index.byPath.set('', index.root);
-  vaultNames.forEach((name: string, id: string): void => { index.vaultIdByName.set(sanitizeSegment(name), id); });
   projectNames.forEach((name: string, id: string): void => {
     const key = sanitizeSegment(name);
     if (!index.projectIdByName.has(key)) { index.projectIdByName.set(key, id); }
   });
   for (const note of notes) {
     if (note.trashedAt > 0 || note.sourceMissing) { continue; }
-    const vaultName = vaultNames.get(note.vaultId) || note.vaultId;
-    const segments: string[] = [sanitizeSegment(vaultName)];
+    const segments: string[] = [];
     if (note.projectId && projectNames.has(note.projectId)) {
       segments.push(sanitizeSegment(projectNames.get(note.projectId) || ''));
     }

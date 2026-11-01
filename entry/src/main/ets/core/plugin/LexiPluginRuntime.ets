@@ -391,6 +391,7 @@ export class LexiPluginManager {
     });
     runtime.registerHandler('ui.notice', async (payload: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
+      pluginLog('插件通知: ' + rpcString(request, 'message'));
       if (manager.uiHost) { manager.uiHost.toast(rpcString(request, 'message')); }
       return okResponse(manager.uiHost !== null);
     });
@@ -539,7 +540,10 @@ export class LexiPluginManager {
         'name': name as Object,
         'payload': (payload === null ? null : payload) as Object
       };
-      runtime.dispatch('event', JSON.stringify(body)).catch((): void => { /* runtime page may be gone during unload */ });
+      pluginLog(`转发宿主事件 → 插件: ${topic}/${name}`);
+      runtime.dispatch('event', JSON.stringify(body)).catch((error: Error): void => {
+        pluginError('事件转发失败: ' + String(error));
+      });
     };
     events.on(name, listener);
     this.hostEventListeners.set(refId, { events: events, name: name, listener: listener });

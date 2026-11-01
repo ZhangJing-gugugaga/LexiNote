@@ -28,18 +28,27 @@ module.exports = class SamplePlugin extends Plugin {
       id: 'sample-create',
       name: '示例:创建插件日志笔记',
       callback: async () => {
-        const path = normalizePath('/日常记录/插件日志');
-        const target = `${path}/${moment().format('YYYY-MM-DD')}.md`;
+        const date = moment().format('YYYY-MM-DD');
+        const target = normalizePath(`插件日志/${date}.md`);
         const existing = await this.app.vault.getAbstractFileByPath(target);
         if (existing) {
           await this.app.vault.process(existing, (content) => `${content}\n- ${moment().format('HH:mm')} 插件运行正常`);
           new Notice('已在今日插件日志追加记录');
           return;
         }
-        await this.app.vault.create(target, `# 插件日志 ${moment().format('YYYY-MM-DD')}\n\n- ${moment().format('HH:mm')} 首次由插件创建`);
+        await this.app.vault.create(target, `# 插件日志 ${date}\n\n- ${moment().format('HH:mm')} 首次由插件创建`);
         new Notice('已创建今日插件日志');
       }
     });
+
+    // 验证事件总线:文档保存时插件收到 modify 事件(3 秒节流避免刷屏)
+    let lastNoticeAt = 0;
+    this.registerEvent(this.app.vault.on('modify', (file) => {
+      const now = Date.now();
+      if (now - lastNoticeAt < 3000) { return; }
+      lastNoticeAt = now;
+      new Notice(`插件收到修改事件:${file && file.name ? file.name : '文档'}`);
+    }));
 
     this.addCommand({
       id: 'wrap-selection',

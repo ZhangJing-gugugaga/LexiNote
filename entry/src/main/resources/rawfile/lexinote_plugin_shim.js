@@ -831,7 +831,10 @@
           Promise.resolve().then(function () {
             if (command.checkCallback && !command.checkCallback(false)) { return; }
             if (command.callback) { return command.callback(); }
-          }).catch(function (err) { console.warn('[lexinote] 命令执行失败', err); });
+          }).catch(function (err) {
+            console.warn('[lexinote] 命令执行失败', err);
+            hostCall('ui.notice', { message: '插件命令出错: ' + (err && err.message ? err.message : String(err)) }).catch(function () {});
+          });
         }
         return;
       }
