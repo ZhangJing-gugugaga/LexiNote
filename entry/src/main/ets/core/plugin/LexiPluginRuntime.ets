@@ -602,6 +602,7 @@ export class LexiPluginManager {
   }
 
   async enablePlugin(pluginId: string): Promise<boolean> {
+    pluginLog('请求启用插件: ' + pluginId + ' safeMode=' + this.safeMode);
     if (this.safeMode) { return false; }
     const record = this.plugins.get(pluginId);
     if (!record || record.enabled) { return false; }
@@ -638,6 +639,7 @@ export class LexiPluginManager {
 
   async disablePlugin(pluginId: string): Promise<void> {
     const record = this.plugins.get(pluginId);
+    pluginLog('请求停用插件: ' + pluginId + ' (当前启用=' + (record ? record.enabled : false) + ')');
     if (!record || !record.enabled) { return; }
     try {
       await this.runtime.waitReady();
@@ -651,6 +653,7 @@ export class LexiPluginManager {
     this.commands.removePluginCommands(pluginId);
     this.enabledIds.delete(pluginId);
     await this.persistEnabled();
+    pluginLog('插件已停用: ' + pluginId);
   }
 
   private async persistEnabled(): Promise<void> {
