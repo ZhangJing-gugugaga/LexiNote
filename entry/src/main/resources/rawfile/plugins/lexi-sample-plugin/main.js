@@ -98,6 +98,22 @@ module.exports = class SamplePlugin extends Plugin {
     });
 
     this.addCommand({
+      id: 'write-chart-sample',
+      name: '示例:写入图表测试内容',
+      editorCallback: (editor) => {
+        editor.setValue('测试 panguABC123 混排\n\n```chart\ntype: bar\nlabels: [A, B, C]\nseries:\n  - title: 示例\n    data: [3, 5, 2]\n```\n');
+      }
+    });
+
+    this.addCommand({
+      id: 'write-case-sample',
+      name: '示例:写入大小写测试内容',
+      editorCallback: (editor) => {
+        editor.setValue('hello WORLD 123\nsecond LINE here\n');
+      }
+    });
+
+    this.addCommand({
       id: 'open-panel',
       name: '示例:打开示例面板',
       callback: async () => {

@@ -278,6 +278,23 @@ export abstract class Editor {
     scrollTo(x?: number | null, y?: number | null): void;
     scrollIntoView(range: EditorRange, center?: boolean): void;
     wordAt(pos: EditorPosition): EditorRange | null;
+    transaction(transaction: EditorTransaction, origin?: string): Promise<unknown>;
+}
+
+export interface EditorChange extends EditorRangeOrCaret {
+    text: string;
+}
+
+export interface EditorRangeOrCaret {
+    from: EditorPosition;
+    to?: EditorPosition;
+}
+
+export interface EditorTransaction {
+    replaceSelection?: string;
+    changes?: EditorChange[];
+    selections?: EditorRangeOrCaret[];
+    selection?: EditorRangeOrCaret;
 }
 
 export interface MarkdownFileInfo {

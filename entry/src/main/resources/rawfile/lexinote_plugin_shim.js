@@ -308,6 +308,8 @@
   moment.utc = function (input) { return moment(input); };
   moment.unix = function (seconds) { return new MiniMoment(new Date(seconds * 1000)); };
   moment.now = function () { return Date.now(); };
+  moment.locale = function (locale) { return locale === undefined ? 'zh-cn' : 'zh-cn'; };
+  moment.localeData = function () { return { longDateFormat: function () { return 'YYYY-MM-DD'; } }; };
 
   // ---------------------------------------------------------------- API objects
 
@@ -395,7 +397,8 @@
     },
     getActiveFile: function () { return Promise.resolve(null); },
     getActiveViewOfType: function () { return Promise.resolve(null); },
-    getLeavesOfType: function () { return Promise.resolve([]); },
+    // Obsidian 的 getLeavesOfType 是同步数组;宿主当前不跟踪页签,返回空数组让插件走"新建视图"分支
+    getLeavesOfType: function () { return []; },
     getRightLeaf: function (_split) { return makePluginLeaf(''); },
     getLeaf: function (_mode) { return makePluginLeaf(''); },
     detachLeavesOfType: function (type) { return hostCall('workspace.closeView', { type: type }); },
@@ -697,7 +700,23 @@
   EditorProxy.prototype.undo = function () { console.warn('[lexinote] Editor.undo 暂未支持'); };
   EditorProxy.prototype.redo = function () { console.warn('[lexinote] Editor.redo 暂未支持'); };
   EditorProxy.prototype.exec = function () { console.warn('[lexinote] Editor.exec 暂未支持'); };
-  EditorProxy.prototype.transaction = function () { console.warn('[lexinote] Editor.transaction 暂未支持'); };
+  EditorProxy.prototype.transaction = function (transaction) {
+    if (!transaction) { return Promise.resolve(); }
+    var changes = (transaction.changes || []).map(function (change) {
+      return {
+        from: change.from,
+        to: change.to || change.from,
+        text: String(change.text === undefined ? '' : change.text)
+      };
+    });
+    var rawSelections = transaction.selections || (transaction.selection ? [transaction.selection] : []);
+    var selections = rawSelections.map(function (selection) {
+      var anchor = selection.anchor || selection.from;
+      var head = selection.head || selection.to || anchor;
+      return { anchor: anchor, head: head };
+    });
+    return this._apply('editor.applyChanges', { changes: changes, selections: selections });
+  };
   EditorProxy.prototype.wordAt = function () { return null; };
   EditorProxy.prototype.processLines = function () { console.warn('[lexinote] Editor.processLines 暂未支持'); };
 
@@ -839,8 +858,25 @@
   async function loadPlugin(message) {
     var manifest = message.manifest;
     var code = message.code;
-    if (!manifest || typeof code !== 'string') { throw new Error('插件装载参数不完整'); }
+    if (!manifest) { throw new Error('插件装载参数不完整'); }
     if (plugins.has(manifest.id)) { throw new Error('插件已加载: ' + manifest.id); }
+    if (typeof code !== 'string' || code.length === 0) {
+      // 分片拉取源码:大体积脚本走 runJavaScript 直传会静默挂起
+      var size = typeof message.size === 'number' ? message.size : -1;
+      var collected = '';
+      var offset = 0;
+      while (size < 0 || offset < size) {
+        var chunk = await hostCall('plugin.sourceChunk', {
+          pluginId: manifest.id, offset: offset, length: 48 * 1024
+        });
+        if (typeof chunk !== 'string' || chunk.length === 0) { break; }
+        collected += chunk;
+        offset += chunk.length;
+      }
+      code = collected;
+      if (!code) { throw new Error('插件源码读取失败: ' + manifest.id); }
+      console.log('[lexinote] 插件源码分片加载完成: ' + manifest.id + ' ' + code.length + ' 字符');
+    }
     var moduleObj = { exports: {} };
     var factory = new Function('require', 'module', 'exports',
       code + '\n//# sourceURL=lexinote-plugin-' + manifest.id + '.js');

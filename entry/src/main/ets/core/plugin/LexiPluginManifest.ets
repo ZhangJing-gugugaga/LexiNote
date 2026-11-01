@@ -18,7 +18,7 @@ export class LexiInstalledPlugin {
   errorState: string = '';
 }
 
-const APP_VERSION: string = '0.1.0';
+const APP_VERSION: string = '1.1.0';
 
 /** Parses and validates a manifest.json payload; throws with a user-facing message when invalid. */
 export function parsePluginManifest(json: string): LexiPluginManifest {
@@ -55,6 +55,7 @@ export function manifestCompatible(manifest: LexiPluginManifest): boolean {
   const required = versionParts(manifest.minAppVersion);
   const current = versionParts(APP_VERSION);
   for (let i = 0; i < 3; i++) {
+    if (required[i] < current[i]) { return true; }
     if (required[i] > current[i]) { return false; }
   }
   return true;

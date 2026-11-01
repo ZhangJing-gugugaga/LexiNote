@@ -43,6 +43,7 @@ const tests=[
  ['survives malformed json',()=>{
   assert.equal(parseSettingDefinitions('nope').length,0);
   assert.equal(parseSettingDefinitions('{}').length,0);
+  assert.equal(parseSettingDefinitions(JSON.stringify([{name:'x'}])).length,1);
  }]
 ];
 (async()=>{

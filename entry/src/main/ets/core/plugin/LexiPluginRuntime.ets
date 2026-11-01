@@ -16,11 +16,13 @@ import { LexiVaultFacade } from './LexiVaultFacade';
 import { LexiTFolder, LexiTFile } from './LexiVaultModel';
 import { LexiEditorRegistry } from './LexiEditorRegistry';
 import { LexiPluginViewInfo, LexiPluginViewRegistry } from './LexiPluginViewRegistry';
+import { LexiEditorPosUtil, LexiEditorPosition } from './LexiEditorPos';
 import { LexiPluginInstaller } from './LexiPluginInstaller';
 import { LexiPluginMarketEntry, parseMarketIndex } from './LexiPluginMarketModel';
 import { LexiPluginSettingDef, parseSettingDefinitions } from './LexiPluginSettingModel';
 
-const LOAD_TIMEOUT_MS: number = 5000;
+const LOAD_TIMEOUT_MS: number = 20000;
+const SOURCE_CHUNK_SIZE: number = 48 * 1024;
 const PLUGIN_DIR_NAME: string = 'plugins';
 const KEY_ENABLED: string = 'lexiPluginEnabled';
 const KEY_SAFE_MODE: string = 'lexiPluginSafeMode';
@@ -201,6 +203,7 @@ export class LexiPluginManager {
   private pendingViewOpens: string[] = [];
   private settingDefs: Map<string, string> = new Map();
   private codeBlockPlugins: Map<string, string> = new Map();
+  private pluginSources: Map<string, string> = new Map();
 
   static get shared(): LexiPluginManager | null {
     return LexiPluginManager.instanceRef;
@@ -249,9 +252,10 @@ export class LexiPluginManager {
     try {
       if (fs.accessSync(`${record.dir}/styles.css`)) { stylesCss = this.readTextFile(`${record.dir}/styles.css`); }
     } catch { /* styles are optional */ }
+    this.pluginSources.set(pluginId, code);
     const body: Record<string, Object> = {
+      'pluginId': pluginId as Object,
       'manifestJson': JSON.stringify(record.manifest) as Object,
-      'code': code as Object,
       'viewType': viewType as Object,
       'stylesCss': stylesCss as Object
     };
@@ -314,6 +318,18 @@ export class LexiPluginManager {
     AppStorage.setOrCreate<number>('lexiPluginRevision', (AppStorage.get<number>('lexiPluginRevision') || 0) + 1);
   }
 
+  private static positionOf(raw: Object | undefined): LexiEditorPosition {
+    const position = new LexiEditorPosition();
+    if (raw && typeof raw === 'object') {
+      const record = raw as Record<string, Object>;
+      const line = record['line'];
+      const ch = record['ch'];
+      position.line = typeof line === 'number' ? line : 0;
+      position.ch = typeof ch === 'number' ? ch : 0;
+    }
+    return position;
+  }
+
   /** 代码块处理器:语言 → 插件 id(预览按需渲染槽位)。 */
   static codeBlockPluginFor(language: string): string {
     const manager = LexiPluginManager.shared;
@@ -330,9 +346,10 @@ export class LexiPluginManager {
     try {
       if (fs.accessSync(`${record.dir}/styles.css`)) { stylesCss = this.readTextFile(`${record.dir}/styles.css`); }
     } catch { /* styles are optional */ }
+    this.pluginSources.set(pluginId, code);
     const body: Record<string, Object> = {
+      'pluginId': pluginId as Object,
       'manifestJson': JSON.stringify(record.manifest) as Object,
-      'code': code as Object,
       'language': language as Object,
       'source': source as Object,
       'stylesCss': stylesCss as Object
@@ -626,6 +643,20 @@ export class LexiPluginManager {
       }
       return okResponse(null);
     });
+    runtime.registerHandler('plugin.sourceChunk', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const pluginId = rpcString(request, 'pluginId');
+      const source = manager.pluginSources.get(pluginId) || '';
+      const offset = Math.max(0, rpcNumber(request, 'offset'));
+      const length = rpcNumber(request, 'length') > 0 ? rpcNumber(request, 'length') : SOURCE_CHUNK_SIZE;
+      const end = Math.min(source.length, offset + length);
+      return okResponse(offset >= source.length ? '' : source.substring(offset, end) as Object);
+    });
+    runtime.registerHandler('plugin.sourceSize', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const source = manager.pluginSources.get(rpcString(request, 'pluginId')) || '';
+      return okResponse(source.length as Object);
+    });
     runtime.registerHandler('settings.register', async (payload: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
       const pluginId = rpcString(request, 'pluginId');
@@ -686,6 +717,51 @@ export class LexiPluginManager {
       const controller = LexiEditorRegistry.activeController();
       if (!controller) { return failResponse('当前没有打开的编辑器'); }
       controller.setTextSelection(rpcNumber(request, 'start'), rpcNumber(request, 'end'));
+      return okResponse(manager.editorStateJson() as Object);
+    });
+    runtime.registerHandler('editor.applyChanges', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const controller = LexiEditorRegistry.activeController();
+      if (!controller) { return failResponse('当前没有打开的编辑器'); }
+      const text = controller.getText();
+      const rawChanges = request['changes'];
+      const changeList: Object[] = Array.isArray(rawChanges) ? rawChanges as Object[] : [];
+      pluginLog('收到编辑器批量修改请求: ' + changeList.length + ' 段, 文档 ' + text.length + ' 字符');
+      const starts: number[] = [];
+      const ends: number[] = [];
+      const texts: string[] = [];
+      for (const raw of changeList) {
+        const change = raw as Record<string, Object>;
+        const fromPos = LexiPluginManager.positionOf(change['from']);
+        const toPos = LexiPluginManager.positionOf(change['to']);
+        starts.push(LexiEditorPosUtil.posToOffset(text, fromPos));
+        ends.push(LexiEditorPosUtil.posToOffset(text, toPos));
+        const textValue = change['text'];
+        texts.push(typeof textValue === 'string' ? textValue : '');
+      }
+      // 按起点倒序应用,避免前面的修改影响后面的偏移
+      let after = text;
+      const order: number[] = [];
+      for (let i = 0; i < starts.length; i++) { order.push(i); }
+      order.sort((a: number, b: number): number => starts[b] - starts[a]);
+      for (const index of order) {
+        const start = Math.max(0, Math.min(after.length, starts[index]));
+        const end = Math.max(start, Math.min(after.length, ends[index]));
+        after = after.substring(0, start) + texts[index] + after.substring(end);
+      }
+      let selStart = after.length;
+      let selEnd = after.length;
+      const rawSelections = request['selections'];
+      if (Array.isArray(rawSelections) && (rawSelections as Object[]).length > 0) {
+        const selection = (rawSelections as Object[])[0] as Record<string, Object>;
+        const anchor = LexiEditorPosUtil.posToOffset(after, LexiPluginManager.positionOf(selection['anchor']));
+        const head = LexiEditorPosUtil.posToOffset(after, LexiPluginManager.positionOf(selection['head']));
+        selStart = Math.min(anchor, head);
+        selEnd = Math.max(anchor, head);
+      }
+      controller.replaceRange(0, text.length, after);
+      controller.setTextSelection(selStart, selEnd);
+      pluginLog(`编辑器批量修改: changes=${starts.length} ${text.length}→${after.length} 字符, selection=${selStart}-${selEnd}`);
       return okResponse(manager.editorStateJson() as Object);
     });
   }
@@ -921,19 +997,28 @@ export class LexiPluginManager {
     if (!record || record.enabled) { return false; }
     if (!manifestCompatible(record.manifest)) {
       record.errorState = `需要 LexiNote ${record.manifest.minAppVersion} 及以上`;
+      pluginError('插件版本不兼容: ' + pluginId + ' 需要 ' + record.manifest.minAppVersion);
       return false;
     }
     const mainPath = `${record.dir}/main.js`;
     if (!fs.accessSync(mainPath)) {
       record.errorState = '插件缺少 main.js';
+      pluginError('插件缺少 main.js: ' + pluginId);
       return false;
     }
     try {
       const code = this.readTextFile(mainPath);
-      const payloadBody: Record<string, Object> = { 'manifest': record.manifest as Object, 'code': code as Object };
+      this.pluginSources.set(pluginId, code);
+      // 大源码经 runJavaScript 直传会静默挂起,改为分片拉取
+      const payloadBody: Record<string, Object> = {
+        'id': pluginId as Object,
+        'manifest': record.manifest as Object,
+        'size': code.length as Object
+      };
       const payload = JSON.stringify(payloadBody);
       const done = new Promise<void>((resolve: () => void): void => { this.pendingOnload.set(pluginId, resolve); });
       await this.runtime.waitReady();
+      pluginLog('插件源码就绪: ' + pluginId + ' ' + code.length + ' 字符');
       await this.runtime.dispatchWithTimeout('load.plugin', payload, LOAD_TIMEOUT_MS);
       await LexiWebRuntime.withTimeout(done, LOAD_TIMEOUT_MS, 'onload');
       record.enabled = true;
@@ -967,6 +1052,7 @@ export class LexiPluginManager {
     this.commands.removePluginCommands(pluginId);
     LexiPluginViewRegistry.removePlugin(pluginId);
     this.settingDefs.delete(pluginId);
+    this.pluginSources.delete(pluginId);
     const languages: string[] = [];
     this.codeBlockPlugins.forEach((owner: string, language: string): void => {
       if (owner === pluginId) { languages.push(language); }
