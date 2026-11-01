@@ -1,0 +1,10 @@
+{
+  "id": "lexinote-sample-plugin",
+  "name": "LexiNote Sample Plugin",
+  "version": "1.0.0",
+  "minAppVersion": "0.1.0",
+  "description": "Template plugin demonstrating the LexiNote plugin API.",
+  "author": "LexiNote Team",
+  "authorUrl": "https://github.com/ZhangJing-gugugaga/LexiNote",
+  "isDesktopOnly": false
+}

@@ -1,0 +1,18 @@
+{
+  "name": "lexinote-sample-plugin",
+  "version": "1.0.0",
+  "description": "Template plugin for LexiNote",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "typecheck": "tsc -noEmit -skipLibCheck"
+  },
+  "keywords": [],
+  "license": "GPL-3.0",
+  "devDependencies": {
+    "esbuild": "0.25.5",
+    "typescript": "^5.8.3"
+  }
+}
