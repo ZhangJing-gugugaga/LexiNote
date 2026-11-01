@@ -73,7 +73,13 @@
     '.lexinote-view-content{max-width:980px;margin:0 auto;}' +
     '.lexinote-view-content h1,.lexinote-view-content h2,.lexinote-view-content h3{font-weight:600;margin:0 0 12px;}' +
     '.lexinote-view-content button,.lexinote-view-content input,.lexinote-view-content select{' +
-    'font-family:inherit;font-size:14px;}\n';
+    'font-family:inherit;font-size:14px;}\n' +
+    'body.lexinote-code-slot{padding:0;background:transparent;font-size:13px;}' +
+    '.lexinote-code-root{padding:10px 12px;}' +
+    '.lexinote-code-badge{display:inline-block;font-size:10px;font-weight:600;color:var(--interactive-accent);' +
+    'background:var(--background-primary-alt);border-radius:6px;padding:2px 8px;margin-bottom:6px;}' +
+    '.lexinote-code-content{white-space:pre-wrap;word-break:break-word;color:var(--text-normal);' +
+    'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.5;}\n';
 
   function applyStyles(pluginCss) {
     var style = document.createElement('style');
@@ -266,6 +272,7 @@
     this.app = appValue;
     this.manifest = manifest;
     this._viewCreators = new Map();
+    this._codeBlockHandlers = new Map();
   }
   PluginViewShim.prototype = Object.create(ComponentShim.prototype);
   PluginViewShim.prototype.constructor = PluginViewShim;
@@ -275,7 +282,9 @@
   PluginViewShim.prototype.addStatusBarItem = function () { return { setText: function () {} }; };
   PluginViewShim.prototype.addSettingTab = function () {};
   PluginViewShim.prototype.registerMarkdownPostProcessor = function () {};
-  PluginViewShim.prototype.registerMarkdownCodeBlockProcessor = function () {};
+  PluginViewShim.prototype.registerMarkdownCodeBlockProcessor = function (language, handler) {
+    this._codeBlockHandlers.set(String(language || '').toLowerCase(), handler);
+  };
   PluginViewShim.prototype.registerEditorSuggest = function () {};
   PluginViewShim.prototype.loadData = function () { return hostCall('data.load', { pluginId: this.manifest.id }).then(function (raw) { try { return raw === null ? null : JSON.parse(raw); } catch (e) { return null; } }); };
   PluginViewShim.prototype.saveData = function (data) { return hostCall('data.save', { pluginId: this.manifest.id, dataJson: JSON.stringify(data) }); };
@@ -348,6 +357,18 @@
     isDarkMode: function () { return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches; }
   };
 
+  function PluginSettingTabStub(appValue, plugin) {
+    this.app = appValue;
+    this.plugin = plugin;
+    this.containerEl = document.createElement('div');
+  }
+  PluginSettingTabStub.prototype.display = function () {};
+  PluginSettingTabStub.prototype.hide = function () {};
+  PluginSettingTabStub.prototype.getSettingDefinitions = function () { return []; };
+  PluginSettingTabStub.prototype.getControlValue = function () { return undefined; };
+  PluginSettingTabStub.prototype.setControlValue = function () {};
+  PluginSettingTabStub.prototype.onSettingsChanged = function () {};
+
   var viewNamespace = {
     Platform: { isMobile: true, isPhone: true, isDesktop: false, isMobileApp: true },
     Component: ComponentShim,
@@ -355,6 +376,7 @@
     ItemView: ItemViewShim,
     View: ItemViewShim,
     Notice: Notice,
+    PluginSettingTab: PluginSettingTabStub,
     PluginManifest: function () {},
     TAbstractFile: function () {},
     TFile: function () {},
@@ -418,6 +440,51 @@
       } catch (err) {
         document.body.textContent = '插件视图脚本错误: ' + (err && err.message ? err.message : String(err));
         console.warn('[lexinote] view eval error', err);
+      }
+    },
+
+    bootCodeBlock: function (payloadJson) {
+      var payload = null;
+      try { payload = JSON.parse(payloadJson); } catch (err) { payload = null; }
+      if (!payload || !payload.code) {
+        document.body.textContent = '插件代码块参数缺失';
+        return;
+      }
+      var manifest = null;
+      try { manifest = JSON.parse(payload.manifestJson); } catch (err) { manifest = { id: 'unknown', name: 'Plugin' }; }
+      applyStyles(payload.stylesCss || '');
+      installDomHelpers();
+      document.body.classList.add('lexinote-code-slot');
+      try {
+        var moduleObj = { exports: {} };
+        var factory = new Function('require', 'module', 'exports',
+          payload.code + '\n//# sourceURL=lexinote-codeblock-' + manifest.id + '.js');
+        factory(requireShim, moduleObj, moduleObj.exports);
+        var exported = moduleObj.exports;
+        var Ctor = typeof exported === 'function' ? exported : (exported && typeof exported.default === 'function' ? exported.default : null);
+        if (!Ctor) { throw new Error('main.js 必须导出插件类'); }
+        var plugin = new Ctor(appRef, manifest);
+        Promise.resolve(plugin.load ? plugin.load() : plugin.onload && plugin.onload()).then(function () {
+          var handler = plugin._codeBlockHandlers.get(String(payload.language || '').toLowerCase());
+          if (!handler) { throw new Error('插件未注册该语言的代码块处理器: ' + payload.language); }
+          var root = document.createElement('div');
+          root.className = 'lexinote-code-root';
+          root.createEl('div', { cls: 'lexinote-code-badge', text: '插件渲染 · ' + payload.language });
+          var content = root.createDiv({ cls: 'lexinote-code-content' });
+          document.body.appendChild(root);
+          var ctx = {
+            docId: '', sourcePath: '', frontmatter: null,
+            addChild: function () {},
+            getSectionInfo: function () { return null; }
+          };
+          return handler(String(payload.source || ''), content, ctx);
+        }).catch(function (err) {
+          document.body.textContent = '插件代码块渲染失败: ' + (err && err.message ? err.message : String(err));
+          console.warn('[lexinote] codeblock error', err);
+        });
+      } catch (err) {
+        document.body.textContent = '插件代码块脚本错误: ' + (err && err.message ? err.message : String(err));
+        console.warn('[lexinote] codeblock eval error', err);
       }
     }
   };

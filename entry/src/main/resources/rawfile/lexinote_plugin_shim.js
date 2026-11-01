@@ -18,6 +18,7 @@
   var fileCache = new Map(); // path -> TFile instance
   var lastEditorState = null; // latest {active, noteId, text, selection} snapshot
   var viewCreators = new Map(); // view type -> creator(leaf) (spawned inside the view slot)
+  var codeBlockTable = new Map(); // language -> handler (rendered inside code-block slots)
 
   var API_VERSION = '1.0.0';
 
@@ -559,8 +560,18 @@
     console.warn('[lexinote] registerMarkdownPostProcessor 将在后续版本生效');
     return processor;
   };
-  PluginShim.prototype.registerMarkdownCodeBlockProcessor = function (language) {
-    console.warn('[lexinote] registerMarkdownCodeBlockProcessor 将在后续版本生效:', language);
+  PluginShim.prototype.registerMarkdownCodeBlockProcessor = function (language, handler) {
+    var self = this;
+    var key = String(language || '').toLowerCase();
+    if (!key) { return; }
+    codeBlockTable.set(key, handler);
+    hostCall('codeblocks.register', { pluginId: self.manifest.id, language: key }).catch(function (err) {
+      console.warn('[lexinote] 代码块处理器注册失败', err);
+    });
+    self.register(function () {
+      codeBlockTable.delete(key);
+      hostCall('codeblocks.unregister', { pluginId: self.manifest.id, language: key }).catch(function () {});
+    });
   };
   PluginShim.prototype.registerEditorSuggest = function () {};
   PluginShim.prototype.registerObsidianProtocolHandler = function () {};

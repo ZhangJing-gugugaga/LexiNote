@@ -81,6 +81,22 @@ module.exports = class SamplePlugin extends Plugin {
     this.registerView(SAMPLE_VIEW, (leaf) => new SamplePanelView(leaf));
     this.addSettingTab(new SampleSettingTab(this.app, this));
 
+    // 代码块处理器:阅读视图中以插件槽位渲染 ```plugin-demo
+    this.registerMarkdownCodeBlockProcessor('plugin-demo', (source, el) => {
+      el.createDiv({ cls: 'lexi-sample-block-title', text: '插件渲染的代码块' });
+      const body = el.createEl('pre', { cls: 'lexi-sample-block-body' });
+      body.setText(String(source).trim());
+      el.createDiv({ cls: 'lexi-sample-block-meta', text: `${String(source).trim().length} 字符` });
+    });
+
+    this.addCommand({
+      id: 'insert-demo-block',
+      name: '示例:插入插件代码块',
+      editorCallback: (editor) => {
+        editor.replaceSelection('\n```plugin-demo\nLexiNote 插件渲染的代码块\n```\n');
+      }
+    });
+
     this.addCommand({
       id: 'open-panel',
       name: '示例:打开示例面板',

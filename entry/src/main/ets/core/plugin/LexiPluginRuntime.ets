@@ -200,6 +200,7 @@ export class LexiPluginManager {
   private viewCloseHandler: ((viewType: string) => void) | null = null;
   private pendingViewOpens: string[] = [];
   private settingDefs: Map<string, string> = new Map();
+  private codeBlockPlugins: Map<string, string> = new Map();
 
   static get shared(): LexiPluginManager | null {
     return LexiPluginManager.instanceRef;
@@ -307,6 +308,36 @@ export class LexiPluginManager {
     this.runtime.dispatch('settings.values', JSON.stringify(body)).catch((): void => {
       /* 插件未启用时没有回写目标 */
     });
+  }
+
+  private bumpPluginRevision(): void {
+    AppStorage.setOrCreate<number>('lexiPluginRevision', (AppStorage.get<number>('lexiPluginRevision') || 0) + 1);
+  }
+
+  /** 代码块处理器:语言 → 插件 id(预览按需渲染槽位)。 */
+  static codeBlockPluginFor(language: string): string {
+    const manager = LexiPluginManager.shared;
+    if (!manager || !language) { return ''; }
+    return manager.codeBlockPlugins.get(language.toLowerCase()) || '';
+  }
+
+  codeBlockPayload(pluginId: string, language: string, source: string): string {
+    const record = this.plugins.get(pluginId);
+    if (!record) { return ''; }
+    let code = '';
+    let stylesCss = '';
+    try { code = this.readTextFile(`${record.dir}/main.js`); } catch { /* empty slot */ }
+    try {
+      if (fs.accessSync(`${record.dir}/styles.css`)) { stylesCss = this.readTextFile(`${record.dir}/styles.css`); }
+    } catch { /* styles are optional */ }
+    const body: Record<string, Object> = {
+      'manifestJson': JSON.stringify(record.manifest) as Object,
+      'code': code as Object,
+      'language': language as Object,
+      'source': source as Object,
+      'stylesCss': stylesCss as Object
+    };
+    return JSON.stringify(body);
   }
 
   installedPlugins(): LexiInstalledPlugin[] {
@@ -575,6 +606,24 @@ export class LexiPluginManager {
       const request = JSON.parse(payload) as RpcRequest;
       const type = rpcString(request, 'type');
       if (manager.viewCloseHandler) { manager.viewCloseHandler(type); }
+      return okResponse(null);
+    });
+    runtime.registerHandler('codeblocks.register', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const pluginId = rpcString(request, 'pluginId');
+      const language = rpcString(request, 'language').toLowerCase();
+      if (!pluginId || !language) { return failResponse('代码块注册缺少参数'); }
+      manager.codeBlockPlugins.set(language, pluginId);
+      pluginLog('插件代码块注册: ' + language + ' ← ' + pluginId);
+      return okResponse(null);
+    });
+    runtime.registerHandler('codeblocks.unregister', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const language = rpcString(request, 'language').toLowerCase();
+      const owner = manager.codeBlockPlugins.get(language);
+      if (owner && owner === rpcString(request, 'pluginId')) {
+        manager.codeBlockPlugins.delete(language);
+      }
       return okResponse(null);
     });
     runtime.registerHandler('settings.register', async (payload: string): Promise<string> => {
@@ -892,6 +941,7 @@ export class LexiPluginManager {
       this.enabledIds.add(pluginId);
       await this.persistEnabled();
       pluginLog('插件已启用: ' + pluginId);
+      this.bumpPluginRevision();
       return true;
     } catch (error) {
       record.errorState = String(error);
@@ -917,9 +967,15 @@ export class LexiPluginManager {
     this.commands.removePluginCommands(pluginId);
     LexiPluginViewRegistry.removePlugin(pluginId);
     this.settingDefs.delete(pluginId);
+    const languages: string[] = [];
+    this.codeBlockPlugins.forEach((owner: string, language: string): void => {
+      if (owner === pluginId) { languages.push(language); }
+    });
+    for (const language of languages) { this.codeBlockPlugins.delete(language); }
     this.enabledIds.delete(pluginId);
     await this.persistEnabled();
     pluginLog('插件已停用: ' + pluginId);
+    this.bumpPluginRevision();
   }
 
   private async persistEnabled(): Promise<void> {

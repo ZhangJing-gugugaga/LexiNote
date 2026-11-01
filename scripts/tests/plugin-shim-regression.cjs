@@ -200,6 +200,19 @@ const tests=[
    global.window.lexiHost.call=originalCall;
   }
  }],
+ ['code block processors register a language and clean up on unload',async()=>{
+  const probe=`module.exports = class extends require('obsidian').Plugin {
+    async onload(){
+      this.registerMarkdownCodeBlockProcessor('Demo-Lang', (source, el) => { el.setText(source); });
+    }
+  };`;
+  await dispatch('load.plugin',{manifest:{id:'codeblock-probe'},code:probe});
+  await until(()=>calls.some(c=>c.method==='codeblocks.register'&&c.payload.pluginId==='codeblock-probe'),'codeblocks.register');
+  const registerCall=calls.find(c=>c.method==='codeblocks.register');
+  assert.equal(registerCall.payload.language,'demo-lang');
+  await dispatch('unload.plugin',{id:'codeblock-probe'});
+  await until(()=>calls.some(c=>c.method==='codeblocks.unregister'&&c.payload.language==='demo-lang'),'codeblocks.unregister');
+ }],
  ['unloading clears registered intervals and command table',async()=>{
   await dispatch('load.plugin',{manifest:sampleManifest,code:sampleCode});
   const removeCount=calls.filter(c=>c.method==='commands.remove').length;

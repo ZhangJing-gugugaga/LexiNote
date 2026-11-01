@@ -5,6 +5,8 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { common } from '@kit.AbilityKit';
 import { LexiCodeHighlight, LexiCodeToken } from '../core/LexiCodeHighlight';
 import { LexiCodeTools } from '../core/LexiCodeTools';
+import { LexiPluginManager } from '../core/plugin/LexiPluginRuntime';
+import { LexiPluginCodeBlockSlot } from './plugin/LexiPluginCodeBlockSlot';
 
 @Component
 export struct LexiOutlinePanel {
@@ -281,6 +283,7 @@ export struct LexiMarkdownPreview {
   @Prop frameless: boolean = false;
   @Prop anchorPrefix: string = 'markdown-block';
   @Prop blocks: MarkdownBlock[] = [];
+  @StorageProp('lexiPluginRevision') private pluginRevision: number = 0;
   @Prop outgoingLinks: NoteLink[] = [];
   @Prop availableNotes: NoteItem[] = [];
   @Prop notePath: string = '';
@@ -290,6 +293,10 @@ export struct LexiMarkdownPreview {
   private lastInteractiveAt: number = 0;
   onOpenTarget: (targetIdOrTitle: string) => void = (_target: string): void => {};
   onToggleTodo: (lineIndex: number) => void = (_lineIndex: number): void => {};
+
+  static pluginCodeBlockOwner(language: string): string {
+    return LexiPluginManager.codeBlockPluginFor(language);
+  }
 
   private tableRows(block: MarkdownBlock): LexiPreviewTableRow[] {
     const data = MarkdownEngine.tableData(block);
@@ -437,11 +444,19 @@ export struct LexiMarkdownPreview {
           } else if (block.kind === 'code' || block.kind === 'formula') {
             Column({ space: 8 }) {
               if (block.kind === 'code') {
+                if (this.pluginRevision >= 0 && LexiMarkdownPreview.pluginCodeBlockOwner(block.meta).length > 0) {
+                  LexiPluginCodeBlockSlot({
+                    pluginId: LexiMarkdownPreview.pluginCodeBlockOwner(block.meta),
+                    language: block.meta,
+                    source: block.text
+                  })
+                } else {
                 LexiPreviewCodeBlock({ codeSource: block.text, fencedLanguage: block.meta,
                   onCopyCode: (): void => { this.lastInteractiveAt = Date.now(); this.copyCode(block); },
                   onEditCode: (): void => {
                     if (this.editable) { this.lastInteractiveAt = Date.now(); this.onEditBlock(block.lineIndex); }
                   } })
+                }
               } else {
               Row() {
                 Text('LaTeX')
