@@ -15,6 +15,7 @@ import { LexiMetadataCache } from './LexiMetadataCache';
 import { LexiVaultFacade } from './LexiVaultFacade';
 import { LexiTFolder, LexiTFile } from './LexiVaultModel';
 import { LexiEditorRegistry } from './LexiEditorRegistry';
+import { LexiPluginViewInfo, LexiPluginViewRegistry } from './LexiPluginViewRegistry';
 
 const LOAD_TIMEOUT_MS: number = 5000;
 const PLUGIN_DIR_NAME: string = 'plugins';
@@ -192,6 +193,9 @@ export class LexiPluginManager {
   private ready: boolean = false;
   private pendingOnload: Map<string, () => void> = new Map();
   private pendingUnload: Map<string, () => void> = new Map();
+  private viewOpenHandler: ((viewType: string) => void) | null = null;
+  private viewCloseHandler: ((viewType: string) => void) | null = null;
+  private pendingViewOpens: string[] = [];
 
   static get shared(): LexiPluginManager | null {
     return LexiPluginManager.instanceRef;
@@ -211,6 +215,42 @@ export class LexiPluginManager {
 
   setToastHandler(handler: (message: string) => void): void {
     this.uiHost = new CallbackUiHost(handler);
+  }
+
+  /** Workspace supplies the tab opener; plugins request views through workspace.openView. */
+  setViewOpenHandler(handler: (viewType: string) => void): void {
+    this.viewOpenHandler = handler;
+    const pending = this.pendingViewOpens;
+    this.pendingViewOpens = [];
+    for (const type of pending) { handler(type); }
+  }
+
+  private requestViewOpen(type: string): void {
+    if (this.viewOpenHandler) { this.viewOpenHandler(type); return; }
+    this.pendingViewOpens.push(type);
+  }
+
+  setViewCloseHandler(handler: (viewType: string) => void): void {
+    this.viewCloseHandler = handler;
+  }
+
+  /** Boot payload for a plugin view slot web page. */
+  viewBootPayload(pluginId: string, viewType: string): string {
+    const record = this.plugins.get(pluginId);
+    if (!record) { return ''; }
+    let code = '';
+    let stylesCss = '';
+    try { code = this.readTextFile(`${record.dir}/main.js`); } catch { /* missing code keeps the slot empty */ }
+    try {
+      if (fs.accessSync(`${record.dir}/styles.css`)) { stylesCss = this.readTextFile(`${record.dir}/styles.css`); }
+    } catch { /* styles are optional */ }
+    const body: Record<string, Object> = {
+      'manifestJson': JSON.stringify(record.manifest) as Object,
+      'code': code as Object,
+      'viewType': viewType as Object,
+      'stylesCss': stylesCss as Object
+    };
+    return JSON.stringify(body);
   }
 
   isSafeMode(): boolean {
@@ -275,11 +315,17 @@ export class LexiPluginManager {
       const decoder = new util.TextDecoder('utf-8');
       const manifestJson = decoder.decodeToString(new Uint8Array(manifestBuffer));
       const code = decoder.decodeToString(new Uint8Array(codeBuffer));
+      let stylesCss = '';
+      try {
+        const stylesBuffer = await resource.getRawFileContent(`${SAMPLE_DIR}/styles.css`);
+        stylesCss = decoder.decodeToString(new Uint8Array(stylesBuffer));
+      } catch { /* styles.css 可选 */ }
       const dir = `${this.pluginsRoot()}/lexi-sample-plugin`;
       if (!fs.accessSync(dir)) { fs.mkdirSync(dir, true); }
       // 内置示范插件随应用版本更新:始终覆盖清单与代码,但保留其 data.json 用户配置
       this.writeTextFile(`${dir}/manifest.json`, manifestJson);
       this.writeTextFile(`${dir}/main.js`, code);
+      if (stylesCss.length > 0) { this.writeTextFile(`${dir}/styles.css`, stylesCss); }
     } catch { /* sample assets are optional; the manager still works without them */ }
   }
 
@@ -397,6 +443,36 @@ export class LexiPluginManager {
     });
     runtime.registerHandler('ui.placeholder', async (_payload: string): Promise<string> => {
       return okResponse('rendered-in-p1');
+    });
+    runtime.registerHandler('views.add', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const info = new LexiPluginViewInfo();
+      info.pluginId = rpcString(request, 'pluginId');
+      info.type = rpcString(request, 'type');
+      info.displayName = rpcString(request, 'displayName');
+      info.icon = rpcString(request, 'icon');
+      LexiPluginViewRegistry.register(info);
+      pluginLog('插件视图注册: ' + info.type + ' → ' + info.displayName);
+      return okResponse(null);
+    });
+    runtime.registerHandler('views.remove', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      LexiPluginViewRegistry.remove(rpcString(request, 'type'));
+      return okResponse(null);
+    });
+    runtime.registerHandler('workspace.openView', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const type = rpcString(request, 'type');
+      const info = LexiPluginViewRegistry.get(type);
+      if (!info) { return failResponse('未注册的插件视图: ' + type); }
+      manager.requestViewOpen(type);
+      return okResponse(info.displayName as Object);
+    });
+    runtime.registerHandler('workspace.closeView', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const type = rpcString(request, 'type');
+      if (manager.viewCloseHandler) { manager.viewCloseHandler(type); }
+      return okResponse(null);
     });
     runtime.registerHandler('data.load', async (payload: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
@@ -722,6 +798,7 @@ export class LexiPluginManager {
     this.pendingUnload.delete(pluginId);
     record.enabled = false;
     this.commands.removePluginCommands(pluginId);
+    LexiPluginViewRegistry.removePlugin(pluginId);
     this.enabledIds.delete(pluginId);
     await this.persistEnabled();
     pluginLog('插件已停用: ' + pluginId);

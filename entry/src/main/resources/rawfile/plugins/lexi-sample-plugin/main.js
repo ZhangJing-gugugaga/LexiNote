@@ -2,13 +2,72 @@
  * LexiNote sample plugin. Compiled output shape identical to an Obsidian
  * esbuild bundle: CommonJS single file exporting a Plugin subclass.
  */
-const { Plugin, Notice, moment, normalizePath } = require('obsidian');
+const { Plugin, ItemView, Notice, moment, normalizePath } = require('obsidian');
 
 const DEFAULT_SETTINGS = { greeting: 'LexiNote 插件底座已就绪', showStats: true };
+const SAMPLE_VIEW = 'sample-panel';
+
+class SamplePanelView extends ItemView {
+  getViewType() { return SAMPLE_VIEW; }
+  getDisplayText() { return '示例面板'; }
+
+  async onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl('h2', { text: '示例插件面板' });
+    contentEl.createEl('p', {
+      text: '这个视图运行在 ArkWeb 槽位中：真实 DOM、插件 styles.css 与 Obsidian 风格的 createEl 帮助函数都可用。'
+    });
+    const info = contentEl.createDiv({ cls: 'lexi-sample-info' });
+    info.setText('正在读取知识库…');
+    try {
+      const files = await this.app.vault.getMarkdownFiles();
+      info.setText(`当前库笔记：${files.length} 篇`);
+    } catch (err) {
+      info.setText('读取失败：' + (err && err.message ? err.message : String(err)));
+    }
+    const row = contentEl.createDiv({ cls: 'lexi-sample-row' });
+    const notifyBtn = row.createEl('button', { text: '弹出通知' });
+    notifyBtn.onClickEvent(() => new Notice('来自插件视图的消息'));
+    const statBtn = row.createEl('button', { text: '读取元数据' });
+    statBtn.onClickEvent(async () => {
+      try {
+        const files = await this.app.vault.getMarkdownFiles();
+        const first = files[0];
+        if (!first) { new Notice('当前库还没有笔记'); return; }
+        const cache = await this.app.metadataCache.getFileCache(first);
+        const tags = cache && cache.tags ? cache.tags.length : 0;
+        const links = cache && cache.links ? cache.links.length : 0;
+        new Notice(`${first.name}：标签 ${tags} · 链接 ${links}`);
+      } catch (err) {
+        new Notice('元数据读取失败：' + (err && err.message ? err.message : String(err)));
+      }
+    });
+    contentEl.createEl('p', { text: '本视图的命令与设置同样来自插件底座。', cls: 'lexi-sample-hint' });
+
+    // 视图 -> 宿主通道自检:打开后自动弹一条原生通知
+    setTimeout(() => new Notice('示例面板已就绪（来自插件视图）'), 600);
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
 
 module.exports = class SamplePlugin extends Plugin {
   async onload() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) || {});
+
+    this.registerView(SAMPLE_VIEW, (leaf) => new SamplePanelView(leaf));
+
+    this.addCommand({
+      id: 'open-panel',
+      name: '示例:打开示例面板',
+      callback: async () => {
+        const leaf = this.app.workspace.getRightLeaf(false);
+        await leaf.setViewState({ type: SAMPLE_VIEW, active: true });
+      }
+    });
 
     this.addCommand({
       id: 'sample-notice',

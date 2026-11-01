@@ -11,6 +11,8 @@ import { LexiSearch } from '../core/LexiSearch';
 import { LexiCommandPalette } from './LexiCommandPalette';
 import { LexiPluginManager } from '../core/plugin/LexiPluginRuntime';
 import { LexiEditorRegistry } from '../core/plugin/LexiEditorRegistry';
+import { LexiPluginViewRegistry } from '../core/plugin/LexiPluginViewRegistry';
+import { LexiPluginViewSlot } from './plugin/LexiPluginViewSlot';
 import { FrameCallback } from '@kit.ArkUI';
 import { LexiTabStripLayout } from '../core/LexiTabStripLayout';
 
@@ -86,6 +88,11 @@ export struct LexiDesktopWorkspace {
 
   aboutToAppear(): void {
     this.routingStack.disableAnimation(true);
+    const manager = LexiPluginManager.shared;
+    if (manager) {
+      manager.setViewOpenHandler((viewType: string): void => { this.openPluginView(viewType); });
+      manager.setViewCloseHandler((viewType: string): void => { this.closePluginView(viewType); });
+    }
     this.openInitialDocument();
   }
 
@@ -112,6 +119,9 @@ export struct LexiDesktopWorkspace {
   }
 
   private isTabValid(docId: string): boolean {
+    if (docId.startsWith('plugin:')) {
+      return LexiPluginViewRegistry.get(docId.substring(7)) !== null;
+    }
     if (docId.startsWith('map:')) {
       const mapId = docId.substring(4);
       return this.maps.some((m: MindMapDoc): boolean => m.id === mapId && m.trashedAt === 0 &&
@@ -167,6 +177,27 @@ export struct LexiDesktopWorkspace {
     if (this.requestedNoteId) {
       if (this.requestedOpenMode === 'group') { this.openGroup(this.requestedNoteId); } else { this.openDocument(this.requestedNoteId); }
     }
+  }
+
+  private openPluginView(viewType: string): void {
+    const tabId = `plugin:${viewType}`;
+    if (!this.tabs.some((tab: LexiWorkspaceTab): boolean => tab.noteId === tabId)) {
+      this.tabs = this.tabs.concat([new LexiWorkspaceTab(tabId)]);
+    }
+    this.selectedId = tabId;
+    this.routingStack.clear();
+    if (this.activeSection > 1) { this.onSelectSection(1); }
+  }
+
+  private closePluginView(viewType: string): void {
+    const tabId = `plugin:${viewType}`;
+    const tab = this.tabs.find((item: LexiWorkspaceTab): boolean => item.noteId === tabId);
+    if (tab) { this.closeDocument(tab).catch((): void => {}); }
+  }
+
+  private pluginIdForView(viewType: string): string {
+    const info = LexiPluginViewRegistry.get(viewType);
+    return info ? info.pluginId : '';
   }
 
   private openDocument(noteId: string, activatePane: boolean = true): void {
@@ -336,6 +367,10 @@ export struct LexiDesktopWorkspace {
   }
 
   private tabTitle(noteId: string): string {
+    if (noteId.startsWith('plugin:')) {
+      const info = LexiPluginViewRegistry.get(noteId.substring(7));
+      return info ? info.displayName : '插件视图';
+    }
     if (noteId.startsWith('map:')) {
       const mapId = noteId.substring(4);
       const map = this.maps.find((m: MindMapDoc): boolean => m.id === mapId);
@@ -651,9 +686,14 @@ export struct LexiDesktopWorkspace {
           Row() {
           Stack() {
             // Keep document instances mounted when opening auxiliary sections or switching tabs.
-            ForEach(this.tabs, (tab: LexiWorkspaceTab) => {
+              ForEach(this.tabs, (tab: LexiWorkspaceTab) => {
               Column() {
-                if (tab.noteId.startsWith('map:')) {
+                if (tab.noteId.startsWith('plugin:')) {
+                  LexiPluginViewSlot({
+                    pluginId: this.pluginIdForView(tab.noteId.substring(7)),
+                    viewType: tab.noteId.substring(7)
+                  })
+                } else if (tab.noteId.startsWith('map:')) {
                   LexiWorkspaceMindMap({
                     mapId: tab.noteId.substring(4),
                     editorController: tab.controller,
@@ -697,7 +737,12 @@ export struct LexiDesktopWorkspace {
               }.width('100%').padding({ left: 16, right: 8 })
               Column() {
               ForEach(this.groupTabs, (groupTab: LexiWorkspaceTab) => {
-                if (groupTab.noteId.startsWith('map:')) {
+                if (groupTab.noteId.startsWith('plugin:')) {
+                  LexiPluginViewSlot({
+                    pluginId: this.pluginIdForView(groupTab.noteId.substring(7)),
+                    viewType: groupTab.noteId.substring(7)
+                  })
+                } else if (groupTab.noteId.startsWith('map:')) {
                   LexiWorkspaceMindMap({
                     mapId: groupTab.noteId.substring(4),
                     editorController: groupTab.controller,

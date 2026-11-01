@@ -1,0 +1,32 @@
+/* 示例插件样式:在视图槽内生效,主题变量由宿主注入 */
+.lexi-sample-info {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: var(--radius-m);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-size: 13px;
+}
+
+.lexi-sample-row {
+  display: flex;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.lexi-sample-row button {
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  border-radius: var(--radius-s);
+  padding: 8px 16px;
+}
+
+.lexi-sample-row button:active {
+  background: var(--background-primary-alt);
+}
+
+.lexi-sample-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+}

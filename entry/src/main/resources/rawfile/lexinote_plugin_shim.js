@@ -17,6 +17,7 @@
   var plugins = new Map(); // pluginId -> instance
   var fileCache = new Map(); // path -> TFile instance
   var lastEditorState = null; // latest {active, noteId, text, selection} snapshot
+  var viewCreators = new Map(); // view type -> creator(leaf) (spawned inside the view slot)
 
   var API_VERSION = '1.0.0';
 
@@ -369,6 +370,21 @@
     resolvedLinks: function () { return hostCall('metadata.resolved', {}); }
   };
 
+  function makePluginLeaf(viewType) {
+    return {
+      view: null,
+      getViewState: function () { return { type: viewType }; },
+      setViewState: function (state) {
+        var type = state && state.type ? state.type : viewType;
+        return hostCall('workspace.openView', { type: type });
+      },
+      openFile: function () { return Promise.reject(new Error('插件视图不支持打开文件')); },
+      detach: function () { return hostCall('workspace.closeView', { type: viewType }); },
+      getDisplayText: function () { return viewType; },
+      getIcon: function () { return ''; }
+    };
+  }
+
   var workspace = {
     on: function (name, callback) { return subscribeTopic('workspace', name, callback); },
     off: function (name, callback) { topicFor('workspace').off(name, callback); },
@@ -379,6 +395,10 @@
     getActiveFile: function () { return Promise.resolve(null); },
     getActiveViewOfType: function () { return Promise.resolve(null); },
     getLeavesOfType: function () { return Promise.resolve([]); },
+    getRightLeaf: function (_split) { return makePluginLeaf(''); },
+    getLeaf: function (_mode) { return makePluginLeaf(''); },
+    detachLeavesOfType: function (type) { return hostCall('workspace.closeView', { type: type }); },
+    revealLeaf: function () { return Promise.resolve(); },
     openLinkText: function (linktext, sourcePath) {
       return hostCall('workspace.openLinkText', { linktext: linktext, sourcePath: sourcePath || '' });
     },
@@ -514,7 +534,15 @@
     self.register(function () { hostCall('ui.placeholder', { kind: 'settingTab.remove', pluginId: self.manifest.id }).catch(function () {}); });
   };
   PluginShim.prototype.registerView = function (type, creator) {
-    console.warn('[lexinote] registerView 视图槽将在后续版本生效:', type);
+    var self = this;
+    viewCreators.set(type, creator);
+    hostCall('views.add', {
+      pluginId: self.manifest.id, type: type, displayName: String(type), icon: ''
+    }).catch(function (err) { console.warn('[lexinote] 视图注册失败', err); });
+    self.register(function () {
+      viewCreators.delete(type);
+      hostCall('views.remove', { type: type }).catch(function () {});
+    });
   };
   PluginShim.prototype.registerExtensions = function () {};
   PluginShim.prototype.registerMarkdownPostProcessor = function (processor) {
