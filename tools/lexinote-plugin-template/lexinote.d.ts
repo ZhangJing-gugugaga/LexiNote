@@ -355,10 +355,32 @@ export class Notice {
     hide(): void;
 }
 
+export interface SettingDefinitionItem {
+    type: 'heading' | 'toggle' | 'text' | 'textarea' | 'dropdown' | 'slider';
+    name: string;
+    key?: string;
+    desc?: string;
+    default?: string | number | boolean;
+    options?: Record<string, string>;
+    min?: number;
+    max?: number;
+    step?: number;
+    placeholder?: string;
+}
+
+/**
+ * Declarative settings tab. `getSettingDefinitions()` is serialized to the host and
+ * rendered with native controls; values persist in data.json and are pushed back to
+ * `setControlValue(key, value)` / `onSettingsChanged(values)`.
+ */
 export abstract class PluginSettingTab {
     app: App;
     plugin: Plugin;
     constructor(app: App, plugin: Plugin);
+    getSettingDefinitions(): SettingDefinitionItem[];
+    getControlValue(key: string): unknown;
+    setControlValue(key: string, value: unknown): void;
+    onSettingsChanged(values: Record<string, unknown>): void;
     display(): void;
     hide(): void;
 }

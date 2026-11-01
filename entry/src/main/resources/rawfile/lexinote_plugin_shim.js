@@ -530,8 +530,18 @@
   };
   PluginShim.prototype.addSettingTab = function (tab) {
     var self = this;
-    hostCall('ui.placeholder', { kind: 'settingTab', pluginId: self.manifest.id }).catch(function () {});
-    self.register(function () { hostCall('ui.placeholder', { kind: 'settingTab.remove', pluginId: self.manifest.id }).catch(function () {}); });
+    self._settingTab = tab;
+    var definitions = [];
+    try {
+      definitions = tab && typeof tab.getSettingDefinitions === 'function' ? tab.getSettingDefinitions() : [];
+    } catch (err) { console.warn('[lexinote] 设置定义读取失败', err); }
+    hostCall('settings.register', {
+      pluginId: self.manifest.id,
+      definitionsJson: JSON.stringify(definitions || [])
+    }).catch(function (err) { console.warn('[lexinote] 设置注册失败', err); });
+    self.register(function () {
+      hostCall('settings.unregister', { pluginId: self.manifest.id }).catch(function () {});
+    });
   };
   PluginShim.prototype.registerView = function (type, creator) {
     var self = this;
@@ -763,6 +773,10 @@
   }
   PluginSettingTab.prototype.display = function () {};
   PluginSettingTab.prototype.hide = function () {};
+  PluginSettingTab.prototype.getSettingDefinitions = function () { return []; };
+  PluginSettingTab.prototype.getControlValue = function () { return undefined; };
+  PluginSettingTab.prototype.setControlValue = function () {};
+  PluginSettingTab.prototype.onSettingsChanged = function () {};
 
   function SuggestModalShim(appRef) { Modal.call(this, appRef); }
   SuggestModalShim.prototype = Object.create(Modal.prototype);
@@ -883,6 +897,19 @@
           console.warn('[lexinote] onload error', err);
           hostCall('plugin.onload.error', { id: message.manifest ? message.manifest.id : '', error: String(err) }).catch(function () {});
         });
+        return;
+      }
+      if (method === 'settings.values') {
+        var pluginInstance = plugins.get(message.pluginId);
+        var tab = pluginInstance && pluginInstance._settingTab;
+        if (tab && message.values && typeof message.values === 'object') {
+          try {
+            Object.keys(message.values).forEach(function (key) {
+              if (typeof tab.setControlValue === 'function') { tab.setControlValue(key, message.values[key]); }
+            });
+            if (typeof tab.onSettingsChanged === 'function') { tab.onSettingsChanged(message.values); }
+          } catch (err) { console.warn('[lexinote] 设置回写失败', err); }
+        }
         return;
       }
       if (method === 'unload.plugin') {

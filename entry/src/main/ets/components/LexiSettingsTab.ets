@@ -4,6 +4,7 @@ import { LexiAppearancePicker } from './LexiAppearancePicker';
 import { LexiHeroHeading } from './LexiNoteCard';
 import { LexiPluginManager } from '../core/plugin/LexiPluginRuntime';
 import { LexiPluginMarketSheet } from './plugin/LexiPluginMarketSheet';
+import { LexiPluginSettingsSheet } from './plugin/LexiPluginSettingsSheet';
 
 @Observed
 class LexiPluginSettingRow {
@@ -13,12 +14,14 @@ class LexiPluginSettingRow {
   enabled: boolean = false;
   detail: string = '';
   canToggle: boolean = true;
+  hasSettings: boolean = false;
 }
 
 @Component
 struct LexiPluginRowView {
   @ObjectLink row: LexiPluginSettingRow;
   onToggleRow: (id: string, enabled: boolean) => void = (_id: string, _enabled: boolean): void => {};
+  onOpenRowSettings: (id: string, name: string) => void = (_id: string, _name: string): void => {};
 
   build() {
     Row({ space: 10 }) {
@@ -35,6 +38,20 @@ struct LexiPluginRowView {
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
+
+      if (this.row.hasSettings) {
+        Button('设置', { type: ButtonType.Normal })
+          .id(`plugin-settings-${this.row.id}`)
+          .height(32)
+          .fontSize(11)
+          .borderRadius(9)
+          .enabled(this.row.enabled)
+          .backgroundColor($r('app.color.brand_soft'))
+          .fontColor($r('app.color.brand'))
+          .onClick((): void => {
+            this.onOpenRowSettings(this.row.id, this.row.name);
+          })
+      }
 
       Toggle({ type: ToggleType.Switch, isOn: this.row.enabled })
         .id(`plugin-toggle-${this.row.id}`)
@@ -75,7 +92,10 @@ export struct LexiSettingsTab {
   @State private pluginSafeMode: boolean = false;
   @State private pluginBusy: boolean = false;
   @State private pluginHint: string = '';
-  @State private showMarket: boolean = false;
+  @State private sheetOpen: boolean = false;
+  @State private sheetMode: string = 'market';
+  @State private settingsPluginId: string = '';
+  @State private settingsPluginName: string = '';
 
   aboutToAppear(): void {
     this.refreshPlugins();
@@ -105,6 +125,7 @@ export struct LexiSettingsTab {
       row.version = plugin.manifest.version;
       row.enabled = plugin.enabled;
       row.canToggle = !this.pluginBusy && !this.pluginSafeMode;
+      row.hasSettings = manager.hasPluginSettings(plugin.manifest.id);
       row.detail = plugin.errorState.length > 0 ? plugin.errorState : (plugin.enabled ? `已启用 · v${plugin.manifest.version}` : '已停用');
       rows.push(row);
     }
@@ -169,11 +190,27 @@ export struct LexiSettingsTab {
     }
   }
 
+  private openMarket(): void {
+    this.sheetMode = 'market';
+    this.sheetOpen = true;
+  }
+
+  private openPluginSettings(pluginId: string, pluginName: string): void {
+    this.settingsPluginId = pluginId;
+    this.settingsPluginName = pluginName;
+    this.sheetMode = 'settings';
+    this.sheetOpen = true;
+  }
+
   @Builder
   private marketSheet() {
-    LexiPluginMarketSheet({
-      onInstalled: (_pluginId: string): void => { this.refreshPlugins(); }
-    })
+    if (this.sheetMode === 'settings') {
+      LexiPluginSettingsSheet({ pluginId: this.settingsPluginId })
+    } else {
+      LexiPluginMarketSheet({
+        onInstalled: (_pluginId: string): void => { this.refreshPlugins(); }
+      })
+    }
   }
 
   build() {
@@ -298,7 +335,7 @@ export struct LexiSettingsTab {
             .backgroundColor($r('app.color.brand_soft'))
             .fontColor($r('app.color.brand'))
             .onClick((): void => {
-              this.showMarket = true;
+              this.openMarket();
             })
         }
         .width('100%')
@@ -323,6 +360,9 @@ export struct LexiSettingsTab {
             row: row,
             onToggleRow: (id: string, enabled: boolean): void => {
               this.togglePlugin(id, enabled);
+            },
+            onOpenRowSettings: (id: string, name: string): void => {
+              this.openPluginSettings(id, name);
             }
           })
         }, (row: LexiPluginSettingRow): string => row.id)
@@ -470,11 +510,11 @@ export struct LexiSettingsTab {
     .width('100%')
     .constraintSize({ maxWidth: 1080 })
     .padding({ left: this.pagePadding, right: this.pagePadding, bottom: (this.isWide ? 36 : 88) + this.bottomInset })
-    .bindSheet($$this.showMarket, this.marketSheet(), {
+    .bindSheet($$this.sheetOpen, this.marketSheet(), {
       height: 560,
       dragBar: false,
       showClose: true,
-      title: { title: '社区插件市场' },
+      title: { title: this.sheetMode === 'settings' ? `${this.settingsPluginName} · 设置` : '社区插件市场' },
       backgroundColor: $r('app.color.surface')
     })
   }

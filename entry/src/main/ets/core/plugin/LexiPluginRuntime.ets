@@ -18,6 +18,7 @@ import { LexiEditorRegistry } from './LexiEditorRegistry';
 import { LexiPluginViewInfo, LexiPluginViewRegistry } from './LexiPluginViewRegistry';
 import { LexiPluginInstaller } from './LexiPluginInstaller';
 import { LexiPluginMarketEntry, parseMarketIndex } from './LexiPluginMarketModel';
+import { LexiPluginSettingDef, parseSettingDefinitions } from './LexiPluginSettingModel';
 
 const LOAD_TIMEOUT_MS: number = 5000;
 const PLUGIN_DIR_NAME: string = 'plugins';
@@ -198,6 +199,7 @@ export class LexiPluginManager {
   private viewOpenHandler: ((viewType: string) => void) | null = null;
   private viewCloseHandler: ((viewType: string) => void) | null = null;
   private pendingViewOpens: string[] = [];
+  private settingDefs: Map<string, string> = new Map();
 
   static get shared(): LexiPluginManager | null {
     return LexiPluginManager.instanceRef;
@@ -267,6 +269,44 @@ export class LexiPluginManager {
       for (const id of ids) { await this.disablePlugin(id); }
     }
     await this.persistSafeMode();
+  }
+
+  /** 插件声明式设置:定义列表(JSON)与 data.json 读写。 */
+  pluginSettingDefs(pluginId: string): string {
+    return this.settingDefs.get(pluginId) || '';
+  }
+
+  hasPluginSettings(pluginId: string): boolean {
+    const json = this.settingDefs.get(pluginId);
+    if (!json || json === '[]') { return false; }
+    return parseSettingDefinitions(json).length > 0;
+  }
+
+  pluginSettingDefinitions(pluginId: string): LexiPluginSettingDef[] {
+    return parseSettingDefinitions(this.pluginSettingDefs(pluginId));
+  }
+
+  async readPluginData(pluginId: string): Promise<string> {
+    const path = `${this.pluginsRoot()}/${pluginId}/data.json`;
+    try {
+      if (fs.accessSync(path)) { return this.readTextFile(path); }
+    } catch { /* fall through to empty */ }
+    return '{}';
+  }
+
+  async writePluginData(pluginId: string, dataJson: string): Promise<void> {
+    const dir = `${this.pluginsRoot()}/${pluginId}`;
+    if (!fs.accessSync(dir)) { fs.mkdirSync(dir, true); }
+    this.writeTextFile(`${dir}/data.json`, dataJson);
+    let values: Record<string, Object> = {};
+    try { values = JSON.parse(dataJson) as Record<string, Object>; } catch { values = {}; }
+    const body: Record<string, Object> = {
+      'pluginId': pluginId as Object,
+      'values': values as Object
+    };
+    this.runtime.dispatch('settings.values', JSON.stringify(body)).catch((): void => {
+      /* 插件未启用时没有回写目标 */
+    });
   }
 
   installedPlugins(): LexiInstalledPlugin[] {
@@ -535,6 +575,20 @@ export class LexiPluginManager {
       const request = JSON.parse(payload) as RpcRequest;
       const type = rpcString(request, 'type');
       if (manager.viewCloseHandler) { manager.viewCloseHandler(type); }
+      return okResponse(null);
+    });
+    runtime.registerHandler('settings.register', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const pluginId = rpcString(request, 'pluginId');
+      const definitionsJson = rpcString(request, 'definitionsJson');
+      if (!pluginId) { return failResponse('设置注册缺少插件 id'); }
+      manager.settingDefs.set(pluginId, definitionsJson);
+      pluginLog('插件设置注册: ' + pluginId + ' (' + parseSettingDefinitions(definitionsJson).length + ' 项)');
+      return okResponse(null);
+    });
+    runtime.registerHandler('settings.unregister', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      manager.settingDefs.delete(rpcString(request, 'pluginId'));
       return okResponse(null);
     });
     runtime.registerHandler('data.load', async (payload: string): Promise<string> => {
@@ -862,6 +916,7 @@ export class LexiPluginManager {
     record.enabled = false;
     this.commands.removePluginCommands(pluginId);
     LexiPluginViewRegistry.removePlugin(pluginId);
+    this.settingDefs.delete(pluginId);
     this.enabledIds.delete(pluginId);
     await this.persistEnabled();
     pluginLog('插件已停用: ' + pluginId);

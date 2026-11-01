@@ -2,10 +2,30 @@
  * LexiNote sample plugin. Compiled output shape identical to an Obsidian
  * esbuild bundle: CommonJS single file exporting a Plugin subclass.
  */
-const { Plugin, ItemView, Notice, moment, normalizePath } = require('obsidian');
+const { Plugin, ItemView, PluginSettingTab, Notice, moment, normalizePath } = require('obsidian');
 
-const DEFAULT_SETTINGS = { greeting: 'LexiNote 插件底座已就绪', showStats: true };
+const DEFAULT_SETTINGS = { greeting: 'LexiNote 插件底座已就绪', showStats: true, logFolder: '插件日志' };
 const SAMPLE_VIEW = 'sample-panel';
+
+class SampleSettingTab extends PluginSettingTab {
+  constructor(app, plugin) {
+    super(app, plugin);
+  }
+
+  getSettingDefinitions() {
+    const current = this.plugin.settings || DEFAULT_SETTINGS;
+    return [
+      { type: 'heading', name: '示例插件设置' },
+      { type: 'text', name: '问候语', desc: '统计命令通知中显示的文字', key: 'greeting', default: current.greeting },
+      { type: 'toggle', name: '显示统计', desc: '执行统计命令时同时写入 data.json', key: 'showStats', default: current.showStats },
+      { type: 'text', name: '日志文件夹', desc: '创建插件日志使用的文件夹路径', key: 'logFolder', default: current.logFolder }
+    ];
+  }
+
+  onSettingsChanged(values) {
+    Object.assign(this.plugin.settings, values);
+  }
+}
 
 class SamplePanelView extends ItemView {
   getViewType() { return SAMPLE_VIEW; }
@@ -59,6 +79,7 @@ module.exports = class SamplePlugin extends Plugin {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) || {});
 
     this.registerView(SAMPLE_VIEW, (leaf) => new SamplePanelView(leaf));
+    this.addSettingTab(new SampleSettingTab(this.app, this));
 
     this.addCommand({
       id: 'open-panel',
@@ -88,7 +109,8 @@ module.exports = class SamplePlugin extends Plugin {
       name: '示例:创建插件日志笔记',
       callback: async () => {
         const date = moment().format('YYYY-MM-DD');
-        const target = normalizePath(`插件日志/${date}.md`);
+        const folder = (this.settings.logFolder || '插件日志').replace(/^\/+|\/+$/g, '');
+        const target = normalizePath(`${folder}/${date}.md`);
         const existing = await this.app.vault.getAbstractFileByPath(target);
         if (existing) {
           await this.app.vault.process(existing, (content) => `${content}\n- ${moment().format('HH:mm')} 插件运行正常`);
