@@ -72,7 +72,7 @@ const tests=[
  ['sample plugin loads, registers a namespaced command and answers execution end-to-end',async()=>{
   await dispatch('load.plugin',{manifest:sampleManifest,code:sampleCode});
   await until(()=>calls.some(c=>c.method==='commands.add'&&c.payload.pluginId==='lexi-sample-plugin'),'commands.add');
-  const addCall=calls.find(c=>c.method==='commands.add');
+  const addCall=calls.find(c=>c.method==='commands.add'&&c.payload.command&&c.payload.command.id==='sample-notice');
   assert.equal(addCall.payload.command.id,'sample-notice');
   assert.equal(addCall.payload.command.name,'示例:统计当前笔记库');
   assert.equal(calls.filter(c=>c.method==='data.load').length,1);
@@ -208,7 +208,7 @@ const tests=[
   };`;
   await dispatch('load.plugin',{manifest:{id:'codeblock-probe'},code:probe});
   await until(()=>calls.some(c=>c.method==='codeblocks.register'&&c.payload.pluginId==='codeblock-probe'),'codeblocks.register');
-  const registerCall=calls.find(c=>c.method==='codeblocks.register');
+  const registerCall=calls.find(c=>c.method==='codeblocks.register'&&c.payload.pluginId==='codeblock-probe');
   assert.equal(registerCall.payload.language,'demo-lang');
   await dispatch('unload.plugin',{id:'codeblock-probe'});
   await until(()=>calls.some(c=>c.method==='codeblocks.unregister'&&c.payload.language==='demo-lang'),'codeblocks.unregister');
