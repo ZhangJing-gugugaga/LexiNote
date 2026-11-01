@@ -16,6 +16,8 @@ import { LexiVaultFacade } from './LexiVaultFacade';
 import { LexiTFolder, LexiTFile } from './LexiVaultModel';
 import { LexiEditorRegistry } from './LexiEditorRegistry';
 import { LexiPluginViewInfo, LexiPluginViewRegistry } from './LexiPluginViewRegistry';
+import { LexiPluginInstaller } from './LexiPluginInstaller';
+import { LexiPluginMarketEntry, parseMarketIndex } from './LexiPluginMarketModel';
 
 const LOAD_TIMEOUT_MS: number = 5000;
 const PLUGIN_DIR_NAME: string = 'plugins';
@@ -271,6 +273,67 @@ export class LexiPluginManager {
     const result: LexiInstalledPlugin[] = [];
     this.plugins.forEach((plugin: LexiInstalledPlugin): void => { result.push(plugin); });
     return result;
+  }
+
+  private ensureInstaller(): LexiPluginInstaller {
+    if (!this.context) { throw new Error('插件管理器尚未初始化'); }
+    return new LexiPluginInstaller(this.context, this.pluginsRoot());
+  }
+
+  /** Installs a plugin from a local zip (path or file URI), rescans and enables it. */
+  async installZip(zipSource: string): Promise<string> {
+    const manifest = await this.ensureInstaller().installZip(zipSource);
+    await this.scanPluginDir();
+    pluginLog('插件安装完成: ' + manifest.id + ' v' + manifest.version);
+    await this.enablePlugin(manifest.id);
+    return manifest.id;
+  }
+
+  /** Downloads a plugin zip and installs it. */
+  async installFromUrl(url: string): Promise<string> {
+    if (!this.context) { throw new Error('插件管理器尚未初始化'); }
+    if (!/^https?:\/\//i.test(url)) { throw new Error('仅支持 http/https 下载地址'); }
+    const cachePath = `${this.context.cacheDir}/plugin-download-${Date.now()}.zip`;
+    const client = http.createHttp();
+    try {
+      const response = await client.request(url, {
+        method: http.RequestMethod.GET,
+        expectDataType: http.HttpDataType.ARRAY_BUFFER,
+        connectTimeout: 20000,
+        readTimeout: 60000
+      });
+      if (response.responseCode < 200 || response.responseCode >= 300) {
+        throw new Error('插件下载失败: HTTP ' + response.responseCode);
+      }
+      const buffer = response.result as ArrayBuffer;
+      const file = fs.openSync(cachePath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+      try { fs.writeSync(file.fd, buffer); } finally { fs.closeSync(file); }
+    } finally {
+      client.destroy();
+    }
+    return this.installZip(cachePath);
+  }
+
+  /** Fetches and parses a community plugin index. */
+  async fetchMarket(indexUrl: string): Promise<LexiPluginMarketEntry[]> {
+    const client = http.createHttp();
+    try {
+      const response = await client.request(indexUrl, {
+        method: http.RequestMethod.GET,
+        expectDataType: http.HttpDataType.STRING,
+        connectTimeout: 10000,
+        readTimeout: 20000
+      });
+      if (response.responseCode < 200 || response.responseCode >= 300) {
+        throw new Error('市场索引请求失败: HTTP ' + response.responseCode);
+      }
+      const text = typeof response.result === 'string' ? response.result : JSON.stringify(response.result);
+      const entries = parseMarketIndex(text);
+      pluginLog('市场索引加载: ' + entries.length + ' 个插件');
+      return entries;
+    } finally {
+      client.destroy();
+    }
   }
 
   private async init(context: common.Context): Promise<void> {

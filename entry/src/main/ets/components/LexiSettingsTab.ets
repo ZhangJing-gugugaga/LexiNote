@@ -1,6 +1,9 @@
+import { common } from '@kit.AbilityKit';
+import { picker } from '@kit.CoreFileKit';
 import { LexiAppearancePicker } from './LexiAppearancePicker';
 import { LexiHeroHeading } from './LexiNoteCard';
 import { LexiPluginManager } from '../core/plugin/LexiPluginRuntime';
+import { LexiPluginMarketSheet } from './plugin/LexiPluginMarketSheet';
 
 @Observed
 class LexiPluginSettingRow {
@@ -72,6 +75,7 @@ export struct LexiSettingsTab {
   @State private pluginSafeMode: boolean = false;
   @State private pluginBusy: boolean = false;
   @State private pluginHint: string = '';
+  @State private showMarket: boolean = false;
 
   aboutToAppear(): void {
     this.refreshPlugins();
@@ -144,6 +148,32 @@ export struct LexiSettingsTab {
       this.pluginBusy = false;
       this.refreshPlugins();
     }
+  }
+
+  private async installFromPicker(): Promise<void> {
+    const manager = LexiPluginManager.shared;
+    if (!manager || this.pluginBusy) { return; }
+    const context = getContext(this) as common.Context;
+    this.pluginBusy = true;
+    try {
+      const docPicker = new picker.DocumentViewPicker(context);
+      const uris = await docPicker.select({ fileSuffixFilters: ['插件安装包|.zip'], maxSelectNumber: 1 });
+      if (!uris || uris.length === 0) { return; }
+      const pluginId = await manager.installZip(uris[0]);
+      this.getUIContext().getPromptAction().showToast({ message: `已安装插件: ${pluginId}` });
+    } catch (error) {
+      this.getUIContext().getPromptAction().showToast({ message: '安装失败: ' + String(error) });
+    } finally {
+      this.pluginBusy = false;
+      this.refreshPlugins();
+    }
+  }
+
+  @Builder
+  private marketSheet() {
+    LexiPluginMarketSheet({
+      onInstalled: (_pluginId: string): void => { this.refreshPlugins(); }
+    })
   }
 
   build() {
@@ -242,6 +272,33 @@ export struct LexiSettingsTab {
             .selectedColor($r('app.color.brand'))
             .onChange((isOn: boolean): void => {
               this.toggleSafeMode(isOn);
+            })
+        }
+        .width('100%')
+
+        Row({ space: 8 }) {
+          Button('从文件安装插件 (.zip)', { type: ButtonType.Normal })
+            .layoutWeight(1)
+            .height(40)
+            .fontSize(12)
+            .borderRadius(12)
+            .enabled(!this.pluginBusy)
+            .backgroundColor($r('app.color.soft_surface'))
+            .fontColor($r('app.color.text_primary'))
+            .onClick((): void => {
+              this.installFromPicker();
+            })
+
+          Button('社区插件市场', { type: ButtonType.Normal })
+            .layoutWeight(1)
+            .height(40)
+            .fontSize(12)
+            .borderRadius(12)
+            .enabled(!this.pluginBusy)
+            .backgroundColor($r('app.color.brand_soft'))
+            .fontColor($r('app.color.brand'))
+            .onClick((): void => {
+              this.showMarket = true;
             })
         }
         .width('100%')
@@ -413,5 +470,12 @@ export struct LexiSettingsTab {
     .width('100%')
     .constraintSize({ maxWidth: 1080 })
     .padding({ left: this.pagePadding, right: this.pagePadding, bottom: (this.isWide ? 36 : 88) + this.bottomInset })
+    .bindSheet($$this.showMarket, this.marketSheet(), {
+      height: 560,
+      dragBar: false,
+      showClose: true,
+      title: { title: '社区插件市场' },
+      backgroundColor: $r('app.color.surface')
+    })
   }
 }
