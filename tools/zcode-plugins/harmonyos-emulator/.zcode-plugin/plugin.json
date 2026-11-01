@@ -1,0 +1,43 @@
+{
+  "name": "harmonyos-emulator",
+  "version": "0.1.0",
+  "description": "Provides HarmonyOS development workflows and device/emulator automation (hdc backend) for ZCode.",
+  "author": {
+    "name": "LexiNote Team"
+  },
+  "license": "GPL-3.0",
+  "skills": "skills",
+  "commands": "commands",
+  "mcpServers": {
+    "harmonyos-emulator": {
+      "command": "C:\\Program Files\\nodejs\\node.exe",
+      "args": [
+        "C:\\Users\\laotie_nb666\\.zcode\\cli\\plugins\\cache\\lexinote-local\\harmonyos-emulator\\0.1.0\\dist\\mcp\\server.js"
+      ],
+      "cwd": "${ZCODE_PROJECT_DIR}",
+      "env": {
+        "HOS_PLUGIN_TOOLCHAIN_ROOT": "${user_config.toolchain_root}",
+        "HOS_PLUGIN_PROJECT_DIR": "${ZCODE_PROJECT_DIR}",
+        "HOS_PLUGIN_BUNDLE_NAME": "${user_config.bundle_name}",
+        "HOS_PLUGIN_EMULATOR_TARGET": "${user_config.emulator_target}"
+      }
+    }
+  },
+  "userConfig": {
+    "toolchain_root": {
+      "type": "string",
+      "default": "E:\\dev-tools\\harmonyos\\command-line-tools",
+      "description": "HarmonyOS command-line-tools root (contains bin and sdk)."
+    },
+    "bundle_name": {
+      "type": "string",
+      "default": "com.lovexjy.lexinote",
+      "description": "Default application bundle name for install/launch."
+    },
+    "emulator_target": {
+      "type": "string",
+      "default": "127.0.0.1:5555",
+      "description": " hdc target string for the local HarmonyOS emulator."
+    }
+  }
+}

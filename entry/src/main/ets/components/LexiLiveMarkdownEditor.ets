@@ -1,5 +1,5 @@
 import { MarkdownBlock, NoteItem } from '../core/LexiModels';
-import { LexiLiveEditorController, LexiLiveMarkdown, LexiLiveRange } from '../core/LexiLiveMarkdown';
+import { LexiLiveEditorController, LexiLiveMarkdown, LexiLiveRange, LexiLiveSelection } from '../core/LexiLiveMarkdown';
 import { LexiMarkdownPreview } from './LexiEditorPanels';
 import { FrameCallback } from '@kit.ArkUI';
 import { LexiCodeFence, LexiCodeFenceInfo } from '../core/LexiCodeFence';
@@ -55,6 +55,16 @@ export struct LexiLiveMarkdownEditor {
     this.editorController.setTextSelection = (start: number, end: number): void => { this.selectSource(start, end); };
     this.editorController.insert = (snippet: string): void => { this.insertSnippet(snippet); };
     this.editorController.finishEditing = (): void => { this.finishEditing(); };
+    this.editorController.getText = (): string => this.documentText;
+    this.editorController.getSelection = (): LexiLiveSelection => {
+      const selection = new LexiLiveSelection();
+      selection.start = this.globalStart;
+      selection.end = this.globalEnd;
+      return selection;
+    };
+    this.editorController.replaceRange = (start: number, end: number, text: string): void => {
+      this.replaceRangeInDocument(start, end, text);
+    };
   }
 
   aboutToDisappear(): void {
@@ -64,6 +74,9 @@ export struct LexiLiveMarkdownEditor {
     this.editorController.setTextSelection = (_start: number, _end: number): void => {};
     this.editorController.insert = (_snippet: string): void => {};
     this.editorController.finishEditing = (): void => {};
+    this.editorController.getText = (): string => '';
+    this.editorController.getSelection = (): LexiLiveSelection => new LexiLiveSelection();
+    this.editorController.replaceRange = (_start: number, _end: number, _text: string): void => {};
   }
 
   private documentChanged(): void {
@@ -172,6 +185,24 @@ export struct LexiLiveMarkdownEditor {
     const codeIndex = snippet.indexOf('```\n\n```');
     const cursor = codeIndex >= 0 ? edit.cursor - snippet.length + codeIndex + 4 : edit.cursor;
     this.selectSource(cursor, cursor);
+  }
+
+  /** Plugin-facing explicit range replacement; mirrors insertSnippet's code-block offset remapping. */
+  private replaceRangeInDocument(start: number, end: number, text: string): void {
+    if (!this.editorEnabled) { return; }
+    let from = Math.max(0, Math.min(this.documentText.length, start));
+    let to = Math.max(from, Math.min(this.documentText.length, end));
+    if (this.activeEditing && this.editingCode && (from < this.activeRange.start || from > this.activeRange.end)) {
+      const before = this.documentText;
+      this.formatActiveCode();
+      from = LexiLiveMarkdown.mapOffset(before, this.documentText, from);
+      to = LexiLiveMarkdown.mapOffset(before, this.documentText, to);
+    }
+    const edit = LexiLiveMarkdown.replace(this.documentText, from, to, text);
+    this.documentText = edit.content;
+    this.globalStart = edit.cursor; this.globalEnd = edit.cursor;
+    this.onChange(edit.content);
+    this.selectSource(edit.cursor, edit.cursor);
   }
 
   private inputStart(): number {

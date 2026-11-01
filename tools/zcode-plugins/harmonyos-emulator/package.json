@@ -1,0 +1,8 @@
+{
+  "name": "harmonyos-emulator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HarmonyOS device/emulator automation plugin for ZCode (hdc backend).",
+  "main": "dist/mcp/server.js",
+  "license": "GPL-3.0"
+}

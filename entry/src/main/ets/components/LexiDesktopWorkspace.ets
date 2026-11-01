@@ -9,6 +9,7 @@ import { LexiWorkspaceTab } from '../core/LexiWorkspaceModels';
 import { MarkdownEngine } from '../core/MarkdownEngine';
 import { LexiSearch } from '../core/LexiSearch';
 import { LexiCommandPalette } from './LexiCommandPalette';
+import { LexiPluginManager } from '../core/plugin/LexiPluginRuntime';
 import { FrameCallback } from '@kit.ArkUI';
 import { LexiTabStripLayout } from '../core/LexiTabStripLayout';
 
@@ -288,6 +289,7 @@ export struct LexiDesktopWorkspace {
       else if (command === 'settings') { await this.showAuxiliary(3); }
       else if (command === 'workspaces') { await this.manageWorkspaces(); }
       else if (command === 'help') { this.onOpenHelp(); }
+      else if (await LexiPluginManager.tryExecuteCommand(command)) { return; }
       else { await this.onExecuteCommand(command, this.selectedId, title); }
     } catch { this.getUIContext().getPromptAction().showToast({ message: '操作未完成，当前文档已保留，请重试。' }); }
   }

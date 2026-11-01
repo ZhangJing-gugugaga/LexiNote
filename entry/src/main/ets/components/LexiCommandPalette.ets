@@ -2,6 +2,8 @@ import { CanvasBoard, MindMapDoc, NoteItem } from '../core/LexiModels';
 import { LEXI_COMMANDS, LexiCommand } from '../core/LexiCommands';
 import { LexiSearch } from '../core/LexiSearch';
 import { MarkdownEngine } from '../core/MarkdownEngine';
+import { LexiPluginManager } from '../core/plugin/LexiPluginRuntime';
+import { LexiPluginCommand } from '../core/plugin/LexiPluginKernel';
 import { KeyCode } from '@kit.InputKit';
 
 @Component
@@ -20,8 +22,13 @@ export struct LexiCommandPalette {
 
   private results(): LexiCommand[] {
     if (this.mode === 'commands') {
-      return LEXI_COMMANDS.filter((command: LexiCommand): boolean =>
+      const builtin = LEXI_COMMANDS.filter((command: LexiCommand): boolean =>
         LexiSearch.rank(command.title, this.paletteQuery) >= 0 || command.id.includes(this.paletteQuery.toLowerCase()));
+      const pluginCommands = LexiPluginManager.commandList().map((command: LexiPluginCommand): LexiCommand =>
+        new LexiCommand(command.id, command.name, '插件'));
+      const matched = pluginCommands.filter((command: LexiCommand): boolean =>
+        LexiSearch.rank(command.title, this.paletteQuery) >= 0 || command.id.toLowerCase().includes(this.paletteQuery.toLowerCase()));
+      return builtin.concat(matched);
     }
     const result: LexiCommand[] = [];
     for (const note of this.notes) {

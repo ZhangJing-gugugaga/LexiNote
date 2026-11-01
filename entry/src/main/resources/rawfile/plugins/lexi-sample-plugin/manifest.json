@@ -1,0 +1,10 @@
+{
+  "id": "lexi-sample-plugin",
+  "name": "Sample Plugin",
+  "version": "1.0.0",
+  "minAppVersion": "0.1.0",
+  "description": "Demonstrates the Obsidian-compatible plugin API on LexiNote.",
+  "author": "LexiNote Team",
+  "authorUrl": "https://github.com/ZhangJing-gugugaga/LexiNote",
+  "isDesktopOnly": false
+}

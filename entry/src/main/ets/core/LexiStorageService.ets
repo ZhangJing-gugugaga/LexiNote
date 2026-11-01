@@ -24,6 +24,7 @@ import { LexiTemplates } from './LexiTemplates';
 import { LexiTemplateItem, LexiTemplateLibrary, LexiTemplateLibraryState } from './LexiTemplateLibrary';
 import { LexiFormService } from './LexiFormService';
 import { LexiStorageLock } from './LexiStorageLock';
+import { LexiNoteChange, LexiPluginBus } from './plugin/LexiPluginBus';
 
 export class LexiCapturedNoteSaveResult {
   note: NoteItem = new NoteItem();
@@ -1112,6 +1113,15 @@ export class LexiStorageService {
       version.savedAt = previous.updatedAt; version.snapshot = previous;
       await LexiStorageService.setRawValueUnlocked(`history:${note.id}`, JSON.stringify([version].concat(versions).slice(0, 20)));
     }
+    const change = new LexiNoteChange();
+    change.kind = !previous ? 'create' : (oldTitle.length > 0 && newTitle.length > 0 && oldTitle !== newTitle ? 'rename' : 'modify');
+    change.noteId = note.id;
+    change.vaultId = note.vaultId;
+    change.title = note.title;
+    change.trashedAt = note.trashedAt;
+    change.updatedAt = note.updatedAt;
+    change.oldTitle = oldTitle;
+    LexiPluginBus.noteChanged(change);
     return note;
   }
 
@@ -1360,7 +1370,17 @@ export class LexiStorageService {
     await LexiStorageService.setRawValueUnlocked(`history:${noteId}`, '[]');
     await LexiStorageService.setSettingUnlocked(`noteRedirect:${noteId}`, '');
     await LexiStorageService.syncLinkTable(next);
-    if (target) { await LexiStorageService.persistFolderCatalog(target.vaultId, target.projectId || ''); }
+    if (target) {
+      const change = new LexiNoteChange();
+      change.kind = 'delete';
+      change.noteId = target.id;
+      change.vaultId = target.vaultId;
+      change.title = target.title;
+      change.trashedAt = target.trashedAt;
+      change.updatedAt = target.updatedAt;
+      LexiPluginBus.noteChanged(change);
+      await LexiStorageService.persistFolderCatalog(target.vaultId, target.projectId || '');
+    }
   }
 
   static async getMindMaps(vaultId: string = ''): Promise<MindMapDoc[]> {

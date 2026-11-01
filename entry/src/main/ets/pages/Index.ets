@@ -2,6 +2,7 @@ import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { accessibility } from '@kit.AccessibilityKit';
 import { CustomTheme, curves, LengthMetrics, uiMaterial } from '@kit.ArkUI';
 import { LexiDesktopWorkspace } from '../components/LexiDesktopWorkspace';
+import { LexiPluginRuntimeHost } from '../components/plugin/LexiPluginRuntimeHost';
 import { LexiIcon } from '../components/LexiIcon';
 import { LexiTitleBackdrop } from '../components/LexiTitleBackdrop';
 import { LexiNavigation } from '../components/LexiNavigation';
@@ -1289,6 +1290,8 @@ struct Index {
 
   build() {
     Stack() {
+      // 无头插件运行时内核(1x1 ArkWeb):应用级单例,手机/桌面全形态生效
+      LexiPluginRuntimeHost()
       Stack() {
       if (!this.ready) {
         LexiLaunchScreen({

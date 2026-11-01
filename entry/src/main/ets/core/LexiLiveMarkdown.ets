@@ -1,11 +1,21 @@
 import { MarkdownBlock } from './LexiModels';
 import { MarkdownEngine } from './MarkdownEngine';
 
+export class LexiLiveSelection {
+  start: number = 0;
+  end: number = 0;
+}
+
 export class LexiLiveEditorController {
   caretPosition: (offset: number) => void = (_offset: number): void => {};
   setTextSelection: (start: number, end: number) => void = (_start: number, _end: number): void => {};
   insert: (snippet: string) => void = (_snippet: string): void => {};
   finishEditing: () => void = (): void => {};
+  // Plugin editor facade hooks; the live editor assigns real implementations on mount.
+  getText: () => string = (): string => '';
+  getSelection: () => LexiLiveSelection = (): LexiLiveSelection => new LexiLiveSelection();
+  replaceRange: (start: number, end: number, text: string) => void =
+    (_start: number, _end: number, _text: string): void => {};
 }
 
 export class LexiLiveRange {
