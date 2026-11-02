@@ -168,8 +168,10 @@ function makeFakeIo() {
       for (const key of [...files.keys()]) { if (key === p || key.startsWith(p + '/')) { files.delete(key); } }
       for (const key of [...dirs]) { if (key === p || key.startsWith(p + '/')) { dirs.delete(key); } }
     },
-    sha256File(p) { assert.ok(files.has(p), 'sha256File 缺失: ' + p); return Promise.resolve(crypto.createHash('sha256').update(files.get(p)).digest('hex')); }
-  };
+    sha256File(p) { assert.ok(files.has(p), 'sha256File 缺失: ' + p); return Promise.resolve(crypto.createHash('sha256').update(files.get(p)).digest('hex')); },
+    fileSize(p) { return files.has(p) ? files.get(p).length : 0; },
+    sha256FileSync(p) { return files.has(p) ? crypto.createHash('sha256').update(files.get(p)).digest('hex') : ''; }
+  }
   return io;
 }
 
@@ -359,8 +361,13 @@ async function fakeLifecycle() {
   io.writeText('/plugins/legacy-plugin/data.json', '{"note":"用户数据"}');
 
   writePackage(io, '/src/v2', V2_MANIFEST, 'module.exports={v:2}');
-  const upgrade = await installer.installExtracted('/src/v2', options());
-  assert.equal(upgrade.ok, true, '升级应成功: ' + upgrade.code + ' ' + upgrade.message);
+  // T4.4(§9.5):v1→v2 引入新权限声明,未批准必须拒绝;批准(grantApproved)后放行。
+  const blockedUpgrade = await installer.installExtracted('/src/v2', options());
+  assert.equal(blockedUpgrade.ok, false, '未批准新权限的升级应拒绝: ' + blockedUpgrade.code);
+  assert.equal(blockedUpgrade.code, 'ERR_PERMISSION_REGRANT_REQUIRED',
+    '拒绝码应为 ERR_PERMISSION_REGRANT_REQUIRED: ' + blockedUpgrade.code);
+  const upgrade = await installer.installExtracted('/src/v2', { grantApproved: true });
+  assert.equal(upgrade.ok, true, '批准后升级应成功: ' + upgrade.code + ' ' + upgrade.message);
   assert.equal(upgrade.version, '1.1.0');
   assert.equal(upgrade.previousVersion, '1.0.0');
   assert.equal(io.readText('/plugins/legacy-plugin/main.js'), 'module.exports={v:2}');
@@ -478,7 +485,11 @@ test('真实目录：升级、回滚、卸载走 SystemPluginStorageIo', async (
   const v2Path = path.join(tmp, 'v2.zip');
   const v2Bytes = realZip(V2_MANIFEST, 'module.exports={v:2}');
   fs.writeFileSync(v2Path, v2Bytes);
-  await installer.installZip(v2Path, crypto.createHash('sha256').update(v2Bytes).digest('hex'));
+  // T4.4(§9.5):先证未批准被拒,再证批准后放行(与假文件系统场景同口径)。
+  await assert.rejects(() => installer.installZip(v2Path, crypto.createHash('sha256').update(v2Bytes).digest('hex')),
+    /ERR_PERMISSION_REGRANT_REQUIRED/, '未批准新权限的升级应拒绝');
+  await installer.installZip(v2Path, crypto.createHash('sha256').update(v2Bytes).digest('hex'),
+    JSON.stringify({ grantApproved: true }));
   assert.equal(installer.currentVersion('legacy-plugin'), '1.1.0');
   assert.equal(fs.existsSync(path.join(pluginsRoot, 'legacy-plugin', '.versions', '1.0.0', 'main.js')), true);
   assert.deepEqual(await installer.listVersions('legacy-plugin'), ['1.0.0', '1.1.0']);

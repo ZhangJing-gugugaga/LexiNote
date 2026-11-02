@@ -1,0 +1,17 @@
+{
+  "_type": "root",
+  "spec_version": "1.0.0",
+  "expires": "2099-01-01",
+  "keys": {
+    "root": "root-key",
+    "snapshot": "snapshot-key",
+    "targets": "targets-key",
+    "timestamp": "timestamp-key"
+  },
+  "roles": {
+    "snapshot": "snapshot-key",
+    "targets": "targets-key",
+    "timestamp": "timestamp-key"
+  },
+  "revocations": []
+}

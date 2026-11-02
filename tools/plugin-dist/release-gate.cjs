@@ -261,6 +261,9 @@ function ciMode() {
     ['markdown-pipeline: T3.1 渲染管线(RFC)', 'scripts/tests/plugin-markdown-pipeline.cjs', []],
     ['codemirror-compat: T3.2 CM 矩阵(RFC)', 'scripts/tests/plugin-codemirror-compat.cjs', []],
     ['ui-theme-contract: T3.3/T3.4 UI+主题(RFC)', 'scripts/tests/plugin-ui-theme-contract.cjs', []],
+    ['package-verifier: T4.1 安装包校验(RFC)', 'scripts/tests/plugin-package-verifier.cjs', []],
+    ['registry-trust: T4.2 元数据信任链(RFC)', 'scripts/tests/plugin-registry-trust.cjs', []],
+    ['update-policy: T4.3/T4.4 市场+更新策略(RFC)', 'scripts/tests/plugin-update-policy.cjs', []],
     ['market-regression: v1 索引解析', 'scripts/tests/plugin-market-regression.cjs', []]
   ];
   const env = Object.assign({}, process.env);

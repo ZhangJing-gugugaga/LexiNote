@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LexiNote Registry root metadata v1",
+  "type": "object",
+  "required": [
+    "_type",
+    "spec_version",
+    "expires",
+    "keys",
+    "roles"
+  ],
+  "properties": {
+    "_type": {
+      "const": "root"
+    },
+    "spec_version": {
+      "type": "string"
+    },
+    "expires": {
+      "type": "string"
+    },
+    "keys": {
+      "type": "object"
+    },
+    "roles": {
+      "type": "object"
+    },
+    "revocations": {
+      "type": "array"
+    }
+  }
+}

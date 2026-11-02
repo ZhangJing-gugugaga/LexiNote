@@ -28,6 +28,8 @@ import {
   ERROR_MIN_API_UNSATISFIED,
   ERROR_DOWNGRADE_BLOCKED
 } from './LexiPluginManifest';
+import { LexiArchiveEntry, LexiPackageDecision, LexiPackageVerifier } from './LexiPackageVerifier';
+import { LexiCapabilityDiffLite, LexiUpdateInput, LexiUpdatePolicy } from './LexiUpdatePolicy';
 
 export const INSTALL_ERROR_FAILED: string = 'install_failed';
 export const UNINSTALL_ERROR_FAILED: string = 'uninstall_failed';
@@ -51,6 +53,10 @@ export interface PluginStorageIo {
   copyTree(source: string, dest: string): Promise<void>;
   removeTree(path: string): void;
   sha256File(path: string): Promise<string>;
+  /** 文件字节量(T4.1 预算前置:解压前先量 ZIP 体积,§8.4)。 */
+  fileSize(path: string): number;
+  /** 同步 sha256(T4.4 已装版本字节指纹;与 sha256File 同摘要,供纯策略判定)。 */
+  sha256FileSync(path: string): string;
 }
 
 export class SystemPluginStorageIo implements PluginStorageIo {
@@ -131,6 +137,35 @@ export class SystemPluginStorageIo implements PluginStorageIo {
     }
     return hex;
   }
+
+  fileSize(path: string): number {
+    try {
+      return fs.statSync(path).size;
+    } catch { return 0; }
+  }
+
+  sha256FileSync(path: string): string {
+    try {
+      const size = fs.statSync(path).size;
+      const bytes = new Uint8Array(size);
+      const file = fs.openSync(path, fs.OpenMode.READ_ONLY);
+      try {
+        if (size > 0) { fs.readSync(file.fd, bytes.buffer as ArrayBuffer); }
+      } finally {
+        fs.closeSync(file);
+      }
+      const md = cryptoFramework.createMd('SHA256');
+      md.updateSync({ data: bytes });
+      const digest = md.digestSync();
+      const out = digest.data;
+      let hex = '';
+      for (let i = 0; i < out.length; i++) {
+        const piece = out[i].toString(16);
+        hex += piece.length === 1 ? '0' + piece : piece;
+      }
+      return hex;
+    } catch { return ''; }
+  }
 }
 
 export class PluginInstallOptions {
@@ -138,6 +173,8 @@ export class PluginInstallOptions {
   expectedSha256: string = '';
   /** Allow installing an older version over a newer one. */
   allowDowngrade: boolean = false;
+  /** 用户已批准升级引入的新权限(T2.2 重授权 UI 批准后置真;§9.5)。 */
+  grantApproved: boolean = false;
 }
 
 export class PluginInstallOutcome {
@@ -212,10 +249,76 @@ export class LexiPluginInstaller {
     return outcome;
   }
 
+  /**
+   * T4.1 解压后结构校验:递归收集相对路径(归一化 '/')与真实体积,交给 LexiPackageVerifier
+   * 走同一套判定(扩展名白名单/重复/预算/路径安全);违规由调用方清场。
+   */
+  private async verifyExtractedTree(root: string, zipBytes: number): Promise<LexiPackageDecision> {
+    const entries: LexiArchiveEntry[] = [];
+    const walk = (dir: string, prefix: string): void => {
+      for (const name of this.io.listSync(dir)) {
+        const full = dir + '/' + name;
+        const rel = prefix.length === 0 ? name : prefix + '/' + name;
+        if (this.io.isDirectory(full)) {
+          walk(full, rel);
+        } else {
+          const entry = new LexiArchiveEntry();
+          entry.name = rel;
+          entry.size = this.io.fileSize(full);
+          entries.push(entry);
+        }
+      }
+    };
+    walk(root, '');
+    const verifier = new LexiPackageVerifier();
+    return verifier.inspectArchive(entries, zipBytes);
+  }
+
+  /** 撤销/下架表(T4.4,§9.2):宿主可注入('plug-a@1.1.0' / 'plug-a@*')。 */
+  revocations: string[] = [];
+
+  /** 已装版本的能力标签(投影目录 manifest);读不到按空集(重授权语义不因读失败放行新增权限)。 */
+  private installedCapabilityTags(id: string, version: string): string[] {
+    if (version.length === 0) { return []; }
+    try {
+      const manifest = parsePluginManifest(this.io.readText(
+        this.pluginDir(id) + '/manifest.json'));
+      return this.manifestCapabilityTags(manifest);
+    } catch { return []; }
+  }
+
+  /** 清单能力标签(与 T2.2 指纹同语义:vault.write / network:<host> / clipboard)。 */
+  private manifestCapabilityTags(manifest: LexiPluginManifest): string[] {
+    const tags: string[] = [];
+    if (manifest.capabilitiesDeclared) {
+      if (manifest.capabilities.fs) { tags.push('vault.write'); }
+      for (const host of manifest.capabilities.network) { tags.push('network:' + host); }
+      if (manifest.capabilities.clipboard) { tags.push('clipboard'); }
+    }
+    return tags;
+  }
+
+  /** 已装版本字节指纹(.versions/<v>/main.js 的 sha256;读不到回空=幂等比对跳过)。 */
+  private installedSha256Of(id: string, version: string): string {
+    if (version.length === 0) { return ''; }
+    try {
+      const pointerPath = this.pluginDir(id) + '/.versions/' + version + '/main.js';
+      return this.io.exists(pointerPath) ? this.io.sha256FileSync(pointerPath) : '';
+    } catch { return ''; }
+  }
+
   // --- install ------------------------------------------------------------
 
   /** Extracts a zip (local path or file URI) and installs the plugin into the plugins root. */
-  async installZip(zipSource: string, expectedSha256: string = ''): Promise<LexiPluginManifest> {
+  async installZip(zipSource: string, expectedSha256: string = '', optionsJson: string = ''): Promise<LexiPluginManifest> {
+    // T4.4:optionsJson 携带 { grantApproved } 等安装选项(UI 批准重授权后置真)。
+    let extraOptions: PluginInstallOptions = new PluginInstallOptions();
+    if (optionsJson.length > 0) {
+      try {
+        const parsed = JSON.parse(optionsJson) as Record<string, Object>;
+        extraOptions.grantApproved = parsed['grantApproved'] === true;
+      } catch { /* 非法 options 按默认继续(结构校验兜底) */ }
+    }
     const work = this.context.cacheDir + '/plugin-install-' + Date.now();
     this.io.mkdirp(work);
     let zipPath = zipSource;
@@ -226,12 +329,26 @@ export class LexiPluginInstaller {
     try {
       const verified = await this.verifyPackageHash(zipPath, expectedSha256);
       if (!verified.ok) { throw new Error(verified.code + ': ' + verified.message); }
+      // T4.1 预算前置(§8.4):解压前先量 ZIP 体积,超限直接拒(不浪费解压 IO)。
+      const verifier = new LexiPackageVerifier();
+      const zipBudget = verifier.inspectArchive([], this.io.fileSize(zipPath));
+      if (!zipBudget.ok) {
+        throw new Error(zipBudget.code + ': ' + zipBudget.reason);
+      }
       const extractRoot = work + '/unpacked';
       this.io.mkdirp(extractRoot);
       await zlib.decompressFile(zipPath, extractRoot);
+      // T4.1 结构校验(§8.4 不得只依赖解压库默认行为):扩展名白名单/文件数/单文件与总体积/
+      // 路径安全;违规即清场,半装状态不残留。
+      const safety = await this.verifyExtractedTree(extractRoot, zipBudget.ok ? this.io.fileSize(zipPath) : 0);
+      if (!safety.ok) {
+        throw new Error(safety.code + ': ' + safety.reason + ' | ' + safety.violations.join('; '));
+      }
       const root = await this.locatePluginRoot(extractRoot);
       if (!root) { throw new Error(ERROR_MANIFEST_INVALID + ': 安装包中未找到 manifest.json'); }
-      const outcome = await this.installExtracted(root, this.optionsFor(expectedSha256));
+      const mergedOptions = this.optionsFor(expectedSha256);
+      mergedOptions.grantApproved = extraOptions.grantApproved;
+      const outcome = await this.installExtracted(root, mergedOptions);
       if (!outcome.ok) { throw new Error(outcome.code + ': ' + outcome.message); }
       return outcome.manifest as LexiPluginManifest;
     } finally {
@@ -273,6 +390,30 @@ export class LexiPluginInstaller {
     if (previous.length > 0 && !options.allowDowngrade && comparePluginVersion(manifest.version, previous) < 0) {
       outcome.code = ERROR_DOWNGRADE_BLOCKED;
       outcome.message = '禁止降级安装：已安装 ' + previous + '，安装包为 ' + manifest.version;
+      return outcome;
+    }
+    // T4.4 更新策略(§9.4 不可变 / §9.5 权限重授权 / §9.2 撤销):staging 前纯判定。
+    const diff = new LexiCapabilityDiffLite();
+    const oldCaps = this.installedCapabilityTags(id, previous);
+    const newCaps = this.manifestCapabilityTags(manifest);
+    diff.added = newCaps.filter((tag: string): boolean => oldCaps.indexOf(tag) < 0);
+    diff.removed = oldCaps.filter((tag: string): boolean => newCaps.indexOf(tag) < 0);
+    diff.changed = diff.added.length > 0 || diff.removed.length > 0;
+    const policyInput = new LexiUpdateInput();
+    policyInput.pluginId = id;
+    policyInput.installedVersion = previous;
+    policyInput.installedSha256 = this.installedSha256Of(id, previous);
+    policyInput.incomingVersion = manifest.version;
+    policyInput.incomingSha256 = options.expectedSha256;
+    policyInput.oldCaps = oldCaps;
+    policyInput.newCaps = newCaps;
+    policyInput.revoked = this.revocations;
+    policyInput.permissionDiff = diff;
+    const policy = LexiUpdatePolicy.decide(policyInput);
+    if (!policy.ok && !(policy.code === 'ERR_PERMISSION_REGRANT_REQUIRED' && options.grantApproved)) {
+      // 重授权已被用户批准(grantApproved)时放行;其余决策码一律拒绝。
+      outcome.code = policy.code;
+      outcome.message = policy.reason;
       return outcome;
     }
     const dir = this.pluginDir(id);
