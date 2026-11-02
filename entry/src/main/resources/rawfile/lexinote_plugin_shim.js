@@ -1067,6 +1067,12 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
     // 命中直接返回缓存,未命中触发一次异步拉取并返回 null,由调用方决定是否重试。
     getFileCache: function (file) { return requestMetadata(file && file.path); },
     getCache: function (path) { return requestMetadata(path); },
+    // M2-B(Tasks 依赖):frontmatter 投影(Obsidian 语义为同步读,这里沿用 requestMetadata 通道)
+    getAllProperties: function (path) {
+      return requestMetadata(path).then(function (cache) {
+        return (cache && cache.frontmatter) ? cache.frontmatter : {};
+      });
+    },
     getFirstLinkpathDest: function (linkpath, sourcePath) { return firstLinkDest(linkpath, sourcePath); },
     fileToLinktext: function (file) { return file.basename; },
     // Obsidian 语义:属性 getter,同步返回全量图。
@@ -1674,8 +1680,23 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
     var list = extensions && extensions.length ? extensions : [];
     for (var i = 0; i < list.length; i++) { this.registerEditorExtension(list[i]); }
   };
-  PluginShim.prototype.registerMarkdownPostProcessor = function (processor) {
-    console.warn('[lexinote] registerMarkdownPostProcessor 将在后续版本生效');
+  PluginShim.prototype.registerMarkdownPostProcessor = function (processor, priority) {
+    // RFC T3.1(P1-02 收口):真委托 LexiReading 注册表——稳定顺序与失败隔离在内核侧(§7.5)。
+    // 返回注销函数语义挂到 _cleanups 卸载链:插件 onunload 时反注册自己的后处理器。
+    var self = this;
+    if (typeof processor !== 'function') { return processor; }
+    var sortOrder = typeof priority === 'number' && isFinite(priority) ? priority : 0;
+    var reading = typeof window !== 'undefined' ? window.LexiReading : null;
+    if (reading && typeof reading.registerPostProcessor === 'function') {
+      var deregister = reading.registerPostProcessor(function (el, context) {
+        return withToken(self.__lexiToken || currentToken(), function () { return processor(el, context); });
+      }, sortOrder);
+      if (self._cleanups) {
+        self._cleanups.push(function () { if (typeof deregister === 'function') { deregister(); } });
+      }
+    } else {
+      console.warn('[lexinote] LexiReading 注册表不可用,后处理器未挂载');
+    }
     return processor;
   };
   PluginShim.prototype.registerMarkdownCodeBlockProcessor = function (language, handler) {
@@ -2539,6 +2560,13 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
     FuzzySuggestModal: FuzzySuggestModal,
     AbstractInputSuggest: SuggestModalShim,
     MarkdownRenderer: MarkdownRenderer,
+    sanitizeHTMLToDom: function (html) {
+      // M2-B(Tasks 依赖):页面侧 DOM 解析注入文档片段;不取远程资源,由 CSP connect-src none 兜底。
+      var doc = new DOMParser().parseFromString(String(html === undefined ? '' : html), 'text/html');
+      var fragment = document.createDocumentFragment();
+      while (doc.body && doc.body.firstChild) { fragment.appendChild(doc.body.firstChild); }
+      return fragment;
+    },
     MarkdownRenderChild: ComponentShim,
     Events: LocalEmitter,
     Scope: function Scope() {},

@@ -1,4 +1,25 @@
 /* ---------------------------------------------------------------------------
+   LexiNote 统一 token 层（RFC §7.8 T3.4）
+   --lexi-* 是宿主稳定 token:浅/深双态取值映射到 Obsidian 同名变量,
+   主题改写 Obsidian 变量即可整页跟随;插件 CSS 一律消费 --lexi-*,不直接耦合主题变量。
+--------------------------------------------------------------------------- */
+:root, body.theme-light {
+  --lexi-background-primary: var(--background-primary, #ffffff);
+  --lexi-background-secondary: var(--background-secondary, #f7f7f7);
+  --lexi-text-primary: var(--text-normal, #222222);
+  --lexi-text-muted: var(--text-muted, #6b7280);
+  --lexi-accent: var(--interactive-accent, #5b8def);
+}
+
+body.theme-dark {
+  --lexi-background-primary: var(--background-primary, #1c1c1e);
+  --lexi-background-secondary: var(--background-secondary, #161618);
+  --lexi-text-primary: var(--text-normal, #eeeeee);
+  --lexi-text-muted: var(--text-muted, #9ca3af);
+  --lexi-accent: var(--interactive-accent, #5b8def);
+}
+
+/* ---------------------------------------------------------------------------
    LexiNote 工作区宿主基础层（主题之前注入）
 
    机制（为什么原样装入的 Obsidian 主题能覆盖它）：

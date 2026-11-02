@@ -1525,6 +1525,14 @@ export class LexiPluginManager {
       const file = manager.metadata.getFirstLinkpathDest(rpcString(request, 'linkpath'), rpcString(request, 'sourcePath'));
       return okResponse(file ? fileToJson(file) : null);
     });
+    // M2-B(Tasks 依赖):getAllProperties = frontmatter 投影(T3.1)。
+    runtime.registerHandler('metadata.getAllProperties', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      if (!manager.metadata) { return failResponse('元数据服务未就绪'); }
+      const cache = manager.metadata.getCache(rpcString(request, 'path'));
+      const emptyProps: Record<string, Object> = {};
+      return okResponse((cache !== null && cache.frontmatter !== null ? cache.frontmatter : emptyProps) as Object);
+    });
     runtime.registerHandler('metadata.resolved', async (_payload: string): Promise<string> => {
       if (!manager.metadata) { return failResponse('元数据服务未就绪'); }
       return okResponse(manager.metadata.resolvedLinks() as Object);

@@ -258,6 +258,9 @@ function ciMode() {
     ['permission-store: T2.2 权限存储(RFC)', 'scripts/tests/plugin-permission-store.cjs', []],
     ['vault-revision: T2.3 乐观锁(RFC)', 'scripts/tests/plugin-vault-revision.cjs', []],
     ['workspace-api: T2.4 视图会话(RFC)', 'scripts/tests/plugin-workspace-api.cjs', []],
+    ['markdown-pipeline: T3.1 渲染管线(RFC)', 'scripts/tests/plugin-markdown-pipeline.cjs', []],
+    ['codemirror-compat: T3.2 CM 矩阵(RFC)', 'scripts/tests/plugin-codemirror-compat.cjs', []],
+    ['ui-theme-contract: T3.3/T3.4 UI+主题(RFC)', 'scripts/tests/plugin-ui-theme-contract.cjs', []],
     ['market-regression: v1 索引解析', 'scripts/tests/plugin-market-regression.cjs', []]
   ];
   const env = Object.assign({}, process.env);

@@ -90,7 +90,7 @@ export class LexiPermissionBroker {
     // --- fs-read：会话 + 插件（metadata/editor.state 同为只读域） ---
     const fsRead: string[] = [
       'vault.files', 'vault.getByPath', 'vault.read',
-      'metadata.get', 'metadata.firstLink', 'metadata.resolved', 'metadata.graph',
+      'metadata.get', 'metadata.firstLink', 'metadata.resolved', 'metadata.graph', 'metadata.getAllProperties',
       'editor.state'
     ];
     for (const method of fsRead) { matrix.set(method, 'fs-read'); }

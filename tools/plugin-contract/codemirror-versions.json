@@ -1,0 +1,11 @@
+{
+  "source": "generated from tools/workspace-bundle/package-lock.json — 实锁版本单一真源,宿主升级 CM 必须重跑 Outliner 兼容门禁",
+  "generatedAt": "2026-11-02T18:07:06.424Z",
+  "peerPolicy": "插件 require('@codemirror/*') 必须取宿主注册表实例,禁止自带第二份(RFC §7.4/ADR-003)",
+  "acceptance": "每次宿主升级 CodeMirror 必须运行 plugin-codemirror-compat + 设备侧 Outliner 梯队",
+  "modules": {
+    "@codemirror/language": "6.13.1",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.15"
+  }
+}
