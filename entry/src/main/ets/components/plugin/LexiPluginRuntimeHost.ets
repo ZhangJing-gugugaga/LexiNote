@@ -29,8 +29,10 @@ export struct LexiPluginRuntimeHost {
     if (this.manager) {
       Web({ src: $rawfile('lexinote_plugin_runtime.html'), controller: this.webController })
         .javaScriptAccess(true)
-        .fileAccess(true)
+        // RFC §3.9:不可信插件运行页面禁本地文件访问、禁 DOM Storage(插件数据走 data.load/save)。
+        .fileAccess(false)
         .databaseAccess(false)
+        .domStorageAccess(false)
         .javaScriptProxy({
           object: this.manager.runtime,
           name: 'lexiHost',

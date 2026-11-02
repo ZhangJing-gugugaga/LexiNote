@@ -498,11 +498,13 @@ test('真实目录：升级、回滚、卸载走 SystemPluginStorageIo', async (
 // --- 6. runtime wiring ---------------------------------------------------
 test('runtime 接线：能力门禁在处理器前面，卸载/回滚/严格索引都已接上', () => {
   const text = fs.readFileSync(path.join(CORE, 'plugin', 'LexiPluginRuntime.ets'), 'utf8');
-  const performRequest = text.slice(text.indexOf('performRequest(request'));
-  assert.match(performRequest, /checkNetworkCapability\(/, 'performRequest 必须先过能力门禁');
+  // 锚点更新:net handler 委派 performRequest → executeNetRequest(能力门禁/身份判定/超时全在
+  // LexiNetProbe,由 net-request-url.cjs 用 76 条断言真跑)。这里钉"委派链完整"而不是复制判定。
+  const performRequest = text.slice(text.indexOf("manager.performRequest(payload, identity, token)"));
+  assert.match(performRequest, /executeNetRequest\(/, 'performRequest 必须走 probe 能力管线(checkNetworkCapability 在 LexiNetProbe)');
   assert.match(text, /failResponseCode\(/, '拒绝必须带错误码，不能只有 ok=false');
   // 单一正典形态：fsGate(identity)。两种形态都认会让"半途回退"（一部分改回 request）蒙混过关。
-  assert.ok((text.match(/\.fsGate\(identity\)/g) || []).length >= 6, 'fs 门禁必须覆盖 data.save 与 vault.* 五个写入口（fsGate(identity) 至少 6 处）');
+  assert.ok((text.match(/\.fsGate\(identity,/g) || []).length >= 6, 'fs 门禁必须覆盖 data.save 与 vault.* 五个写入口（fsGate(identity, …) 至少 6 处）');
   assert.equal((text.match(/\.fsGate\(request\)/g) || []).length, 0, '禁止回退成 fsGate(request)：正典形态是 fsGate(identity)');
   assert.match(text, /async uninstallPlugin\(/, '宿主必须暴露卸载');
   assert.match(text, /async rollbackPlugin\(/, '宿主必须暴露回滚');

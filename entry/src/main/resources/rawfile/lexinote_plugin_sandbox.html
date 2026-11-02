@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <!-- RFC §3.2/§3.9 沙箱执行上下文：默认全禁；脚本只在本文档内联求值（插件代码经宿主端口送入）；
+       网络全部断绝（connect-src 'none'），一切宿主交互只能走宿主转移进来的 MessagePort。 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>lexinote-plugin-sandbox</title>
+</head>
+<body>
+<script>
+'use strict';
+// 沙箱插件上下文引导页（由宿主 PoC 页以 sandbox="allow-scripts" 的 iframe 装载）。
+// 设计约束（RFC T0.2）：
+//   - opaque origin：无 allow-same-origin，parent/top/document.cookie/localStorage 全部受限；
+//   - 身份不进上下文：宿主只在端口表里记 (port → pluginId/activationId/contextId)，
+//     本页面拿不到也不会收到任何 pluginId/token；
+//   - 唯一宿主入口 = 宿主转移进来的 MessagePort；
+//   - 自检函数 __lexiSandboxSelfCheck 供设备 PoC 与离线门禁共用。
+(function () {
+  var protocolVersion = 1;
+  var port = null;
+  var contextId = '';
+  var requestSeq = 0;
+  var pending = new Map();
+  var inited = false;
+
+  function postToHost(message) {
+    if (!port) { return; }
+    message.protocolVersion = protocolVersion;
+    try { port.postMessage(message); } catch (err) { /* 端口关闭后静默 */ }
+  }
+
+  function request(method, params) {
+    return new Promise(function (resolve, reject) {
+      requestSeq += 1;
+      var requestId = 'r' + requestSeq;
+      pending.set(requestId, { resolve: resolve, reject: reject });
+      postToHost({ type: 'sandbox.request', requestId: requestId, method: method, params: params || {} });
+    });
+  }
+
+  // 沙箱内插件代码拿到的宿主 API 面：只有 request()，没有任何宿主对象引用。
+  window.lexiSandbox = {
+    contextReady: inited,
+    request: request,
+    evalInContext: function (source) {
+      // 插件/探针代码求值：独立模块对象，防污染本引导面的导出。
+      var moduleObj = { exports: {} };
+      var factory = new Function('require', 'module', 'exports', 'host',
+        source + '\n//# sourceURL=lexi-sandbox-eval.js');
+      factory(function () { throw new Error('沙箱上下文不支持模块导入'); }, moduleObj, moduleObj.exports,
+        { request: request });
+      return moduleObj.exports;
+    },
+    protocolVersion: protocolVersion
+  };
+
+  // 启动自检：枚举本上下文的可达面，结论随 sandbox.boot 带回宿主。
+  window.__lexiSandboxSelfCheck = function () {
+    var checks = [];
+    function check(name, fn) {
+      try {
+        var value = fn();
+        checks.push({ name: name, isolated: value === false, detail: String(value).slice(0, 80) });
+      } catch (err) {
+        checks.push({ name: name, isolated: true, detail: 'blocked: ' + String((err && err.message) || err).slice(0, 80) });
+      }
+    }
+    check('parent-document', function () {
+      var doc = window.parent.document;
+      return doc === window.document ? 'same-document(异常)' : false;
+    });
+    check('parent-globals', function () {
+      var keys = 0;
+      for (var key in window.parent) { if (Object.prototype.hasOwnProperty.call(window.parent, key)) { keys++; } }
+      return keys > 0 ? 'parent 可枚举 ' + keys + ' 项' : false;
+    });
+    check('top-access', function () {
+      return window.top === window.self ? 'top 即自身(无父窗口)' : false;
+    });
+    check('local-storage', function () {
+      window.localStorage.setItem('__check__', '1');
+      return window.localStorage.getItem('__check__') === '1' ? 'localStorage 可写' : false;
+    });
+    check('cookie', function () {
+      var cookie = window.document.cookie;
+      return typeof cookie === 'string' && cookie.length > 0 ? 'cookie 非空' : false;
+    });
+    return { contextId: contextId, checks: checks };
+  };
+
+  function finish(requestId, payload) {
+    var entry = pending.get(requestId);
+    if (!entry) { return; }
+    pending.delete(requestId);
+    if (payload && payload.ok === false) {
+      entry.reject(new Error((payload.error && payload.error.message) || 'sandbox request failed'));
+    } else {
+      entry.resolve(payload && payload.result);
+    }
+  }
+
+  function onPortMessage(event) {
+    var data = event.data || {};
+    if (data.type === 'sandbox.response') { finish(data.requestId, data); return; }
+    if (data.type === 'sandbox.run' && typeof data.source === 'string') {
+      try {
+        window.lexiSandbox.evalInContext(data.source);
+        postToHost({ type: 'sandbox.ran', sourceKind: data.sourceKind || 'code' });
+      } catch (err) {
+        postToHost({ type: 'sandbox.evalError', message: String((err && err.message) || err).slice(0, 200) });
+      }
+      return;
+    }
+  }
+
+  window.addEventListener('message', function (event) {
+    // 只认父窗口、且必须带沙箱协议标记：别的窗口（含兄弟 iframe）的消息一律忽略。
+    if (event.source !== window.parent) { return; }
+    var data = event.data || {};
+    if (data.__lexiSandbox !== true) { return; }
+    if (data.type === 'sandbox.init' && !inited) {
+      inited = true;
+      contextId = typeof data.contextId === 'string' ? data.contextId : '';
+      window.lexiSandbox.contextReady = true;
+      port = event.ports && event.ports[0] ? event.ports[0] : null;
+      if (port) {
+        port.onmessage = onPortMessage;
+      }
+      postToHost({ type: 'sandbox.boot', contextId: contextId, selfCheck: window.__lexiSandboxSelfCheck() });
+    }
+  });
+
+  // 通知宿主：沙箱文档已就绪，可以接收 init + port。
+  try {
+    window.parent.postMessage({ __lexiSandbox: true, type: 'sandbox.ready' }, '*');
+  } catch (err) { /* 宿主不可达时 PoC 会超时报告 */ }
+})();
+</script>
+</body>
+</html>

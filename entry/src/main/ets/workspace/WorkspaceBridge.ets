@@ -1,4 +1,6 @@
 import { LexiPluginManager } from '../core/plugin/LexiPluginRuntime';
+import { mintCredential } from '../core/plugin/LexiCredentialFactory';
+import { LexiCallerContext, LexiCallerRole, LexiPermissionBroker } from '../core/plugin/LexiPermissionBroker';
 import { LexiNoteChange } from '../core/plugin/LexiPluginBus';
 import { LexiFileEventPayload } from '../core/plugin/LexiVaultFacade';
 import { LexiTFile } from '../core/plugin/LexiVaultModel';
@@ -85,6 +87,18 @@ export class WorkspaceBridge {
   private registryLoaded: boolean = false;
   /** token -> pluginId ('' means the page session). Tokens die with plugin.unload / page teardown. */
   private tokens: Map<string, string> = new Map<string, string>();
+  /**
+   * 桥侧身份 → 宿主凭据(RFC §3.4):delegate 转发宿主调用时必须携带运行时铸造的凭据,
+   * 不得把 token 表解析出的 pluginId 字符串直接当身份传下去。
+   */
+  private runtimeSessionCredential: string = '';
+  private runtimePluginCredentials: Map<string, string> = new Map<string, string>();
+  /**
+   * 桥面授权矩阵(T0.3):bridge 原生方法(hello/auth/插件控制面/主题/note.write/demo)
+   * 在进分支处理前必须过 broker;fs/network 判定不在这里(桥面没有这类方法)。
+   */
+  private readonly broker: LexiPermissionBroker =
+    new LexiPermissionBroker((_pluginId: string, _method: string): boolean => false);
   private channelId: string = '';
   private nonce: string = '';
   private authed: boolean = false;
@@ -189,6 +203,11 @@ export class WorkspaceBridge {
   }
 
   private async dispatch(method: string, token: string, payload: WorkspacePayload | undefined): Promise<WorkspaceCallReply> {
+    // 桥面授权(T0.3):token 表解析角色 → broker 矩阵。未知令牌=anonymous,除 public 外全拒。
+    const authzReply: WorkspaceCallReply | null = this.bridgeAuthorize(token, method);
+    if (authzReply !== null) {
+      return authzReply;
+    }
     if (method === 'channel.hello') {
       return this.onHello();
     }
@@ -198,15 +217,21 @@ export class WorkspaceBridge {
     if (method === 'log.event') {
       return this.onLogEvent(payload);
     }
-    if (method === 'plugin.list') {
+    if (method === 'plugin.list' || method === 'plugin.load') {
       if (!this.authed) {
         return this.fail(ERR_UNAUTHORIZED, 'channel.auth 未完成');
       }
-      return this.onPluginList();
-    }
-    if (method === 'plugin.load') {
-      if (!this.authed) {
-        return this.fail(ERR_UNAUTHORIZED, 'channel.auth 未完成');
+      // RFC T0.1:plugin 控制面只允许页面会话角色。插件令牌(已归属插件的调用方,
+      // 例如容器里跑起来的插件本体)不得装载/列举其他插件,否则等于把别人的源码和
+      // 全新身份凭据递到对手手里。
+      const owner: string | undefined = this.tokens.get(token);
+      if (owner === undefined || owner !== SESSION_PLUGIN_ID) {
+        WorkspaceLog.warn('plugin.controlplane',
+          'method=' + method + ' deny=non_session identity=' + (owner === undefined ? '(unknown token)' : owner));
+        return this.fail(ERR_UNAUTHORIZED, '插件控制面只允许页面会话调用');
+      }
+      if (method === 'plugin.list') {
+        return this.onPluginList();
       }
       return this.onPluginLoad(payload);
     }
@@ -238,6 +263,28 @@ export class WorkspaceBridge {
       return this.onNoteWrite(token, payload);
     }
     return this.delegate(method, token, payload);
+  }
+
+  /** 桥面授权:token → 角色(会话/插件/匿名),broker 矩阵判定;允许时返回 null。 */
+  private bridgeAuthorize(token: string, method: string): WorkspaceCallReply | null {
+    const owner: string | undefined = this.tokens.get(token);
+    const ctx = new LexiCallerContext();
+    if (owner === undefined) {
+      ctx.role = 'anonymous' as LexiCallerRole;
+    } else if (owner === SESSION_PLUGIN_ID) {
+      ctx.role = 'session' as LexiCallerRole;
+    } else {
+      ctx.role = 'plugin' as LexiCallerRole;
+      ctx.pluginId = owner;
+    }
+    const authz = this.broker.authorize(ctx, method, null);
+    if (authz.allowed) {
+      return null;
+    }
+    WorkspaceLog.warn('bridge.authz',
+      'method=' + method + ' role=' + ctx.role + ' kind=' + authz.kind +
+      ' code=' + authz.code + ' reason=' + authz.reason);
+    return this.fail(authz.code, authz.reason);
   }
 
   private onHello(): WorkspaceCallReply {
@@ -628,6 +675,27 @@ export class WorkspaceBridge {
     return this.success(ack);
   }
 
+  /** 桥侧身份 → 运行时铸造的凭据(RFC §3.4):身份翻译发生在宿主侧,页面拿不到这份凭据。 */
+  private async runtimeCredentialFor(pluginId: string): Promise<string> {
+    const manager: LexiPluginManager | null = await this.managerReady;
+    if (manager === null) {
+      return '';
+    }
+    if (pluginId === SESSION_PLUGIN_ID) {
+      if (this.runtimeSessionCredential.length === 0) {
+        this.runtimeSessionCredential = manager.runtime.sessionCredentialToken();
+      }
+      return this.runtimeSessionCredential;
+    }
+    const cached: string | undefined = this.runtimePluginCredentials.get(pluginId);
+    if (cached !== undefined && cached.length > 0) {
+      return cached;
+    }
+    const credential: string = manager.runtime.tokenForPlugin(pluginId);
+    this.runtimePluginCredentials.set(pluginId, credential);
+    return credential;
+  }
+
   private async delegate(method: string, token: string, payload: WorkspacePayload | undefined): Promise<WorkspaceCallReply> {
     const pluginId: string | undefined = this.tokens.get(token);
     if (pluginId === undefined) {
@@ -644,12 +712,13 @@ export class WorkspaceBridge {
       WorkspaceLog.warn('frame.identity',
         'method=' + method + ' identity=' + pluginId + ' claimed=' + claimed + ' ignored=true');
     }
-    // 身份只走带外参数(第 4 个实参 pluginId):payload 原样转发,不改写、不注入。
+    // 身份只走带外参数(第 4 个实参 = 运行时铸造的凭据):payload 原样转发,不改写、不注入。
     // 页面自报的 pluginId 由 LexiPluginRuntime 统一忽略并落审计日志,这一层不再替它打掩护。
+    const credential: string = await this.runtimeCredentialFor(pluginId);
     const forwarded: WorkspacePayload = payload === undefined ? {} : payload;
     let raw: string = '';
     try {
-      raw = await this.withTimeout(manager.runtime.call('', method, JSON.stringify(forwarded), pluginId), method);
+      raw = await this.withTimeout(manager.runtime.call('', method, JSON.stringify(forwarded), credential), method);
     } catch (err) {
       const message: string = err instanceof Error ? err.message : String(err);
       WorkspaceLog.error('frame.dispatch', method + ' threw: ' + message);
@@ -752,8 +821,8 @@ export class WorkspaceBridge {
 
   private mint(prefix: string): string {
     this.minted = this.minted + 1;
-    return prefix + '-' + Date.now().toString(36) + '-' + this.minted.toString(36) + '-' +
-      Math.random().toString(36).substring(2, 10);
+    // CSPRNG 铸造(RFC §3.4):nonce/channelId/会话与插件令牌都不再依赖时间戳+伪随机数。
+    return mintCredential(prefix);
   }
 
   private success(data: Object | null): WorkspaceCallReply {

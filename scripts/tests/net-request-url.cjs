@@ -381,7 +381,7 @@ async function main() {
 
   await step('宿主真的把令牌交给 net 处理器，并真的走同一段管线', async () => {
     ok('18.1 call() 把原始令牌作为第 4 实参传给 handler',
-      /handler\(stripClaimedIdentity\(payloadJson, trusted, method\), trusted, raw\)/.test(runtimeSource));
+      /handler\(stripClaimedIdentity\(payloadJson, trusted, method\), trusted, credential\)/.test(runtimeSource));
     ok('18.2 registerHandler 签名带 token 形参',
       /registerHandler\(method: string,\s*handler: \(payloadJson: string, identity: string, token: string\) => Promise<string>\): void/.test(runtimeSource));
     ok('18.3 net 处理器把 token 传下去',

@@ -60,7 +60,11 @@ function thenBoundaryBefore(lines, span, siteIndex) {
   return -1;
 }
 
-// captured 判定（结构性，无行号/方法名白名单）。四条件全部成立才放行，见文件头关于失效边界的说明。
+// captured 判定（结构性，无行号/方法名白名单）。两类形态放行：
+//   (a) 跨异步边界：捕获早于方法内站点之前的 .then 边界（原判据）；
+//   (b) 同步栈捕获：方法内从捕获到站点没有任何 .then 边界 —— 整段同一同步栈，
+//       捕获值与站点现场 currentToken() 必然一致（wrapper/api-root 依据的是同一个保证）。
+// 反作弊三条对两类同等适用（捕获后不得重赋值、不得是回调形参名）。
 function capturedTokenSite(call, ctx) {
   if (call.tokenExpr === null) { return null; }
   const ident = call.tokenExpr.match(/^([A-Za-z_$][\w$]*)$/);
@@ -75,24 +79,28 @@ function capturedTokenSite(call, ctx) {
   for (let i = span.start + 1; i <= span.end; i++) {
     if (new RegExp('^\\s*(?:var|let|const)\\s+' + esc + '\\s*=\\s*currentToken\\(\\s*\\)\\s*;').test(lines[i])) { captureAt = i; break; }
   }
-  if (captureAt < 0) { return null; }
+  if (captureAt < 0 || captureAt > site) { return null; }
   const boundary = thenBoundaryBefore(lines, span, site);
-  if (boundary < 0 || captureAt >= boundary) { return null; }
+  if (boundary >= 0 && captureAt >= boundary) { return null; }
   // 反作弊：捕获之后同名变量被重新赋值（形如 token = currentToken() 挪进回调），或回调形参就叫这个名
   // （实际用的是形参、不是捕获值）—— 两种都是"事后取令牌"换了件衣服，不认。
   for (let i = captureAt + 1; i <= span.end; i++) {
     if (new RegExp('(?:^|[^\\w$.])' + esc + '\\s*=(?!=)').test(lines[i])) { return null; }
   }
-  for (let i = boundary; i <= site; i++) {
-    const params = lines[i].match(/function\s*\(([^)]*)\)|\(([^)]*)\)\s*=>/);
-    if (!params) { continue; }
-    const names = (params[1] || params[2] || '').split(',').map((s) => s.trim().split(/[\s=:]/)[0]);
-    if (names.indexOf(name) >= 0) { return null; }
+  if (boundary >= 0) {
+    for (let i = boundary; i <= site; i++) {
+      const params = lines[i].match(/function\s*\(([^)]*)\)|\(([^)]*)\)\s*=>/);
+      if (!params) { continue; }
+      const names = (params[1] || params[2] || '').split(',').map((s) => s.trim().split(/[\s=:]/)[0]);
+      if (names.indexOf(name) >= 0) { return null; }
+    }
   }
   return {
     kind: 'captured',
     detail: name + ' ← ' + short(PATHS.shim) + ':' + (captureAt + 1) + ' ' + lines[captureAt].trim() +
-      '（早于方法 ' + span.name + ' 的 .then 边界 ' + short(PATHS.shim) + ':' + (boundary + 1) + '，跨异步带入本站点）'
+      (boundary >= 0
+        ? '（早于方法 ' + span.name + ' 的 .then 边界 ' + short(PATHS.shim) + ':' + (boundary + 1) + '，跨异步带入本站点）'
+        : '（方法 ' + span.name + ' 内捕获到站点之间无 .then 边界，同一同步栈，捕获值=现场令牌）')
   };
 }
 

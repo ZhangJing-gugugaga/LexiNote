@@ -369,9 +369,10 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
     };
     bucket.on(name, wrapper);
     var refId = ++hostEventSeq;
-    var entry = { refId: refId, topic: topic, name: name, callback: callback, wrapper: wrapper };
+    // 订阅令牌随 entry 保存:events.off 必须以"订阅者"的身份注销,而不是以"调用 off 的人"。
+    var entry = { refId: refId, topic: topic, name: name, callback: callback, wrapper: wrapper, token: listenerToken };
     hostEventTable.set(refId, entry);
-    hostCall('events.on', { refId: refId, topic: topic, name: name }).catch(function () {});
+    hostCall('events.on', { refId: refId, topic: topic, name: name }, listenerToken).catch(function () {});
     return makeHostRef(entry);
   }
 
@@ -381,7 +382,7 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
       hostEventTable.delete(entry.refId);
       var bucket = topicBuckets.get(entry.topic);
       if (bucket) { bucket.off(entry.name, entry.wrapper); }
-      hostCall('events.off', { refId: entry.refId }).catch(function () {});
+      hostCall('events.off', { refId: entry.refId }, entry.token).catch(function () {});
     };
     return ref;
   }
@@ -1217,6 +1218,8 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
   function makePluginLeaf(viewType) {
     var leaf = {
       __viewType: viewType || '',
+      // 归属令牌:创建 leaf 的同步栈身份(插件开视图=插件令牌,容器恢复布局=会话凭据)。
+      __lexiToken: currentToken(),
       __viewState: null,
       view: null,
       app: app,
@@ -1285,7 +1288,8 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
           revealActiveLeaf(activeLeafRef);
         }
         notifyLayoutChange();
-        return hostCall('workspace.closeView', { type: leaf.__viewType }).catch(function () { return null; });
+        // 视图关闭必须以"打开该视图的身份"发出:创建 leaf 时捕获的令牌优先于现场 currentToken()。
+        return hostCall('workspace.closeView', { type: leaf.__viewType }, leaf.__lexiToken || currentToken()).catch(function () { return null; });
       },
       getDisplayText: function () {
         return (leaf.view && typeof leaf.view.getDisplayText === 'function') ? leaf.view.getDisplayText() : leaf.__viewType;
@@ -1313,7 +1317,7 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
     get layoutReady() { return layoutReadyFlushed; },
     get activeEditor() {
       if (!lastEditorState || lastEditorState.active === false) { return null; }
-      return { app: app, file: null, editor: new EditorProxy(lastEditorState) };
+      return { app: app, file: null, editor: new EditorProxy(lastEditorState, currentToken()) };
     },
     // 以下四者在 Obsidian 里都是同步 API,容器必须同样同步返回。
     getActiveFile: function () { return lastActiveFile; },
@@ -1749,7 +1753,7 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
     return typeof window !== 'undefined' && window.__lexiEditor ? window.__lexiEditor : null;
   }
 
-  function EditorProxy(state) {
+  function EditorProxy(state, ownerToken) {
     this._text = state && typeof state.text === 'string' ? state.text : '';
     var selection = (state && state.selection) || { start: 0, end: 0 };
     this._selection = {
@@ -1757,6 +1761,8 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
       end: Math.max(0, typeof selection.end === 'number' ? selection.end : (selection.start || 0))
     };
     this._noteId = (state && state.noteId) || '';
+    // RFC T0.3:编辑器代理携带归属插件的令牌,异步回调里 editor 写入不再退化成会话/匿名身份。
+    this.__lexiToken = typeof ownerToken === 'string' ? ownerToken : '';
   }
   // Obsidian 的 Editor.cm 就是 CM6 的 EditorView:obsidian-outliner 直接拿它调 view/state API。
   try {
@@ -1796,7 +1802,8 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
   };
   EditorProxy.prototype._apply = function (method, payload) {
     var self = this;
-    return hostCall(method, payload).then(function (state) {
+    // 显式带归属令牌:异步栈上 currentToken() 已弹空,会退化成会话/匿名身份被授权矩阵拒绝。
+    return hostCall(method, payload, this.__lexiToken || currentToken()).then(function (state) {
       acceptEditorState(state);
       if (state && typeof state.text === 'string') { self._text = state.text; }
       if (state && state.selection) { self._selection = { start: state.selection.start, end: state.selection.end }; }
@@ -2319,7 +2326,7 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
         acceptEditorState(message.editor);
         var editorCommand = commandTable.get(message.fullId);
         if (editorCommand && typeof editorCommand.editorCallback === 'function') {
-          var editor = new EditorProxy(message.editor || {});
+          var editor = new EditorProxy(message.editor || {}, commandToken);
           var ctx = { app: app, file: null, editor: editor };
           Promise.resolve().then(function () {
             return editorCommand.editorCallback(editor, ctx);
@@ -2417,7 +2424,7 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
   // app.workspace.getActiveViewOfType(MarkdownView).editor 取编辑器,这条路径必须是真的。
   function markdownViewFor(leaf) {
     var view = new MarkdownViewShim(leaf);
-    view.editor = new EditorProxy({});
+    view.editor = new EditorProxy({}, currentToken());
     view.getViewType = function () { return 'markdown'; };
     view.getDisplayText = function () { return '编辑'; };
     return view;
@@ -2533,7 +2540,9 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
     ItemView: ItemViewShim,
     View: ViewShim,
     addIcon: function (iconId, svgContent) {
-      hostCall('ui.addIcon', { iconId: String(iconId), svgContent: String(svgContent) }).catch(function (err) {
+      // 同步栈捕获调用方令牌:归属登记(ui.addIcon 防跨插件覆盖)只认真实身份。
+      var addIconToken = currentToken();
+      hostCall('ui.addIcon', { iconId: String(iconId), svgContent: String(svgContent) }, addIconToken).catch(function (err) {
         console.warn('[lexinote] 图标注册失败', err);
       });
     },
@@ -2577,11 +2586,8 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
       // 门禁锚点:插件 shim 这才是会话身份的落点,只打尾部 6 位(可对账,不足以被复用)。
       console.log('[lexinote] session.token tail=' + (sessionToken.length > 0 ? sessionToken.slice(-6) : 'none'));
     },
-    getSessionToken: function () { return sessionToken; },
-    setPluginToken: function (pluginId, token) {
-      var instance = plugins.get(pluginId);
-      if (instance) { instance.__lexiToken = token || ''; }
-    },
+    // 会话令牌只进不出(RFC §3.4):容器经 setSessionToken 单向注入,页面内代码
+    // (含插件)没有读回通道;插件身份一律走各自实例的 __lexiToken,不许互相改写。
     withToken: withToken,
     currentToken: currentToken,
     hostCall: hostCall,

@@ -3,6 +3,7 @@ import { accessibility } from '@kit.AccessibilityKit';
 import { CustomTheme, curves, LengthMetrics, uiMaterial } from '@kit.ArkUI';
 import { LexiDesktopWorkspace } from '../components/LexiDesktopWorkspace';
 import { LexiPluginRuntimeHost } from '../components/plugin/LexiPluginRuntimeHost';
+import { LexiSandboxHost } from '../components/plugin/LexiSandboxHost';
 import { LexiIcon } from '../components/LexiIcon';
 import { LexiTitleBackdrop } from '../components/LexiTitleBackdrop';
 import { LexiNavigation } from '../components/LexiNavigation';
@@ -1351,6 +1352,8 @@ struct Index {
     Stack() {
       // 无头插件运行时内核(1x1 ArkWeb):应用级单例,手机/桌面全形态生效
       LexiPluginRuntimeHost()
+      // RFC T0.2 沙箱 PoC 宿主(1x1 ArkWeb):跑沙箱逃逸探针,结论进 hilog
+      LexiSandboxHost()
       Stack() {
       if (!this.ready) {
         LexiLaunchScreen({

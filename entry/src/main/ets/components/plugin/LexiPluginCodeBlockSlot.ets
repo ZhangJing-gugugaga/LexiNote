@@ -19,7 +19,7 @@ export struct LexiPluginCodeBlockSlot {
     if (this.ready && this.pluginId && this.language) {
       Web({ src: $rawfile('lexinote_plugin_view.html'), controller: this.webController })
         .javaScriptAccess(true)
-        .fileAccess(true)
+        .fileAccess(false)
         .databaseAccess(false)
         .javaScriptProxy({
           object: LexiPluginManager.shared!.runtime,

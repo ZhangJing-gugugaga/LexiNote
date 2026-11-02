@@ -248,6 +248,9 @@ function ciMode() {
     ['dist-audit --all: 三件夹具 + 恶意样本', 'scripts/tests/plugin-dist-audit.cjs', ['--all']],
     ['dist-regression: 分发离线回归', 'scripts/tests/plugin-dist-regression.cjs', []],
     ['identity-delivery: 令牌下发点', 'scripts/tests/plugin-identity-delivery.cjs', []],
+    ['bridge-security: T0.1 身份面(RFC)', 'scripts/tests/plugin-bridge-security.cjs', []],
+    ['context-isolation: T0.2 沙箱面(RFC)', 'scripts/tests/plugin-context-isolation.cjs', []],
+    ['authz-matrix: T0.3 授权矩阵(RFC)', 'scripts/tests/plugin-authz-matrix.cjs', []],
     ['market-regression: v1 索引解析', 'scripts/tests/plugin-market-regression.cjs', []]
   ];
   const env = Object.assign({}, process.env);

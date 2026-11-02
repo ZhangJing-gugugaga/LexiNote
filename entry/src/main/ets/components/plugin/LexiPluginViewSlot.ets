@@ -18,7 +18,7 @@ export struct LexiPluginViewSlot {
     if (this.ready && this.pluginId && this.viewType) {
       Web({ src: $rawfile('lexinote_plugin_view.html'), controller: this.webController })
         .javaScriptAccess(true)
-        .fileAccess(true)
+        .fileAccess(false)
         .databaseAccess(false)
         .javaScriptProxy({
           object: LexiPluginManager.shared!.runtime,

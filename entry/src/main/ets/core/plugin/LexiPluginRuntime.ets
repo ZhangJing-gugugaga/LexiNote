@@ -36,6 +36,14 @@ import { LexiEditorPosUtil, LexiEditorPosition } from './LexiEditorPos';
 import { LexiPluginInstaller, PluginLifecycleOutcome } from './LexiPluginInstaller';
 import { LexiPluginMarketEntry, LexiMarketIndexResult, parseMarketIndexResult } from './LexiPluginMarketModel';
 import { LexiPluginSettingDef, parseSettingDefinitions } from './LexiPluginSettingModel';
+import { mintCredential } from './LexiCredentialFactory';
+import {
+  LexiAuthzResource,
+  LexiCallerContext,
+  LexiCallerRole,
+  LexiAuthzDecision,
+  LexiPermissionBroker
+} from './LexiPermissionBroker';
 
 const LOAD_TIMEOUT_MS: number = 20000;
 /** 源码分片通道的身份错误码:与 capability_denied / integrity_mismatch 区分开,便于定点断言。 */
@@ -142,18 +150,34 @@ export class LexiWebRuntime {
   private ready: boolean = false;
   private readyWaiters: Array<() => void> = [];
   /**
-   * 插件身份令牌表(token → pluginId)。令牌只由本运行时铸造:装载时下发给运行时页面,
-   * 页面侧每一次宿主调用把它当第 4 个实参带回来,call() 用它反查身份。
-   * 令牌里不含插件 id(不可猜),页面自报的 pluginId 不参与身份判定。
+   * 插件身份凭据表(credential → pluginId,''= 页面会话角色)。凭据只由本运行时铸造:
+   * 装载时下发给运行时页面,页面侧每一次宿主调用把它当第 4 个实参带回来,call() 用它反查身份。
+   * 凭据里不含插件 id(不可猜),页面自报的 pluginId 不参与身份判定。
    */
   private pluginTokens: Map<string, string> = new Map();
+  /** 页面会话凭据(唯一一份,' '角色)。WorkspaceBridge 代表整个页面会话调用宿主时使用。 */
+  private sessionCredential: string = '';
+  /**
+   * 授权矩阵(T0.3):call() 预检 + 所有权复查的唯一判定器。默认 fs 拒绝;
+   * 管理器 init 时注入真实 fsAuthorizer(manifest 能力判定单一真源)。
+   */
+  broker: LexiPermissionBroker = new LexiPermissionBroker((_pluginId: string, _method: string): boolean => false);
 
-  /** 铸造插件令牌并登记归属。返回空串表示插件 id 非法(调用方必须按失败处理)。 */
+  /** 铸造插件凭据并登记归属。返回空串表示插件 id 非法(调用方必须按失败处理)。 */
   mintPluginToken(pluginId: string): string {
     if (pluginId.length === 0) { return ''; }
-    const token: string = 'tk-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 10);
+    const token: string = mintCredential('tk');
     this.pluginTokens.set(token, pluginId);
     return token;
+  }
+
+  /** 铸造(或复用)页面会话凭据:会话角色不归属任何插件,能力面由授权矩阵另行限定。 */
+  sessionCredentialToken(): string {
+    if (this.sessionCredential.length === 0) {
+      this.sessionCredential = mintCredential('st');
+      this.pluginTokens.set(this.sessionCredential, '');
+    }
+    return this.sessionCredential;
   }
 
   /** 吊销某插件的全部令牌(停用/卸载/回滚),返回吊销条数。 */
@@ -173,6 +197,17 @@ export class LexiWebRuntime {
     return owner === undefined ? '' : owner;
   }
 
+  /**
+   * 凭据 → 角色:'plugin' / 'session' / 'anonymous'。
+   * 未知凭据一律 anonymous(fail-closed):调用方原串绝不参与身份判定(RFC P0-01 修复点)。
+   */
+  roleOfCredential(credential: string): string {
+    if (typeof credential !== 'string' || credential.length === 0) { return 'anonymous'; }
+    const owner = this.pluginTokens.get(credential);
+    if (owner === undefined) { return 'anonymous'; }
+    return owner.length === 0 ? 'session' : 'plugin';
+  }
+
   /** 取该插件的令牌(没有就铸一个)：身份令牌只在宿主侧铸造，页面无法自造。 */
   tokenForPlugin(pluginId: string): string {
     let found: string = '';
@@ -185,6 +220,14 @@ export class LexiWebRuntime {
   /** 令牌尾 6 位:日志里可对账,又不足以被复用来冒充。 */
   static tokenTail(token: string): string {
     return token.length <= 6 ? token : token.substring(token.length - 6);
+  }
+
+  /** 角色+归属 → 授权上下文。 */
+  static contextOf(role: string, pluginId: string): LexiCallerContext {
+    const ctx = new LexiCallerContext();
+    ctx.role = role as LexiCallerRole;
+    ctx.pluginId = pluginId;
+    return ctx;
   }
 
   attach(controller: webview.WebviewController): void {
@@ -213,29 +256,46 @@ export class LexiWebRuntime {
   }
 
   /**
-   * 唯一的两个入口:(1) 运行时页面(lexiHost.call)带回装载时下发的插件令牌;
-   * (2) WorkspaceBridge.delegate 带回它自己已经鉴权过的 pluginId。
-   * 令牌是第一顺位可信身份:命中令牌表就换成归属的 pluginId;没命中则按 bridge 已鉴权的 pluginId 处理。
-   * payload 里的 pluginId 是自述,进处理器之前就被剥掉并落一行审计日志。
+   * 唯一的两个入口,身份实参都必须是本运行时铸造的凭据:
+   * (1) 运行时页面(lexiHost.call)带回装载时下发的插件凭据;
+   * (2) WorkspaceBridge.delegate 带回会话凭据或 tokenForPlugin 铸出的插件凭据。
+   * 凭据解析不出角色(anonymous)就 fail-closed:调用方原串(RFC P0-01 的 raw identity)
+   * 绝不作为身份下传。payload 里的 pluginId 是自述,进处理器之前就被剥掉并落一行审计日志。
    */
   async call(_callId: string, method: string, payloadJson: string, identity: string): Promise<string> {
     const handler = this.handlers.get(method);
     if (!handler) { return failResponse(`未知插件通道: ${method}`); }
-    const raw: string = typeof identity === 'string' ? identity : '';
-    const owned: string = this.pluginIdForToken(raw);
-    const trusted: string = owned.length > 0 ? owned : raw;
-    if (owned.length > 0) {
-      pluginLog('identity.token method=' + method + ' identity=' + owned +
-        ' tokenTail=' + LexiWebRuntime.tokenTail(raw));
-    } else if (method === 'plugin.sourceChunk' || method === 'plugin.sourceSize') {
-      // 源码通道只认装载时铸造的令牌:bridge 通道的 pluginId 在这里不作数(否则任何页面都能读别人源码)。
-      pluginError('源码通道拒绝: method=' + method + ' identity=' +
-        (raw.length > 0 ? raw.substring(0, 24) : '(none)') + ' fail_closed=true code=' + ERROR_IDENTITY_UNTRUSTED);
-      return failResponseCode(ERROR_IDENTITY_UNTRUSTED, '源码分片请求缺少可信插件令牌（fail-closed）');
+    const credential: string = typeof identity === 'string' ? identity : '';
+    const role: string = this.roleOfCredential(credential);
+    if (role === 'anonymous') {
+      pluginError('identity.anonymous method=' + method +
+        ' credential=' + (credential.length > 0 ? credential.substring(0, 24) : '(none)') +
+        ' fail_closed=true code=' + ERROR_IDENTITY_UNTRUSTED);
+    }
+    if (method === 'plugin.sourceChunk' || method === 'plugin.sourceSize') {
+      // 源码通道只认插件凭据:会话角色与匿名一律拒绝(否则任何页面都能读别人源码)。
+      if (role !== 'plugin') {
+        pluginError('源码通道拒绝: method=' + method + ' role=' + role +
+          ' fail_closed=true code=' + ERROR_IDENTITY_UNTRUSTED);
+        return failResponseCode(ERROR_IDENTITY_UNTRUSTED, '源码分片请求缺少可信插件凭据（fail-closed）');
+      }
+    }
+    const trusted: string = role === 'plugin' ? this.pluginIdForToken(credential) : '';
+    if (role === 'plugin') {
+      pluginLog('identity.token method=' + method + ' identity=' + trusted +
+        ' tokenTail=' + LexiWebRuntime.tokenTail(credential));
+    }
+    // 授权矩阵预检(T0.3):身份解析之后、进处理器之前。矩阵未登记的方法在此默认拒绝。
+    const authz = this.broker.authorize(LexiWebRuntime.contextOf(role, trusted), method, null);
+    if (!authz.allowed) {
+      pluginError('authz.denied method=' + method + ' role=' + role + ' identity=' +
+        (trusted.length > 0 ? trusted : '(none)') + ' kind=' + authz.kind +
+        ' code=' + authz.code + ' reason=' + authz.reason);
+      return failResponseCode(authz.code, authz.reason);
     }
     try {
-      // 原始令牌一并交给处理器：能力判定要能反查"这个身份是否真的持有它自己的令牌"。
-      return await handler(stripClaimedIdentity(payloadJson, trusted, method), trusted, raw);
+      // 原始凭据一并交给处理器：能力判定要能反查"这个身份是否真的持有它自己的凭据"。
+      return await handler(stripClaimedIdentity(payloadJson, trusted, method), trusted, credential);
     } catch (error) {
       return failResponse(String(error));
     }
@@ -360,6 +420,8 @@ export class LexiPluginManager {
   private pluginSources: Map<string, string> = new Map();
   private ribbonItems: Map<string, LexiRibbonRow> = new Map();
   private iconPaths: Map<string, string> = new Map();
+  /** 图标归属表(ui.addIcon 防跨插件覆盖):iconId → 首次注册的插件 id。 */
+  private iconOwners: Map<string, string> = new Map();
   /** ui.placeholder 登记表:key=kind#seq, value=标题(真实 DOM 由页面兼容层挂载)。 */
   private placeholders: Map<string, string> = new Map<string, string>();
 
@@ -654,6 +716,9 @@ export class LexiPluginManager {
     this.vault = new LexiVaultFacade();
     await this.vault.init(context);
     this.metadata = new LexiMetadataCache(this.vault);
+    // 授权矩阵的 fs 写能力注入:语义与 fsGate 同源(manifest 单一真源,归属失败 fail-closed)。
+    this.runtime.broker = new LexiPermissionBroker((pluginId: string, _method: string): boolean =>
+      this.fsAllowedByManifest(pluginId));
     this.safeMode = (await LexiStorageService.getSetting(KEY_SAFE_MODE, 'false')) === 'true';
     const enabledRaw = await LexiStorageService.getSetting(KEY_ENABLED, '[]');
     try {
@@ -852,19 +917,41 @@ export class LexiPluginManager {
       pluginLog('插件命令注册: ' + pluginId + ':' + rpcString(rawCommand, 'id') + (editorOnly ? ' (编辑器)' : ''));
       return okResponse(null);
     });
-    runtime.registerHandler('commands.remove', async (payload: string): Promise<string> => {
+    runtime.registerHandler('commands.remove', async (payload: string, identity: string,
+      token: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
-      manager.commands.removePluginCommand(rpcString(request, 'fullId'));
+      const fullId = rpcString(request, 'fullId');
+      // 所有权复查:fullId 的插件命名空间段就是资源归属,别人的命令删不得(RFC §4.5)。
+      const resource = new LexiAuthzResource();
+      const colon = fullId.indexOf(':');
+      resource.owner = colon > 0 ? fullId.substring(0, colon) : '';
+      resource.fullId = fullId;
+      const authz = manager.authzFor(identity, token, 'commands.remove', resource);
+      if (!authz.allowed) { return failResponseCode(authz.code, authz.reason); }
+      manager.commands.removePluginCommand(fullId);
       return okResponse(null);
     });
-    runtime.registerHandler('events.on', async (payload: string): Promise<string> => {
+    runtime.registerHandler('events.on', async (payload: string, identity: string,
+      token: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
-      manager.subscribeHostEvent(rpcNumber(request, 'refId'), rpcString(request, 'topic'), rpcString(request, 'name'));
-      return okResponse(rpcNumber(request, 'refId') as Object);
+      const refId = rpcNumber(request, 'refId');
+      // 订阅归属登记:events.off 的所有权复查靠它(订阅属于激活插件,不共 GLOBAL)。
+      const resource = new LexiAuthzResource();
+      resource.owner = identity;
+      const authz = manager.authzFor(identity, token, 'events.on', resource);
+      if (!authz.allowed) { return failResponseCode(authz.code, authz.reason); }
+      manager.subscribeHostEvent(refId, rpcString(request, 'topic'), rpcString(request, 'name'), identity);
+      return okResponse(refId as Object);
     });
-    runtime.registerHandler('events.off', async (payload: string): Promise<string> => {
+    runtime.registerHandler('events.off', async (payload: string, identity: string,
+      token: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
-      manager.unsubscribeHostEvent(rpcNumber(request, 'refId'));
+      const refId = rpcNumber(request, 'refId');
+      const resource = new LexiAuthzResource();
+      resource.owner = manager.hostEventOwnerOf(refId);
+      const authz = manager.authzFor(identity, token, 'events.off', resource);
+      if (!authz.allowed) { return failResponseCode(authz.code, authz.reason); }
+      manager.unsubscribeHostEvent(refId);
       return okResponse(null);
     });
     runtime.registerHandler('ui.notice', async (payload: string): Promise<string> => {
@@ -895,11 +982,19 @@ export class LexiPluginManager {
       manager.bumpPluginRevision();
       return okResponse(null);
     });
-    runtime.registerHandler('ui.addIcon', async (payload: string): Promise<string> => {
+    runtime.registerHandler('ui.addIcon', async (payload: string, identity: string,
+      token: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
       const iconId = rpcString(request, 'iconId').replace(/[^a-zA-Z0-9_-]/g, '_');
       const svg = rpcString(request, 'svgContent');
       if (!iconId || !svg) { return failResponse('图标参数不完整'); }
+      // 归属登记:图标命名空间全局共享,已被其他插件占用的 iconId 不得覆盖(RFC §5.4)。
+      const existingOwner = manager.iconOwners.get(iconId) || '';
+      if (existingOwner.length > 0 && identity.length > 0 && existingOwner !== identity) {
+        pluginError('authz.denied method=ui.addIcon iconId=' + iconId +
+          ' owner=' + existingOwner + ' caller=' + identity + ' code=ERR_PERMISSION_DENIED');
+        return failResponseCode('ERR_PERMISSION_DENIED', '图标已被其他插件注册: ' + iconId);
+      }
       try {
         if (manager.context) {
           const dir = `${manager.context.cacheDir}/plugin-icons`;
@@ -907,6 +1002,7 @@ export class LexiPluginManager {
           const path = `${dir}/${iconId}.svg`;
           manager.writeTextFile(path, svg);
           manager.iconPaths.set(iconId, path);
+          if (existingOwner.length === 0) { manager.iconOwners.set(iconId, identity); }
           manager.ribbonItems.forEach((row: LexiRibbonRow): void => {
             if (row.iconId === iconId) { row.iconPath = path; }
           });
@@ -928,9 +1024,17 @@ export class LexiPluginManager {
       pluginLog('插件视图注册: ' + info.type + ' → ' + info.displayName);
       return okResponse(null);
     });
-    runtime.registerHandler('views.remove', async (payload: string): Promise<string> => {
+    runtime.registerHandler('views.remove', async (payload: string, identity: string,
+      token: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
-      LexiPluginViewRegistry.remove(rpcString(request, 'type'));
+      const type = rpcString(request, 'type');
+      const info = LexiPluginViewRegistry.get(type);
+      const resource = new LexiAuthzResource();
+      resource.type = type;
+      resource.owner = info ? info.pluginId : '';
+      const authz = manager.authzFor(identity, token, 'views.remove', resource);
+      if (!authz.allowed) { return failResponseCode(authz.code, authz.reason); }
+      LexiPluginViewRegistry.remove(type);
       return okResponse(null);
     });
     runtime.registerHandler('workspace.openView', async (payload: string): Promise<string> => {
@@ -941,9 +1045,16 @@ export class LexiPluginManager {
       manager.requestViewOpen(type);
       return okResponse(info.displayName as Object);
     });
-    runtime.registerHandler('workspace.closeView', async (payload: string): Promise<string> => {
+    runtime.registerHandler('workspace.closeView', async (payload: string, identity: string,
+      token: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
       const type = rpcString(request, 'type');
+      const info = LexiPluginViewRegistry.get(type);
+      const resource = new LexiAuthzResource();
+      resource.type = type;
+      resource.owner = info ? info.pluginId : '';
+      const authz = manager.authzFor(identity, token, 'workspace.closeView', resource);
+      if (!authz.allowed) { return failResponseCode(authz.code, authz.reason); }
       if (manager.viewCloseHandler) { manager.viewCloseHandler(type); }
       return okResponse(null);
     });
@@ -956,13 +1067,16 @@ export class LexiPluginManager {
       pluginLog('插件代码块注册: ' + language + ' ← ' + pluginId);
       return okResponse(null);
     });
-    runtime.registerHandler('codeblocks.unregister', async (payload: string, identity: string): Promise<string> => {
+    runtime.registerHandler('codeblocks.unregister', async (payload: string, identity: string,
+      token: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
       const language = rpcString(request, 'language').toLowerCase();
-      const owner = manager.codeBlockPlugins.get(language);
-      if (owner && owner === identity) {
-        manager.codeBlockPlugins.delete(language);
-      }
+      // 所有权复查:语言当前归属谁,只有主人(或会话代管)能注销。
+      const resource = new LexiAuthzResource();
+      resource.owner = manager.codeBlockPlugins.get(language) || '';
+      const authz = manager.authzFor(identity, token, 'codeblocks.unregister', resource);
+      if (!authz.allowed) { return failResponseCode(authz.code, authz.reason); }
+      manager.codeBlockPlugins.delete(language);
       return okResponse(null);
     });
     // 源码分片只认装载时铸造的插件令牌:没有令牌、令牌不是本运行时铸造的 → 直接拒绝(fail-closed)。
@@ -1379,7 +1493,7 @@ export class LexiPluginManager {
     return null;
   }
 
-  private subscribeHostEvent(refId: number, topic: string, name: string): number {
+  private subscribeHostEvent(refId: number, topic: string, name: string, ownerPluginId: string): number {
     const events = this.hostEventFor(topic);
     if (!events || refId <= 0) { return -1; }
     const runtime = this.runtime;
@@ -1395,8 +1509,19 @@ export class LexiPluginManager {
       });
     };
     events.on(name, listener);
-    this.hostEventListeners.set(refId, { events: events, name: name, listener: listener });
+    const subscription = new HostEventSubscription();
+    subscription.events = events;
+    subscription.name = name;
+    subscription.listener = listener;
+    subscription.ownerPluginId = ownerPluginId;
+    this.hostEventListeners.set(refId, subscription);
     return refId;
+  }
+
+  /** 事件订阅当前归属(events.off 所有权复查用);未知 refId 回空串=归属不明。 */
+  hostEventOwnerOf(refId: number): string {
+    const subscription = this.hostEventListeners.get(refId);
+    return subscription ? subscription.ownerPluginId : '';
   }
 
   private hostEventListeners: Map<number, HostEventSubscription> = new Map();
@@ -1412,6 +1537,25 @@ export class LexiPluginManager {
     if (!pluginId) { return null; }
     const record = this.plugins.get(pluginId);
     return record ? record.manifest : null;
+  }
+
+  /** broker 的 fs 写能力判定核心:归属失败 fail-closed,v1 清单沿用 legacy 语义。 */
+  private fsAllowedByManifest(pluginId: string): boolean {
+    const manifest: LexiPluginManifest | null = this.manifestFor(pluginId);
+    if (manifest === null) { return false; }
+    const decision: LexiCapabilityDecision = checkFsCapability(manifest);
+    return decision.allowed;
+  }
+
+  /**
+   * 所有权复查入口:处理器在身份敏感的资源操作上带 resource 再问一次 broker。
+   * identity 是 call() 已解析的可信归属;role 从原始凭据反推(会话/匿名)。
+   */
+  private authzFor(identity: string, credential: string, method: string,
+    resource: LexiAuthzResource | null): LexiAuthzDecision {
+    const role: string = this.runtime.roleOfCredential(credential);
+    const ctx: LexiCallerContext = LexiWebRuntime.contextOf(role, role === 'plugin' ? identity : '');
+    return this.runtime.broker.authorize(ctx, method, resource);
   }
 
   /**
@@ -1638,6 +1782,8 @@ class HostEventSubscription {
   events: LexiEvents = new LexiEvents();
   name: string = '';
   listener: (payload: Object | null) => void = (_payload: Object | null): void => {};
+  /** 订阅归属插件(events.off 所有权复查的唯一真源)。 */
+  ownerPluginId: string = '';
 }
 
 export class LexiRibbonRow {
