@@ -103,6 +103,10 @@
       "kind": "fs-read"
     },
     {
+      "method": "metadata.getAllProperties",
+      "kind": "fs-read"
+    },
+    {
       "method": "metadata.graph",
       "kind": "fs-read"
     },
