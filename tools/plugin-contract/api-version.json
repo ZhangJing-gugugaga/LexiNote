@@ -1,0 +1,15 @@
+{
+  "apiVersion": "1.0.0",
+  "parity": {
+    "manifestConstant": "1.0.0",
+    "shimConstant": "1.0.0"
+  },
+  "semver": "RFC §6.3 Semantic Versioning 2.0",
+  "statuses": [
+    "stable",
+    "experimental",
+    "deprecated",
+    "removed"
+  ],
+  "templateDts": "tools/lexinote-plugin-template/lexinote.d.ts"
+}

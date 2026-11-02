@@ -44,6 +44,9 @@ import {
   LexiAuthzDecision,
   LexiPermissionBroker
 } from './LexiPermissionBroker';
+import { LexiPluginLifecycleManager } from './LexiPluginLifecycleManager';
+import { LexiContextKind } from './LexiPluginExecutionContext';
+import { LexiExtensionRegistry } from './LexiExtensionRegistry';
 
 const LOAD_TIMEOUT_MS: number = 20000;
 /** 源码分片通道的身份错误码:与 capability_denied / integrity_mismatch 区分开,便于定点断言。 */
@@ -403,6 +406,10 @@ export class LexiPluginManager {
   private netTransport: LexiHttpTransport = new LexiHttpTransport();
   vault: LexiVaultFacade = new LexiVaultFacade();
   metadata: LexiMetadataCache | null = null;
+  /** 生命周期状态机(T1.1):启用/停用/失败/隔离的唯一记账处,防重复 onload/onunload。 */
+  readonly lifecycle: LexiPluginLifecycleManager = new LexiPluginLifecycleManager();
+  /** 统一扩展注册表(T1.2):命令/视图/代码块/Ribbon/设置的所有权账本,停用全回收。 */
+  readonly extensionRegistry: LexiExtensionRegistry = new LexiExtensionRegistry();
 
   private context: common.Context | null = null;
   private uiHost: LexiRuntimeUiHost | null = null;
@@ -651,6 +658,7 @@ export class LexiPluginManager {
       this.plugins.delete(pluginId);
       this.enabledIds.delete(pluginId);
       await this.persistEnabled();
+      this.lifecycle.markRemoved(pluginId);
       pluginLog('插件已卸载: ' + pluginId + ' → ' + outcome.path);
       this.bumpPluginRevision();
     } else {
@@ -729,6 +737,10 @@ export class LexiPluginManager {
     } catch { /* a corrupted enable list falls back to none */ }
     await this.installBundledSamples();
     await this.scanPluginDir();
+    // 扫描落账:发现的插件进入生命周期 installed 态(T1.1,verify 细化随 T4 PackageVerifier)
+    this.plugins.forEach((record: LexiInstalledPlugin): void => {
+      this.lifecycle.markInstalled(record.manifest.id, record.manifest.version);
+    });
     // 首次运行自动启用官方示范插件(仅一次;用户可在设置中停用)
     const bundledInit = await LexiStorageService.getSetting('lexiPluginBundledInit', 'false');
     if (bundledInit !== 'true' && !this.safeMode && this.plugins.has('lexi-sample-plugin')) {
@@ -878,6 +890,9 @@ export class LexiPluginManager {
       const request = JSON.parse(payload) as RpcRequest;
       const id = rpcString(request, 'id');
       pluginLog('插件 onload 完成: ' + id);
+      // 生命周期落账:starting → running(onload 逻辑只计一次,RFC §4.5)。
+      const activationId = manager.lifecycle.currentActivationIdOf(id);
+      if (activationId.length > 0) { manager.lifecycle.markRunning(activationId); }
       const waiter = manager.pendingOnload.get(id);
       if (waiter) { manager.pendingOnload.delete(id); waiter(); }
       return okResponse(null);
@@ -887,6 +902,9 @@ export class LexiPluginManager {
       const record = manager.plugins.get(rpcString(request, 'id'));
       if (record) { record.errorState = rpcString(request, 'error'); }
       const id = rpcString(request, 'id');
+      // 生命周期落账:onload 失败落 failed,宿主据此展示与重试,不得停在 starting。
+      const activationId = manager.lifecycle.currentActivationIdOf(id);
+      if (activationId.length > 0) { manager.lifecycle.markFailed(activationId, record ? record.errorState : 'onload error'); }
       const waiter = manager.pendingOnload.get(id);
       if (waiter) { manager.pendingOnload.delete(id); waiter(); }
       return okResponse(null);
@@ -914,6 +932,8 @@ export class LexiPluginManager {
           : manager.invokePluginCommand(pluginId, `${pluginId}:${rpcString(rawCommand, 'id')}`)
       };
       manager.commands.registerPluginCommand(pluginId, spec);
+      manager.extensionRegistry.register(pluginId, 'command',
+        rpcString(rawCommand, 'id'), manager.lifecycle.currentActivationIdOf(pluginId));
       pluginLog('插件命令注册: ' + pluginId + ':' + rpcString(rawCommand, 'id') + (editorOnly ? ' (编辑器)' : ''));
       return okResponse(null);
     });
@@ -972,6 +992,8 @@ export class LexiPluginManager {
       row.iconId = iconId;
       row.iconPath = manager.iconSvgPath(iconId);
       manager.ribbonItems.set(`${pluginId}:${title}`, row);
+      manager.extensionRegistry.register(pluginId, 'ribbon',
+        title, manager.lifecycle.currentActivationIdOf(pluginId));
       pluginLog('插件 Ribbon 注册: ' + pluginId + ' / ' + title);
       manager.bumpPluginRevision();
       return okResponse(null);
@@ -1021,6 +1043,8 @@ export class LexiPluginManager {
       info.displayName = rpcString(request, 'displayName');
       info.icon = rpcString(request, 'icon');
       LexiPluginViewRegistry.register(info);
+      manager.extensionRegistry.register(info.pluginId, 'view',
+        info.type, manager.lifecycle.currentActivationIdOf(info.pluginId));
       pluginLog('插件视图注册: ' + info.type + ' → ' + info.displayName);
       return okResponse(null);
     });
@@ -1064,6 +1088,8 @@ export class LexiPluginManager {
       const language = rpcString(request, 'language').toLowerCase();
       if (!pluginId || !language) { return failResponse('代码块注册缺少可信身份'); }
       manager.codeBlockPlugins.set(language, pluginId);
+      manager.extensionRegistry.register(pluginId, 'codeblock-processor',
+        language, manager.lifecycle.currentActivationIdOf(pluginId));
       pluginLog('插件代码块注册: ' + language + ' ← ' + pluginId);
       return okResponse(null);
     });
@@ -1102,6 +1128,8 @@ export class LexiPluginManager {
       const definitionsJson = rpcString(request, 'definitionsJson');
       if (!pluginId) { return failResponse('设置注册缺少可信身份'); }
       manager.settingDefs.set(pluginId, definitionsJson);
+      manager.extensionRegistry.register(pluginId, 'settings',
+        'setting-tab', manager.lifecycle.currentActivationIdOf(pluginId));
       pluginLog('插件设置注册: ' + pluginId + ' (' + parseSettingDefinitions(definitionsJson).length + ' 项)');
       return okResponse(null);
     });
@@ -1679,7 +1707,17 @@ export class LexiPluginManager {
     pluginLog('请求启用插件: ' + pluginId + ' safeMode=' + this.safeMode);
     if (this.safeMode) { return false; }
     const record = this.plugins.get(pluginId);
-    if (!record || record.enabled) { return false; }
+    if (!record) { return false; }
+    // 幂等早退(RFC §4.5):已启用/已运行的插件重复 enable 不得再派发 onload。
+    if (record.enabled || this.lifecycle.stateOf(pluginId) === 'running') { return true; }
+    // 状态机起停:installed/failed → starting;running 中 alreadyRunning=true 同样早退。
+    const start = this.lifecycle.beginStartIfNotRunning(pluginId, record.manifest.version);
+    if (!start.ok) {
+      record.errorState = start.reason;
+      pluginError('插件启动被拒 ' + pluginId + ': ' + start.reason);
+      return false;
+    }
+    const activationId = start.activation !== null ? start.activation.activationId : '';
     const compatMessage = manifestCompatMessage(record.manifest);
     if (compatMessage.length > 0) {
       record.errorState = compatMessage;
@@ -1717,18 +1755,25 @@ export class LexiPluginManager {
       // 所以这里必须回读 errorState:非空即装载失败,不许落进"已启用"分支把它抹成正常。
       if (record.errorState.length > 0) {
         pluginError('插件装载失败 ' + pluginId + ': ' + record.errorState);
+        if (activationId.length > 0) { this.lifecycle.markFailed(activationId, record.errorState); }
         return false;
       }
       record.enabled = true;
+      record.activationId = activationId;
+      // 主执行上下文(service):插件后台 RPC/命令/事件的宿主侧记账点。
+      if (activationId.length > 0) {
+        this.lifecycle.createContext(activationId, 'service');
+      }
       this.enabledIds.add(pluginId);
       await this.persistEnabled();
-      pluginLog('插件已启用: ' + pluginId);
+      pluginLog('插件已启用: ' + pluginId + ' activation=' + activationId);
       this.bumpPluginRevision();
       return true;
     } catch (error) {
       record.errorState = String(error);
       pluginError('插件启用失败 ' + pluginId + ': ' + String(error));
       this.pendingOnload.delete(pluginId);
+      if (activationId.length > 0) { this.lifecycle.markFailed(activationId, String(error)); }
       return false;
     }
   }
@@ -1737,6 +1782,21 @@ export class LexiPluginManager {
     const record = this.plugins.get(pluginId);
     pluginLog('请求停用插件: ' + pluginId + ' (当前启用=' + (record ? record.enabled : false) + ')');
     if (!record || !record.enabled) { return; }
+    const activationId = this.lifecycle.currentActivationIdOf(pluginId);
+    if (activationId.length > 0) {
+      // 先释放后停(RFC §4.3):关闭宿主侧记账的全部执行上下文,再请求状态机迁移。
+      for (const ctx of this.lifecycle.contextsOf(activationId)) {
+        this.lifecycle.closeContext(ctx.contextId);
+      }
+      const stop = this.lifecycle.beginStop(activationId, 'user-disable');
+      if (!stop.ok) {
+        // 状态机拒绝(仍有未关上下文等):强制隔离后释放残骸(§4.3 强制停止语义)。
+        pluginError('插件停止被拒 ' + pluginId + ': ' + stop.reason + ' → 强制隔离');
+        this.lifecycle.quarantine(activationId, stop.reason);
+        const forced = this.lifecycle.beginStop(activationId, 'forced-quarantine-release');
+        if (!forced.ok) { return; }
+      }
+    }
     try {
       await this.runtime.waitReady();
       const done = new Promise<void>((resolve: () => void): void => { this.pendingUnload.set(pluginId, resolve); });
@@ -1745,7 +1805,11 @@ export class LexiPluginManager {
       await LexiWebRuntime.withTimeout(done, LOAD_TIMEOUT_MS, 'onunload');
     } catch { /* force removal locally even if the runtime page is gone */ }
     this.pendingUnload.delete(pluginId);
+    // onunload 逻辑完成(含页面丢失的强制路径):stopping → disabled,凭据与扩展随后回收。
+    if (activationId.length > 0) { this.lifecycle.markStopped(activationId); }
     record.enabled = false;
+    record.activationId = '';
+    this.extensionRegistry.unregisterPlugin(pluginId);
     this.commands.removePluginCommands(pluginId);
     LexiPluginViewRegistry.removePlugin(pluginId);
     this.settingDefs.delete(pluginId);

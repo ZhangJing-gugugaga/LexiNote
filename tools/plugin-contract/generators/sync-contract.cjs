@@ -1,0 +1,165 @@
+#!/usr/bin/env node
+// RFC §6.4 / §14 T1.3 · API 契约同步生成器。
+//
+// 单一真源 = 代码本身：
+//   - 方法全集与授权矩阵 → LexiPermissionBroker.ets（kindOf 表）
+//   - 宿主处理器 → LexiPluginRuntime.ets registerHandler
+//   - 桥面方法 → WorkspaceBridge.ets dispatch
+//   - API 版本 → LexiPluginManifest.ets PLUGIN_API_VERSION + shim API_VERSION
+// 生成产物（入库快照，供插件 SDK/文档/门禁消费）：
+//   - api-version.json     版本与三方一致锚点
+//   - api-surface.json     方法全集（domain/status/kind/roles）
+//   - capability-map.json  方法 → 能力域与角色要求（与 broker 逐条对账）
+// 门禁 plugin-contract-tripod.cjs 重新推导并 diff：漂移即红，重跑本生成器刷新。
+'use strict';
+
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const vm = require('node:vm');
+
+const ROOT = path.resolve(__dirname, '..', '..', '..');
+const OUT = path.join(ROOT, 'tools', 'plugin-contract');
+const BROKER = path.join(ROOT, 'entry/src/main/ets/core/plugin/LexiPermissionBroker.ets');
+const RUNTIME = path.join(ROOT, 'entry/src/main/ets/core/plugin/LexiPluginRuntime.ets');
+const BRIDGE = path.join(ROOT, 'entry/src/main/ets/workspace/WorkspaceBridge.ets');
+const MANIFEST = path.join(ROOT, 'entry/src/main/ets/core/plugin/LexiPluginManifest.ets');
+const SHIM = path.join(ROOT, 'entry/src/main/resources/rawfile/lexinote_plugin_shim.js');
+const TEMPLATE_DTS = path.join(ROOT, 'tools/lexinote-plugin-template/lexinote.d.ts');
+
+function read(p) { return fs.readFileSync(p, 'utf8'); }
+
+/** 桥面/宿主方法 → 所属能力域（与 RFC §6.2 API 模块对应；broker 类别之外的归 internal）。 */
+function domainOf(method, kind) {
+  if (kind === 'unmapped') { return 'internal'; }
+  const domainPrefixes = [
+    ['vault.', 'vault'], ['metadata.', 'metadata'], ['workspace.', 'workspace'],
+    ['editor.', 'editor'], ['commands.', 'commands'], ['events.', 'events'],
+    ['data.', 'storage'], ['ui.', 'ui'], ['net.', 'network'], ['app.', 'app'],
+    ['plugin.', 'plugin'], ['settings.', 'ui'], ['views.', 'workspace'],
+    ['codeblocks.', 'markdown'], ['theme.', 'theme'], ['note.', 'workspace'],
+    ['channel.', 'app'], ['log.', 'app'], ['debug.', 'app'], ['demo.', 'app']
+  ];
+  for (const [prefix, domain] of domainPrefixes) {
+    if (method.indexOf(prefix) === 0) { return domain; }
+  }
+  return 'app';
+}
+
+/** broker 类别 → 允许角色（与 authorize 语义一致；门禁对账）。 */
+const KIND_ROLES = {
+  'public': ['host', 'session', 'plugin', 'anonymous'],
+  'control-plane': ['session'],
+  'ui-domain': ['session', 'plugin'],
+  'fs-read': ['session', 'plugin'],
+  'fs-write': ['plugin'],
+  'editor-write': ['plugin'],
+  'register': ['plugin'],
+  'plugin-owned': ['session', 'plugin'],
+  'plugin-storage': ['plugin'],
+  'plugin-source': ['plugin'],
+  'net': ['plugin'],
+  'demo-plugin': ['plugin']
+};
+
+function loadBrokerKinds() {
+  const tsPath = process.env.LEXI_TYPESCRIPT;
+  if (!tsPath) { throw new Error('需要 LEXI_TYPESCRIPT 指向 typescript 模块'); }
+  const ts = require(tsPath);
+  const js = ts.transpileModule(read(BROKER), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
+  }).outputText;
+  const mod = { exports: {} };
+  vm.runInThisContext('(function(require,module,exports){' + js + '\n})', { filename: 'LexiPermissionBroker.ets' })(
+    () => { throw new Error('broker 必须零依赖'); }, mod, mod.exports);
+  const broker = new mod.exports.LexiPermissionBroker(() => false);
+  const kinds = {};
+  for (const method of broker.matrixKeys()) { kinds[method] = broker.kindOf(method); }
+  return kinds;
+}
+
+function extractHandlers(src) {
+  const set = new Set();
+  const re = /registerHandler\(\s*'([^']+)'/g;
+  let m;
+  while ((m = re.exec(src)) !== null) { set.add(m[1]); }
+  return set;
+}
+
+function extractBridgeMethods(src) {
+  const set = new Set();
+  const re = /method === '([^']+)'/g;
+  let m;
+  while ((m = re.exec(src)) !== null) { set.add(m[1]); }
+  for (const t of ['theme.config', 'theme.list', 'theme.load', 'theme.install', 'theme.setActive']) {
+    if (src.indexOf("'" + t + "'") >= 0) { set.add(t); }
+  }
+  return set;
+}
+
+function main() {
+  const kinds = loadBrokerKinds();
+  const runtimeSrc = read(RUNTIME);
+  const bridgeSrc = read(BRIDGE);
+  const hostMethods = extractHandlers(runtimeSrc);
+  const bridgeMethods = extractBridgeMethods(bridgeSrc);
+  const allMethods = new Set([...hostMethods, ...bridgeMethods]);
+
+  // 版本三方锚点
+  const manifestVer = (read(MANIFEST).match(/PLUGIN_API_VERSION:\s*string\s*=\s*'([^']+)'/) || [])[1];
+  const shimVer = (read(SHIM).match(/var API_VERSION = '([^']+)'/) || [])[1];
+  if (!manifestVer || manifestVer !== shimVer) {
+    console.error('API 版本三方不一致: manifest=' + manifestVer + ' shim=' + shimVer);
+    process.exit(1);
+  }
+
+  // 方法全集对账:broker 矩阵必须覆盖全部宿主/桥面方法(未登记=生成即失败)
+  const unmapped = [...allMethods].filter((m) => kinds[m] === undefined);
+  if (unmapped.length > 0) {
+    console.error('broker 矩阵缺方法登记: ' + unmapped.join(', '));
+    process.exit(1);
+  }
+
+  // api-surface.json
+  const surface = {
+    source: 'generated by tools/plugin-contract/generators/sync-contract.cjs — 代码是唯一真源,重跑刷新',
+    apiVersion: manifestVer,
+    generatedAt: new Date().toISOString(),
+    methods: [...allMethods].sort().map((method) => {
+      const kind = kinds[method];
+      return {
+        method,
+        domain: domainOf(method, kind),
+        kind,
+        roles: KIND_ROLES[kind] || ['plugin'],
+        status: kind === 'public' ? 'stable' : 'stable',
+        hostHandler: hostMethods.has(method),
+        bridge: bridgeMethods.has(method)
+      };
+    })
+  };
+  fs.writeFileSync(path.join(OUT, 'api-surface.json'), JSON.stringify(surface, null, 2) + '\n');
+
+  // capability-map.json
+  const capabilityMap = {
+    source: 'generated by tools/plugin-contract/generators/sync-contract.cjs — 与 LexiPermissionBroker 矩阵逐条对账',
+    apiVersion: manifestVer,
+    capabilities: Object.keys(kinds).sort().map((method) => ({ method, kind: kinds[method] }))
+  };
+  fs.writeFileSync(path.join(OUT, 'capability-map.json'), JSON.stringify(capabilityMap, null, 2) + '\n');
+
+  // api-version.json
+  const apiVersion = {
+    apiVersion: manifestVer,
+    parity: { manifestConstant: manifestVer, shimConstant: shimVer },
+    semver: 'RFC §6.3 Semantic Versioning 2.0',
+    statuses: ['stable', 'experimental', 'deprecated', 'removed'],
+    templateDts: path.relative(ROOT, TEMPLATE_DTS).replace(/\\/g, '/')
+  };
+  fs.writeFileSync(path.join(OUT, 'api-version.json'), JSON.stringify(apiVersion, null, 2) + '\n');
+
+  console.log('契约快照已写入 tools/plugin-contract/: methods=' + surface.methods.length +
+    ' apiVersion=' + manifestVer + ' (host=' + hostMethods.size + ' bridge=' + bridgeMethods.size + ')');
+}
+
+main();

@@ -36,6 +36,8 @@ export class LexiInstalledPlugin {
   dir: string = '';
   enabled: boolean = false;
   errorState: string = '';
+  /** 当前 activation(生命周期管理器签发);停用后清空。 */
+  activationId: string = '';
 }
 
 /**

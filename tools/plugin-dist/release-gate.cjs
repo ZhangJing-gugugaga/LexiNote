@@ -251,6 +251,9 @@ function ciMode() {
     ['bridge-security: T0.1 身份面(RFC)', 'scripts/tests/plugin-bridge-security.cjs', []],
     ['context-isolation: T0.2 沙箱面(RFC)', 'scripts/tests/plugin-context-isolation.cjs', []],
     ['authz-matrix: T0.3 授权矩阵(RFC)', 'scripts/tests/plugin-authz-matrix.cjs', []],
+    ['lifecycle-once: T1.1 生命周期(RFC)', 'scripts/tests/plugin-lifecycle-once.cjs', []],
+    ['extension-ownership: T1.2 扩展注册(RFC)', 'scripts/tests/plugin-extension-ownership.cjs', []],
+    ['contract-tripod: T1.3 契约三方(RFC)', 'scripts/tests/plugin-contract-tripod.cjs', []],
     ['market-regression: v1 索引解析', 'scripts/tests/plugin-market-regression.cjs', []]
   ];
   const env = Object.assign({}, process.env);

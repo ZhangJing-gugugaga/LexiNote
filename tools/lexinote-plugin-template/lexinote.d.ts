@@ -5,6 +5,12 @@
  * (Modal/Menu/Suggest/Setting builders, code block processors, Bases, CM6 extensions)
  * is intentionally not declared yet — a type error is better than a runtime surprise.
  *
+ * Contract source of truth (RFC §6.4, T1.3): tools/plugin-contract/
+ *   - api-version.json    — 版本锚点(与宿主 PLUGIN_API_VERSION / shim API_VERSION 三方一致)
+ *   - api-surface.json    — 方法全集(domain/kind/roles/status)
+ *   - capability-map.json — 方法 → 授权矩阵类别(与 LexiPermissionBroker 逐条对账)
+ * 门禁 scripts/tests/plugin-contract-tripod.cjs 校验三方一致: 类型声明、宿主处理器、契约快照。
+ *
  * Import style (aliases are interchangeable):
  *   import { Plugin, Notice } from 'lexinote';
  *   const { Plugin, Notice } = require('obsidian');
