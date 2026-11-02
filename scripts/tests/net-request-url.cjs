@@ -39,6 +39,11 @@ function stageProbeModules() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lexinote-net-'));
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ type: 'module' }));
   fs.copyFileSync(path.join(PLUGIN_ETS, 'LexiPluginManifest.ets'), path.join(dir, 'LexiPluginManifest.ts'));
+  // T2.1 起 manifest 严格路径依赖 LexiPluginManifestV2(零依赖),staging 一并携带
+  fs.copyFileSync(path.join(PLUGIN_ETS, 'LexiPluginManifestV2.ets'), path.join(dir, 'LexiPluginManifestV2.ts'));
+  const manifestStaged = fs.readFileSync(path.join(dir, 'LexiPluginManifest.ts'), 'utf8')
+    .replace(/from '\.\/LexiPluginManifestV2'/g, "from './LexiPluginManifestV2.ts'");
+  fs.writeFileSync(path.join(dir, 'LexiPluginManifest.ts'), manifestStaged);
   const probe = fs.readFileSync(path.join(PLUGIN_ETS, 'LexiNetProbe.ets'), 'utf8')
     .replace(/from '\.\/LexiPluginManifest'/g, "from './LexiPluginManifest.ts'");
   fs.writeFileSync(path.join(dir, 'LexiNetProbe.ts'), probe);

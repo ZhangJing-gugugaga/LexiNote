@@ -8,6 +8,7 @@ import { NoteItem } from '../LexiModels';
 import { LexiStorageService } from '../LexiStorageService';
 import { LexiFrontmatter } from '../LexiFrontmatter';
 import { LexiPluginBus, LexiNoteChange } from './LexiPluginBus';
+import { LexiVaultRevisionGuard } from './LexiVaultRevisionGuard';
 import { LexiEvents } from './LexiPluginKernel';
 import { LexiEditorRegistry } from './LexiEditorRegistry';
 import {
@@ -40,6 +41,14 @@ export class LexiOpenEditorLink {
 }
 
 export class LexiVaultFacade {
+  /** revision 乐观锁(T2.3):写路径全部推进,过期预期写入判 vault_conflict(§7.1)。 */
+  readonly revisionGuard: LexiVaultRevisionGuard = new LexiVaultRevisionGuard();
+
+  /** 读路径统一补 revision:插件拿到的 TFile.stat.revision 是乐观锁凭据。 */
+  private enrichRevision(file: LexiTFile | null): LexiTFile | null {
+    if (file !== null) { file.stat.revision = this.revisionGuard.revisionOf(file.path); }
+    return file;
+  }
   private context: common.Context | null = null;
   private index: LexiVaultIndex = new LexiVaultIndex();
   private notes: NoteItem[] = [];
@@ -126,7 +135,7 @@ export class LexiVaultFacade {
 
   getFileByPath(path: string): LexiTFile | null {
     const node = resolvePath(this.index, path);
-    return node && node.kind === 'file' ? node as LexiTFile : null;
+    return this.enrichRevision(node && node.kind === 'file' ? node as LexiTFile : null);
   }
 
   getFolderByPath(path: string): LexiTFolder | null {
@@ -135,14 +144,20 @@ export class LexiVaultFacade {
   }
 
   getAbstractFileByPath(path: string): LexiTreeNode | null {
-    return resolvePath(this.index, path);
+    const node = resolvePath(this.index, path);
+    if (node !== null && node.kind === 'file') { return this.enrichRevision(node as LexiTFile); }
+    return node;
   }
 
   async getMarkdownFiles(): Promise<LexiTFile[]> {
     await this.ensureFresh();
     const files: LexiTFile[] = [];
     this.index.fileByNoteId.forEach((file: LexiTFile): void => { files.push(file); });
-    return files.sort((a: LexiTFile, b: LexiTFile): number => a.path.localeCompare(b.path));
+    return files.sort((a: LexiTFile, b: LexiTFile): number => a.path.localeCompare(b.path))
+      .map((file: LexiTFile): LexiTFile => {
+        file.stat.revision = this.revisionGuard.revisionOf(file.path);
+        return file;
+      });
   }
 
   async read(file: LexiTFile): Promise<string> {
@@ -162,7 +177,10 @@ export class LexiVaultFacade {
     return '';
   }
 
-  async modify(file: LexiTFile, data: string): Promise<void> {
+  async modify(file: LexiTFile, data: string, expectedRevision: number = -1): Promise<void> {
+    // 乐观锁闸(T2.3):expectedRevision>=0 时必须与宿主侧一致,否则 vault_conflict(first-writer-wins)。
+    const revisionGate = this.revisionGuard.checkAndBump(file.path, expectedRevision);
+    if (!revisionGate.ok) { throw new Error(revisionGate.reason); }
     const note = await this.noteByFile(file);
     if (!note) { throw new Error('笔记不存在: ' + file.path); }
     const controller = LexiEditorRegistry.controllerFor(note.id);
@@ -218,6 +236,7 @@ export class LexiVaultFacade {
     await this.refresh();
     const created = this.index.fileByNoteId.get(saved.id);
     if (!created) { throw new Error('笔记创建失败: ' + path); }
+    this.revisionGuard.checkAndBump(created.path, -1);
     return created;
   }
 
@@ -232,6 +251,7 @@ export class LexiVaultFacade {
       await LexiStorageService.setNoteTrash(this.context, note.id, true);
     }
     await this.refresh();
+    this.revisionGuard.forget(file.path);
   }
 
   async rename(file: LexiTFile, newPath: string): Promise<void> {
@@ -243,6 +263,7 @@ export class LexiVaultFacade {
     if (title.length === 0) { throw new Error('无效的文件名'); }
     await LexiStorageService.renameNote(this.context, file.noteId, title);
     await this.refresh();
+    this.revisionGuard.rename(file.path, normalized);
   }
 
   async process(file: LexiTFile, fn: (data: string) => string): Promise<string> {
@@ -254,6 +275,7 @@ export class LexiVaultFacade {
   }
 
   async append(file: LexiTFile, data: string): Promise<void> {
+    this.revisionGuard.checkAndBump(file.path, -1);
     const content = await this.read(file);
     await this.modify(file, content + data);
   }

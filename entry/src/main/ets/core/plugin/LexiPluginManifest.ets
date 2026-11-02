@@ -1,12 +1,13 @@
 // Plugin manifest model, compatible with the Obsidian manifest.json field set.
 //
 // v1 (legacy) = the eight Obsidian fields below.
-// v2 adds the distribution-contract fields (docs/lexinote_plugin_bridge_spec.md §5):
-//   minApiVersion  - 插件 API 版本要求（当前 1.0.0），不是 Obsidian 版本
-//   capabilities   - 出站域名白名单 + 本地能力开关
-//   sha256         - 安装器写入的包指纹
+// v2 (RFC §8.1) = manifestVersion:2 严格契约:未知 capability 拒绝、未声明=没有能力、
+//   sha256 禁止入 manifest;解析走 LexiPluginManifestV2(严格路径),行为沿用本模型的
+//   fail-closed 判定(checkFsCapability/checkNetworkCapability)。
 // A v1 manifest without capabilities keeps loading; the capability policy below
 // states exactly which legacy behaviour survives and which does not.
+
+import { parseManifestV2, LexiManifestV2Normalized } from './LexiPluginManifestV2';
 
 export class LexiPluginCapabilities {
   network: string[] = [];
@@ -24,6 +25,10 @@ export class LexiPluginManifest {
   authorUrl: string = '';
   isDesktopOnly: boolean = false;
   // --- v2 ---
+  /** 1=v1(legacy),2=严格 v2(RFC §8.1)。 */
+  manifestVersion: number = 1;
+  /** §8.2:v1 迁移产物标记,宿主沿用 legacy 语义,旧权限不自动继承为 Native 权限。 */
+  legacyProfile: boolean = false;
   minApiVersion: string = '0.0.0';
   capabilities: LexiPluginCapabilities = new LexiPluginCapabilities();
   /** true only when the manifest carried an explicit capabilities object (v2 marker). */
@@ -116,9 +121,33 @@ function parseCapabilities(value: Object | undefined): LexiPluginCapabilities {
   return capabilities;
 }
 
+/** v2 严格解析结果 → 既有清单模型(归一化形状,判定面不变)。 */
+function manifestFromV2(v2: LexiManifestV2Normalized): LexiPluginManifest {
+  const manifest = new LexiPluginManifest();
+  manifest.manifestVersion = 2;
+  manifest.legacyProfile = v2.legacyProfile;
+  manifest.id = v2.id;
+  manifest.name = v2.name;
+  manifest.author = v2.author;
+  manifest.version = v2.version;
+  manifest.description = v2.description;
+  manifest.minAppVersion = v2.compatibility.obsidianApiLevel;
+  manifest.minApiVersion = v2.compatibility.min;
+  manifest.capabilitiesDeclared = true;
+  manifest.capabilities.network = v2.capabilities.network.slice();
+  manifest.capabilities.fs = v2.capabilities.fs;
+  manifest.capabilities.clipboard = v2.capabilities.clipboard;
+  return manifest;
+}
+
 /** Parses and validates a manifest.json payload; throws with a user-facing message when invalid. */
 export function parsePluginManifest(json: string): LexiPluginManifest {
   const raw = JSON.parse(json) as LexiPluginManifest;
+  // RFC §8.1:manifestVersion=2 走严格路径——未知 capability/字段、畸形版本、携带 sha256
+  // 一律抛错(宿主把插件判为 broken,fail-closed);v1 保持既有宽松语义。
+  if (raw !== null && typeof raw === 'object' && (raw as Object as Record<string, Object>)['manifestVersion'] === 2) {
+    return manifestFromV2(parseManifestV2(json));
+  }
   if (!raw || typeof raw.id !== 'string' || raw.id.length === 0) { throw new Error('插件 manifest 缺少 id'); }
   if (!/^[a-z0-9][a-z0-9-]{0,99}$/.test(raw.id)) { throw new Error('插件 id 只允许小写字母、数字与连字符'); }
   if (typeof raw.name !== 'string' || raw.name.trim().length === 0) { throw new Error('插件 manifest 缺少 name'); }

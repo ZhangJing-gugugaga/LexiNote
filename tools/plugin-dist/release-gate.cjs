@@ -254,6 +254,10 @@ function ciMode() {
     ['lifecycle-once: T1.1 生命周期(RFC)', 'scripts/tests/plugin-lifecycle-once.cjs', []],
     ['extension-ownership: T1.2 扩展注册(RFC)', 'scripts/tests/plugin-extension-ownership.cjs', []],
     ['contract-tripod: T1.3 契约三方(RFC)', 'scripts/tests/plugin-contract-tripod.cjs', []],
+    ['manifest-v2: T2.1 清单契约(RFC)', 'scripts/tests/plugin-manifest-v2.cjs', []],
+    ['permission-store: T2.2 权限存储(RFC)', 'scripts/tests/plugin-permission-store.cjs', []],
+    ['vault-revision: T2.3 乐观锁(RFC)', 'scripts/tests/plugin-vault-revision.cjs', []],
+    ['workspace-api: T2.4 视图会话(RFC)', 'scripts/tests/plugin-workspace-api.cjs', []],
     ['market-regression: v1 索引解析', 'scripts/tests/plugin-market-regression.cjs', []]
   ];
   const env = Object.assign({}, process.env);

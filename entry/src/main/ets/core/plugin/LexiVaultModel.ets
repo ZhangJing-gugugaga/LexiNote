@@ -8,6 +8,8 @@ export class LexiFileStat {
   ctime: number = 0;
   mtime: number = 0;
   size: number = 0;
+  /** RFC §7.1 revision 乐观锁:宿主侧写路径计数(乐观锁的插件侧读取通道)。 */
+  revision: number = 0;
 }
 
 export class LexiTreeNode {

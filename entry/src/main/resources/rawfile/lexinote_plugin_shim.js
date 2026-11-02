@@ -887,7 +887,13 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
     },
     read: function (file) { return hostCall('vault.read', { path: file.path }); },
     cachedRead: function (file) { return vault.read(file); },
-    modify: function (file, data) { return hostCall('vault.modify', { path: file.path, data: data }); },
+    modify: function (file, data) {
+      // 乐观锁(T2.3):调用方持有读取时的文件对象(stat.revision)即自动携带预期 revision;
+      // 无 revision(适配器路径/旧代码)退化为盲写,宿主行为不变。
+      var expectedRevision = (file && file.stat && typeof file.stat.revision === 'number' && file.stat.revision > 0)
+        ? file.stat.revision : -1;
+      return hostCall('vault.modify', { path: file.path, data: data, expectedRevision: expectedRevision });
+    },
     create: function (path, data) {
       return hostCall('vault.create', { path: normalizePath(path), data: data }).then(function (json) {
         var file = rememberFile(json);

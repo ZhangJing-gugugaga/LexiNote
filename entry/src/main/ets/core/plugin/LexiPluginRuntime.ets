@@ -47,6 +47,8 @@ import {
 import { LexiPluginLifecycleManager } from './LexiPluginLifecycleManager';
 import { LexiContextKind } from './LexiPluginExecutionContext';
 import { LexiExtensionRegistry } from './LexiExtensionRegistry';
+import { LexiPermissionStore, PERMISSION_GRANTED, PERMISSION_REGRANT_REQUIRED, PERMISSION_REVOKED } from './LexiPermissionStore';
+import { LexiViewSessionTable } from './LexiViewSessionState';
 
 const LOAD_TIMEOUT_MS: number = 20000;
 /** 源码分片通道的身份错误码:与 capability_denied / integrity_mismatch 区分开,便于定点断言。 */
@@ -96,7 +98,8 @@ function fileToJson(file: LexiTFile): Record<string, Object> {
   const stat: Record<string, Object> = {
     'ctime': file.stat.ctime as Object,
     'mtime': file.stat.mtime as Object,
-    'size': file.stat.size as Object
+    'size': file.stat.size as Object,
+    'revision': file.stat.revision as Object
   };
   return {
     'kind': 'file' as Object,
@@ -410,6 +413,10 @@ export class LexiPluginManager {
   readonly lifecycle: LexiPluginLifecycleManager = new LexiPluginLifecycleManager();
   /** 统一扩展注册表(T1.2):命令/视图/代码块/Ribbon/设置的所有权账本,停用全回收。 */
   readonly extensionRegistry: LexiExtensionRegistry = new LexiExtensionRegistry();
+  /** 权限存储(T2.2):版本权限变化必须重新授权(§9.5),用户可撤销(§16.2)。 */
+  readonly permissionStore: LexiPermissionStore = new LexiPermissionStore();
+  /** 视图会话表(T2.4):open/close/reopen 记账,重开状态恢复正常。 */
+  readonly viewSessions: LexiViewSessionTable = new LexiViewSessionTable();
 
   private context: common.Context | null = null;
   private uiHost: LexiRuntimeUiHost | null = null;
@@ -727,6 +734,8 @@ export class LexiPluginManager {
     // 授权矩阵的 fs 写能力注入:语义与 fsGate 同源(manifest 单一真源,归属失败 fail-closed)。
     this.runtime.broker = new LexiPermissionBroker((pluginId: string, _method: string): boolean =>
       this.fsAllowedByManifest(pluginId));
+    // 权限授予持久化(T2.2):重启后授权与撤销状态保留。
+    this.loadPermissionStore();
     this.safeMode = (await LexiStorageService.getSetting(KEY_SAFE_MODE, 'false')) === 'true';
     const enabledRaw = await LexiStorageService.getSetting(KEY_ENABLED, '[]');
     try {
@@ -1066,6 +1075,13 @@ export class LexiPluginManager {
       const type = rpcString(request, 'type');
       const info = LexiPluginViewRegistry.get(type);
       if (!info) { return failResponse('未注册的插件视图: ' + type); }
+      // 视图↔上下文绑定(T2.4):每次打开挂到归属插件的 activation 下,关闭时成对回收。
+      const activationId = manager.lifecycle.currentActivationIdOf(info.pluginId);
+      let contextId = '';
+      if (activationId.length > 0) {
+        contextId = manager.lifecycle.createContext(activationId, 'view').contextId;
+      }
+      manager.viewSessions.open(type, info.pluginId, contextId);
       manager.requestViewOpen(type);
       return okResponse(info.displayName as Object);
     });
@@ -1079,6 +1095,12 @@ export class LexiPluginManager {
       resource.owner = info ? info.pluginId : '';
       const authz = manager.authzFor(identity, token, 'workspace.closeView', resource);
       if (!authz.allowed) { return failResponseCode(authz.code, authz.reason); }
+      // 会话与上下文成对回收(T2.4):先关宿主侧记账,再落页面侧关闭;状态留在会话表供重开。
+      const session = manager.viewSessions.sessionOf(type);
+      manager.viewSessions.close(type, null);
+      if (session !== null && session.contextId.length > 0) {
+        manager.lifecycle.closeContext(session.contextId);
+      }
       if (manager.viewCloseHandler) { manager.viewCloseHandler(type); }
       return okResponse(null);
     });
@@ -1438,7 +1460,18 @@ export class LexiPluginManager {
       if (gate) { return gate; }
       const file = manager.vault.getFileByPath(rpcString(request, 'path'));
       if (!file) { return failResponse('文件不存在'); }
-      await manager.vault.modify(file, rpcString(request, 'data'));
+      // 乐观锁(T2.3):插件带上读取时的 stat.revision 即获并发保护;不带则盲写(行为不变)。
+      const rawExpected = request['expectedRevision'];
+      const expectedRevision = typeof rawExpected === 'number' ? rawExpected as number : -1;
+      try {
+        await manager.vault.modify(file, rpcString(request, 'data'), expectedRevision);
+      } catch (error) {
+        const message = String(error);
+        if (message.indexOf('vault_conflict') === 0) {
+          return failResponseCode('vault_conflict', message);
+        }
+        throw error instanceof Error ? error : new Error(message);
+      }
       return okResponse(null);
     });
     runtime.registerHandler('vault.create', async (payload: string, identity: string): Promise<string> => {
@@ -1565,6 +1598,61 @@ export class LexiPluginManager {
     if (!pluginId) { return null; }
     const record = this.plugins.get(pluginId);
     return record ? record.manifest : null;
+  }
+
+  /** 从清单能力声明推导指纹标签(v2 细粒度能力 → '域:细节' 标签集)。 */
+  private capabilityFingerprintOf(manifest: LexiPluginManifest): string {
+    const tags: string[] = [];
+    if (manifest.capabilitiesDeclared) {
+      if (manifest.capabilities.fs) { tags.push('vault.write'); }
+      for (const host of manifest.capabilities.network) { tags.push('network:' + host); }
+      if (manifest.capabilities.clipboard) { tags.push('clipboard'); }
+    }
+    return this.permissionStore.fingerprintOf(tags);
+  }
+
+  private permissionStorePath(): string {
+    return `${this.context ? this.context.filesDir : ''}/plugin-permissions.json`;
+  }
+
+  private loadPermissionStore(): void {
+    try {
+      const path = this.permissionStorePath();
+      if (this.context && fs.accessSync(path)) {
+        if (!this.permissionStore.load(this.readTextFile(path))) {
+          pluginError('权限存储载荷损坏,按空存储继续(fail-closed)');
+        }
+      }
+    } catch { /* 无历史授权按空存储 */ }
+  }
+
+  private persistPermissions(): void {
+    try {
+      if (this.context) { this.writeTextFile(this.permissionStorePath(), this.permissionStore.serialize()); }
+    } catch (error) {
+      pluginError('权限存储写入失败: ' + String(error));
+    }
+  }
+
+  /** 用户重新授权(设置页/启用确认):按当前清单能力落账,返回是否成功。 */
+  grantPluginPermissions(pluginId: string): boolean {
+    const record = this.plugins.get(pluginId);
+    if (!record) { return false; }
+    const ok = this.permissionStore.grant(pluginId, record.manifest.version,
+      this.capabilityFingerprintOf(record.manifest));
+    if (ok) { this.persistPermissions(); }
+    return ok;
+  }
+
+  /** 用户撤销授权(§16.2):立即停用插件并拒绝后续启用。 */
+  async revokePluginPermissions(pluginId: string): Promise<boolean> {
+    const ok = this.permissionStore.revoke(pluginId);
+    if (ok) {
+      this.persistPermissions();
+      await this.disablePlugin(pluginId);
+      this.bumpPluginRevision();
+    }
+    return ok;
   }
 
   /** broker 的 fs 写能力判定核心:归属失败 fail-closed,v1 清单沿用 legacy 语义。 */
@@ -1724,6 +1812,25 @@ export class LexiPluginManager {
       pluginError('插件版本不兼容: ' + pluginId + ' — ' + compatMessage);
       return false;
     }
+    // 授权决定门(T2.2):v2 清单的版本权限变化必须重新授权(§9.5);用户撤销后拒绝启用。
+    if (record.manifest.capabilitiesDeclared) {
+      const fingerprint = this.capabilityFingerprintOf(record.manifest);
+      const decision = this.permissionStore.decisionFor(pluginId, record.manifest.version, fingerprint);
+      if (decision === PERMISSION_REGRANT_REQUIRED || decision === PERMISSION_REVOKED) {
+        const reason = decision === PERMISSION_REVOKED
+          ? '插件权限已被用户撤销,请在设置中重新授权'
+          : '插件升级引入权限变化,需要重新授权';
+        record.errorState = reason;
+        pluginError('插件启用被拒 ' + pluginId + ': ' + reason);
+        return false;
+      }
+      if (decision !== PERMISSION_GRANTED) {
+        // 首次启用:用户显式启用即授权(记录版本+能力指纹),宿主据此落账。
+        this.permissionStore.grant(pluginId, record.manifest.version, fingerprint);
+        this.persistPermissions();
+        pluginLog('插件首次授权: ' + pluginId + ' v' + record.manifest.version);
+      }
+    }
     const mainPath = `${record.dir}/main.js`;
     if (!fs.accessSync(mainPath)) {
       record.errorState = '插件缺少 main.js';
@@ -1810,6 +1917,7 @@ export class LexiPluginManager {
     record.enabled = false;
     record.activationId = '';
     this.extensionRegistry.unregisterPlugin(pluginId);
+    this.viewSessions.dropPlugin(pluginId);
     this.commands.removePluginCommands(pluginId);
     LexiPluginViewRegistry.removePlugin(pluginId);
     this.settingDefs.delete(pluginId);

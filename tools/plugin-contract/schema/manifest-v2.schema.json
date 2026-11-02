@@ -1,0 +1,150 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "lexinote:plugin-contract:schema:manifest-v2",
+  "title": "LexiNote Plugin Manifest v2 (RFC §8.1)",
+  "description": "与 entry/src/main/ets/core/plugin/LexiPluginManifestV2.ets 的 knownCapabilityKeys()/键白名单对账(门禁 plugin-manifest-v2.cjs V2.x)。未知 capability 在 schema 层与解析器层一律拒绝。",
+  "type": "object",
+  "required": ["manifestVersion", "id", "name", "version", "author"],
+  "additionalProperties": false,
+  "properties": {
+    "manifestVersion": { "const": 2 },
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,99}$" },
+    "name": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "author": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "authorUrl": { "type": "string" },
+    "license": { "type": "string" },
+    "repository": { "type": "string" },
+    "homepage": { "type": "string" },
+    "keywords": { "type": "array", "items": { "type": "string" } },
+    "funding": { "type": "object" },
+    "entrypoints": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "service": { "type": "string" },
+        "views": { "type": "string" },
+        "editor": { "type": "string" },
+        "markdown": { "type": "string" }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lexinote": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "min": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+            "maxExclusive": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" }
+          }
+        },
+        "obsidianApiLevel": { "type": "string" },
+        "harmonyOS": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "min": { "type": "string" }
+          }
+        },
+        "min": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "maxExclusive": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" }
+      }
+    },
+    "platforms": {
+      "type": "array",
+      "items": { "enum": ["harmonyos-phone", "harmonyos-tablet", "harmonyos-pc"] }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "vault": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "read": { "$ref": "#/definitions/vaultScope" },
+            "write": { "$ref": "#/definitions/vaultScope" },
+            "delete": { "type": "boolean" }
+          }
+        },
+        "editor": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "readActive": { "type": "boolean" },
+            "writeSelection": { "type": "boolean" },
+            "writeDocument": { "type": "boolean" },
+            "extensions": { "enum": ["none", "declarative", "trusted-cm6"] }
+          }
+        },
+        "workspace": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "commands": { "type": "boolean" },
+            "views": { "type": "boolean" }
+          }
+        },
+        "network": {
+          "oneOf": [
+            { "type": "array", "items": { "type": "string" } },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "origins": { "type": "array", "items": { "type": "string" } },
+                "methods": { "type": "array", "items": { "type": "string" } },
+                "maxRequestBytes": { "type": "number", "minimum": 0 },
+                "maxResponseBytes": { "type": "number", "minimum": 0 }
+              }
+            }
+          ]
+        },
+        "clipboard": {
+          "oneOf": [
+            { "type": "boolean" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "read": { "type": "boolean" },
+                "write": { "type": "boolean" }
+              }
+            }
+          ]
+        },
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "quotaBytes": { "type": "number", "minimum": 0 }
+          }
+        },
+        "notifications": { "type": "boolean" }
+      }
+    },
+    "dependencies": { "type": "object" },
+    "optionalDependencies": { "type": "object" },
+    "minAppVersion": { "type": "string" },
+    "isDesktopOnly": { "type": "boolean" },
+    "legacyProfile": { "type": "boolean" }
+  },
+  "definitions": {
+    "vaultScope": {
+      "oneOf": [
+        { "type": "boolean" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "paths": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          }
+        }
+      ]
+    }
+  }
+}
