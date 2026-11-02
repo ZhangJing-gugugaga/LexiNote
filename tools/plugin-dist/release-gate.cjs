@@ -264,6 +264,10 @@ function ciMode() {
     ['package-verifier: T4.1 安装包校验(RFC)', 'scripts/tests/plugin-package-verifier.cjs', []],
     ['registry-trust: T4.2 元数据信任链(RFC)', 'scripts/tests/plugin-registry-trust.cjs', []],
     ['update-policy: T4.3/T4.4 市场+更新策略(RFC)', 'scripts/tests/plugin-update-policy.cjs', []],
+    ['sdk-contract: T5.1 SDK 对账(RFC)', 'scripts/tests/plugin-sdk-contract.cjs', []],
+    ['cli-contract: T5.2 lexi CLI(RFC)', 'scripts/tests/lexi-cli-contract.cjs', []],
+    ['inspector: T5.3 观察面(RFC)', 'scripts/tests/plugin-inspector.cjs', []],
+    ['docs-contract: T5.4 文档对账(RFC)', 'scripts/tests/plugin-docs-contract.cjs', []],
     ['market-regression: v1 索引解析', 'scripts/tests/plugin-market-regression.cjs', []]
   ];
   const env = Object.assign({}, process.env);

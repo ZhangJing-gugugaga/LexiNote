@@ -49,6 +49,7 @@ import { LexiContextKind } from './LexiPluginExecutionContext';
 import { LexiExtensionRegistry } from './LexiExtensionRegistry';
 import { LexiPermissionStore, PERMISSION_GRANTED, PERMISSION_REGRANT_REQUIRED, PERMISSION_REVOKED } from './LexiPermissionStore';
 import { LexiViewSessionTable } from './LexiViewSessionState';
+import { LexiInspectorInput, LexiInspectorReport, LexiPluginInspector } from './LexiPluginInspector';
 
 const LOAD_TIMEOUT_MS: number = 20000;
 /** 源码分片通道的身份错误码:与 capability_denied / integrity_mismatch 区分开,便于定点断言。 */
@@ -168,6 +169,8 @@ export class LexiWebRuntime {
    * 管理器 init 时注入真实 fsAuthorizer(manifest 能力判定单一真源)。
    */
   broker: LexiPermissionBroker = new LexiPermissionBroker((_pluginId: string, _method: string): boolean => false);
+  /** RPC 拒绝计数(T5.3 Inspector 数据源):key=插件 id 或 '(anonymous)'。 */
+  rpcDenies: Map<string, number> = new Map();
 
   /** 铸造插件凭据并登记归属。返回空串表示插件 id 非法(调用方必须按失败处理)。 */
   mintPluginToken(pluginId: string): string {
@@ -297,6 +300,9 @@ export class LexiWebRuntime {
       pluginError('authz.denied method=' + method + ' role=' + role + ' identity=' +
         (trusted.length > 0 ? trusted : '(none)') + ' kind=' + authz.kind +
         ' code=' + authz.code + ' reason=' + authz.reason);
+      const denyKey: string = trusted.length > 0 ? trusted : '(anonymous)';
+      const prior: number = this.rpcDenies.get(denyKey) === undefined ? 0 : this.rpcDenies.get(denyKey) as number;
+      this.rpcDenies.set(denyKey, prior + 1);
       return failResponseCode(authz.code, authz.reason);
     }
     try {
@@ -1608,15 +1614,45 @@ export class LexiPluginManager {
     return record ? record.manifest : null;
   }
 
-  /** 从清单能力声明推导指纹标签(v2 细粒度能力 → '域:细节' 标签集)。 */
-  private capabilityFingerprintOf(manifest: LexiPluginManifest): string {
+  /** 从清单能力声明推导标签(v2 细粒度能力 → '域:细节' 标签集)。 */
+  private capabilityTagsOf(manifest: LexiPluginManifest): string[] {
     const tags: string[] = [];
     if (manifest.capabilitiesDeclared) {
       if (manifest.capabilities.fs) { tags.push('vault.write'); }
       for (const host of manifest.capabilities.network) { tags.push('network:' + host); }
       if (manifest.capabilities.clipboard) { tags.push('clipboard'); }
     }
-    return this.permissionStore.fingerprintOf(tags);
+    return tags;
+  }
+
+  /** 从清单能力声明推导指纹(T2.2 授权比较的键)。 */
+  private capabilityFingerprintOf(manifest: LexiPluginManifest): string {
+    return this.permissionStore.fingerprintOf(this.capabilityTagsOf(manifest));
+  }
+
+  /**
+   * Plugin Inspector(T5.3):每插件观察报告。
+   * 隐私边界:报告只含生命周期/扩展/授权/RPC 审计计数,不含 session token 与用户内容(§10.3)。
+   */
+  inspectPlugin(pluginId: string): LexiInspectorReport {
+    const input = new LexiInspectorInput();
+    input.pluginId = pluginId;
+    input.lifecycleState = this.lifecycle.stateOf(pluginId);
+    const record = this.plugins.get(pluginId);
+    input.activationId = this.lifecycle.currentActivationIdOf(pluginId).length > 0
+      ? this.lifecycle.currentActivationIdOf(pluginId)
+      : (record ? record.activationId : '');
+    let extensionCount = 0;
+    this.extensionRegistry.list(pluginId).forEach((_record: Object): void => { extensionCount += 1; });
+    input.extensionCount = extensionCount;
+    const grant = this.permissionStore.grantOf(pluginId);
+    input.permissionState = grant !== null ? grant.state : 'not-granted';
+    input.capabilityTags = record ? this.capabilityTagsOf(record.manifest) : [];
+    input.errorState = record ? record.errorState : '';
+    const denies = this.runtime.rpcDenies;
+    input.rpcDeniedCount = denies.get(pluginId) === undefined ? 0 : denies.get(pluginId) as number;
+    input.rpcAnonymousCount = denies.get('(anonymous)') === undefined ? 0 : denies.get('(anonymous)') as number;
+    return LexiPluginInspector.report(input);
   }
 
   private permissionStorePath(): string {
