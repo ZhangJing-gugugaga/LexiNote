@@ -7,6 +7,14 @@
 (function () {
   'use strict';
 
+  // 插件视图沙箱已退役:插件源码只在工作区容器(lexinote_workspace.html)里执行。
+  // 本文件保留 DOM/ItemView 助手与桥接能力,但不再求值任何插件源码。
+  var API_VERSION = (window.LexiObsidian && window.LexiObsidian.apiVersion) || '1.0.0';
+
+  function retired(api) {
+    throw new Error('插件视图沙箱已退役(' + api + '):插件只在工作区容器内运行');
+  }
+
   // ------------------------------------------------------------ bridge (host RPC)
 
   var callSeq = 0;
@@ -20,7 +28,11 @@
     var message = null;
     try { message = JSON.parse(raw); } catch (err) { message = null; }
     if (!message) { entry.reject(new Error('插件视图桥返回了无效数据')); return; }
-    if (message.ok) { entry.resolve(message.result); } else { entry.reject(new Error(message.error || '插件视图桥调用失败')); }
+    if (message.ok) { entry.resolve(message.result); return; }
+    // 错误码必须到调用方手里(与插件 shim 的 settle 同口径):只看文案无法区分"未声明能力"和"无身份"。
+    var failure = new Error(message.error || '插件视图桥调用失败');
+    if (typeof message.code === 'string') { failure.code = message.code; }
+    entry.reject(failure);
   }
 
   function flushHost() {
@@ -35,14 +47,17 @@
     }, 40);
   }
 
-  function hostCall(method, payload) {
+  function hostCall(method, payload, token) {
     return new Promise(function (resolve, reject) {
       var callId = 'v' + (++callSeq);
       pendingCalls.set(callId, { resolve: resolve, reject: reject });
       var dispatch = function () {
         try {
           var raw = JSON.stringify(payload === undefined || payload === null ? {} : payload);
-          var outcome = window.lexiHost.call(callId, method, raw);
+          // 不带令牌时保持原样(宿主按"无身份"处理)，带了就作为第 4 个实参交给宿主反查归属。
+          var outcome = token === undefined
+            ? window.lexiHost.call(callId, method, raw)
+            : window.lexiHost.call(callId, method, raw, token);
           if (outcome && typeof outcome.then === 'function') {
             outcome.then(function (result) { settle(callId, result); }, function (err) { pendingCalls.delete(callId); reject(err); });
           }
@@ -349,10 +364,10 @@
     getActiveFile: function () { return null; },
     getActiveViewOfType: function () { return null; },
     getLeavesOfType: function () { return []; },
-    getRightLeaf: function () { return null; },
-    getLeaf: function () { return null; },
-    getMostRecentLeaf: function () { return null; },
-    iterateAllLeaves: function () {},
+    getRightLeaf: function () { retired('workspace.getRightLeaf'); },
+    getLeaf: function () { retired('workspace.getLeaf'); },
+    getMostRecentLeaf: function () { retired('workspace.getMostRecentLeaf'); },
+    iterateAllLeaves: function () { retired('workspace.iterateAllLeaves'); },
     iterateRootLeaves: function () {},
     detachLeavesOfType: function () { return Promise.resolve(); },
     revealLeaf: function () { return Promise.resolve(); },
@@ -736,12 +751,16 @@
     return text;
   }
 
+  // 视图侧没有插件执行面,身份只能来自宿主下发的 boot payload(token 由 LexiWebRuntime 铸造)。
+  // 没收到令牌就是空串,宿主侧的 net 门禁会 fail-closed。
+  var viewToken = '';
+
   function viewRequestUrl(param) {
     var spec = typeof param === 'string' ? { url: param } : (param || {});
     return hostCall('net.requestUrl', {
       url: spec.url, method: spec.method || 'GET',
       headers: spec.headers || {}, body: typeof spec.body === 'string' ? spec.body : ''
-    }).then(function (response) {
+    }, viewToken).then(function (response) {
       var text = response && typeof response.text === 'string' ? response.text : '';
       var parsed = null;
       try { parsed = JSON.parse(text); } catch (err) { parsed = null; }
@@ -794,7 +813,7 @@
     getLanguage: function () { return 'zh'; },
     addIcon: function () {}, removeIcon: function () {}, setIcon: function () {},
     getIcon: function () { return null; }, getIconIds: function () { return []; },
-    apiVersion: '1.1.0',
+    apiVersion: API_VERSION,
     Platform: { isMobile: true, isPhone: true, isDesktop: false, isMobileApp: true },
     PluginManifest: function () {},
     TAbstractFile: function () {},
@@ -808,117 +827,44 @@
   viewNamespace.Setting.prototype.setDesc = function () { return this; };
   viewNamespace.Setting.prototype.addButton = function (cb) { cb({ setButtonText: function () { return this; }, onClick: function () { return this; } }); return this; };
 
-  function requireShim(name) {
-    if (name === 'obsidian' || name === 'lexinote') { return viewNamespace; }
-    throw new Error('插件视图沙箱不支持模块: ' + name);
+  /** 退役后的 slot 只给一条明确结论:不读源码、不求值、不假装渲染。 */
+  function reportRetired(face) {
+    document.body.textContent = '插件' + face + '已退役:插件视图与代码块由工作区容器渲染';
+    // 不再往宿主发自定义日志通道:该面已退役,console.warn 已经能被 hilog(ARKWEB-CONSOLE) 采集,
+    // 多一条宿主没有处理器的通道只会变成死通道(plugin-channel-audit 会判红)。
+    console.warn('[lexinote] slot retired', face);
   }
 
   // ------------------------------------------------------------ boot
 
   var booted = false;
 
-  async function fetchPluginCode(pluginId) {
-    var collected = '';
-    var offset = 0;
-    while (true) {
-      var chunk = await hostCall('plugin.sourceChunk', {
-        pluginId: pluginId, offset: offset, length: 48 * 1024
-      });
-      if (typeof chunk !== 'string' || chunk.length === 0) { break; }
-      collected += chunk;
-      offset += chunk.length;
-      if (chunk.length < 48 * 1024) { break; }
-    }
-    return collected;
-  }
-
-  function evaluatePlugin(code, manifest) {
-    var moduleObj = { exports: {} };
-    var factory = new Function('require', 'module', 'exports',
-      code + '\n//# sourceURL=lexinote-slot-' + manifest.id + '.js');
-    factory(requireShim, moduleObj, moduleObj.exports);
-    var exported = moduleObj.exports;
-    var Ctor = typeof exported === 'function' ? exported : (exported && typeof exported.default === 'function' ? exported.default : null);
-    if (!Ctor) { throw new Error('main.js 必须导出插件类'); }
-    return new Ctor(appRef, manifest);
-  }
-
   window.lexinoteView = {
+    // 双执行面退役:这里不再读取 main.js 源码、不再 new Function 求值。
+    // 视图与代码块统一由工作区容器(rawfile/lexinote_workspace.html)渲染,本页只报未支持。
     boot: function (payloadJson) {
       if (booted) { return; }
       booted = true;
       var payload = null;
       try { payload = JSON.parse(payloadJson); } catch (err) { payload = null; }
-      if (!payload || (!payload.code && !payload.pluginId)) {
-        document.body.textContent = '插件视图启动参数缺失';
-        return;
+      if (payload && typeof payload.token === 'string') { viewToken = payload.token; }
+      if (payload && (payload.code || payload.pluginId)) {
+        reportRetired('视图');
       }
-      var manifest = null;
-      try { manifest = JSON.parse(payload.manifestJson); } catch (err) { manifest = { id: 'unknown', name: 'Plugin' }; }
-      applyStyles(payload.stylesCss || '');
-      installDomHelpers();
-      (async function () {
-        try {
-          var code = typeof payload.code === 'string' && payload.code.length > 0 ? payload.code : await fetchPluginCode(payload.pluginId);
-          if (!code) { throw new Error('插件源码读取失败: ' + payload.pluginId); }
-          var plugin = evaluatePlugin(code, manifest);
-          await Promise.resolve(plugin.load ? plugin.load() : plugin.onload && plugin.onload());
-          var creator = plugin._viewCreators.get(payload.viewType);
-          if (!creator) { throw new Error('插件未注册视图: ' + payload.viewType); }
-          var leaf = { view: null, getViewState: function () { return { type: payload.viewType }; } };
-          var view = creator(leaf);
-          if (!view || !view.containerEl) { throw new Error('视图创建器必须返回 ItemView'); }
-          var root = document.createElement('div');
-          root.className = 'lexinote-view-root';
-          root.appendChild(view.containerEl);
-          document.body.appendChild(root);
-          if (view.load) { view.load(); }
-          if (view.onOpen) { view.onOpen(); }
-        } catch (err) {
-          document.body.textContent = '插件视图启动失败: ' + (err && err.message ? err.message : String(err));
-          console.warn('[lexinote] view boot error', err);
-        }
-      })();
     },
 
     bootCodeBlock: function (payloadJson) {
       var payload = null;
       try { payload = JSON.parse(payloadJson); } catch (err) { payload = null; }
-      if (!payload || (!payload.code && !payload.pluginId)) {
-        document.body.textContent = '插件代码块参数缺失';
-        return;
+      if (payload && (payload.code || payload.pluginId)) {
+        document.body.classList.add('lexinote-code-slot');
+        reportRetired('代码块 · ' + String(payload.language || ''));
       }
-      var manifest = null;
-      try { manifest = JSON.parse(payload.manifestJson); } catch (err) { manifest = { id: 'unknown', name: 'Plugin' }; }
-      applyStyles(payload.stylesCss || '');
-      installDomHelpers();
-      document.body.classList.add('lexinote-code-slot');
-      (async function () {
-        try {
-          var code = typeof payload.code === 'string' && payload.code.length > 0 ? payload.code : await fetchPluginCode(payload.pluginId);
-          if (!code) { throw new Error('插件源码读取失败: ' + payload.pluginId); }
-          var plugin = evaluatePlugin(code, manifest);
-          await Promise.resolve(plugin.load ? plugin.load() : plugin.onload && plugin.onload());
-          var handler = plugin._codeBlockHandlers.get(String(payload.language || '').toLowerCase());
-          if (!handler) { throw new Error('插件未注册该语言的代码块处理器: ' + payload.language); }
-          var root = document.createElement('div');
-          root.className = 'lexinote-code-root';
-          root.createEl('div', { cls: 'lexinote-code-badge', text: '插件渲染 · ' + payload.language });
-          var content = root.createDiv({ cls: 'lexinote-code-content' });
-          document.body.appendChild(root);
-          var ctx = {
-            docId: '', sourcePath: '', frontmatter: null,
-            addChild: function () {},
-            getSectionInfo: function () { return null; }
-          };
-          await Promise.resolve(handler(String(payload.source || ''), content, ctx));
-        } catch (err) {
-          document.body.textContent = '插件代码块渲染失败: ' + (err && err.message ? err.message : String(err));
-          console.warn('[lexinote] codeblock error', err);
-        }
-      })();
     }
   };
+
+  // 这个命名空间此前定义了却从未发布:页内没有任何代码能拿到 viewRequestUrl。
+  if (!window.LexiObsidian) { window.LexiObsidian = viewNamespace; }
 
   whenHostReady();
 })();

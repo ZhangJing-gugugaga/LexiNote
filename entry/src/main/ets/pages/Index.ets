@@ -10,6 +10,7 @@ import { LexiLaunchScreen } from '../components/LexiLaunchScreen';
 import { LexiWelcomeGuide } from '../components/LexiWelcomeGuide';
 import { LexiHomeTab } from '../components/LexiHomeTab';
 import { LexiVaultTab } from '../components/LexiVaultTab';
+import { WorkspaceLog } from '../workspace/WorkspaceLog';
 import { LexiExploreTab } from '../components/LexiExploreTab';
 import { LexiContextActionHost } from '../components/LexiContextActionHost';
 import { LexiContextTarget } from '../core/LexiContextModels';
@@ -66,6 +67,7 @@ struct Index {
   @State private desktopNoteId: string = '';
   @State private desktopOpenRevision: number = 0;
   @State private desktopRouteActive: boolean = false;
+  @State private wideOpenTarget: string = '';
   @State ready: boolean = false;
   @State private showWelcome: boolean = false;
   @State startupError: string = '';
@@ -115,6 +117,7 @@ struct Index {
   // Settings
   @State theme: string = 'system';
   @State defaultTier: string = 'simple';
+  @State arkuiEditorOpen: boolean = false;
   @State busy: boolean = false;
   @State dataStatus: string = '';
   @State lastBackup: string = '';
@@ -215,6 +218,8 @@ struct Index {
       this.defaultTier = await LexiStorageService.getSetting('defaultTier', 'simple');
       this.lastBackup = await LexiStorageService.getSetting('lastBackup', '');
       this.graphShowTags = await LexiStorageService.getSetting('graphShowTags', 'false') === 'true';
+      this.arkuiEditorOpen = await LexiStorageService.getSetting('arkuiEditorOpen', 'false') === 'true';
+      this.wideOpenTarget = await LexiStorageService.getSetting('wideOpenTarget', '');
       this.viewMode = await LexiStorageService.getSetting('vaultViewMode', 'list');
       this.startupStep = 2;
       try { await LexiStorageService.refreshFolders(await LexiStorageService.getActiveVaultId()); }
@@ -424,12 +429,57 @@ struct Index {
   }
 
   private openNote(noteId: string): void {
+    // 全局开关优先:开关打开时一律走 ArkUI,不做宽屏询问。
+    if (this.arkuiEditorOpen || noteId.length === 0) { this.openNoteArkui(noteId); return; }
+    if (!this.wide()) { this.openNoteContainer(noteId); return; }
+    // 宽屏:已记住的选择直接生效,从未选择才询问一次。
+    if (this.wideOpenTarget === 'container') { this.openNoteContainer(noteId); return; }
+    if (this.wideOpenTarget === 'arkui') { this.openNoteArkui(noteId); return; }
+    this.askWideOpenTarget(noteId);
+  }
+  private openNoteContainer(noteId: string): void {
+    WorkspaceLog.info('note.route', 'target=container noteId=' + noteId);
+    const params: Record<string, string> = { 'noteId': noteId };
+    this.getUIContext().getRouter().pushUrl({ url: 'workspace/LexiWorkspacePage', params: params })
+      .catch((): void => { this.toast('插件工作区暂时无法打开'); });
+  }
+  private openNoteArkui(noteId: string): void {
+    WorkspaceLog.info('note.route', 'target=arkui noteId=' + noteId);
     if (this.wide()) {
       this.activeTab = 1; this.desktopOpenMode = 'tab'; this.desktopNoteId = noteId; this.desktopOpenRevision++; return;
     }
     const param = new NoteEditorRouteParam();
     param.noteId = noteId;
     this.pathStack.pushPathByName('noteEditor', param);
+  }
+  // 桌面工作区点击笔记时先问宿主:true = 宿主已处理(容器路由或正在询问),组件不要再就地开标签。
+  private requestNoteOpen(noteId: string): boolean {
+    if (this.arkuiEditorOpen || this.wideOpenTarget === 'arkui') {
+      WorkspaceLog.info('note.route', 'target=arkui noteId=' + noteId + ' reason=wide-tab');
+      return false;
+    }
+    if (this.wideOpenTarget === 'container') { this.openNoteContainer(noteId); return true; }
+    this.askWideOpenTarget(noteId);
+    return true;
+  }
+  private async askWideOpenTarget(noteId: string): Promise<void> {
+    WorkspaceLog.info('note.route', 'target=ask noteId=' + noteId);
+    let index = -1;
+    try {
+      const choice = await this.getUIContext().getPromptAction().showDialog({
+        title: '用哪种方式打开笔记？',
+        message: '这次选择会被记住，之后可在「设置 - 编辑器」里重新询问。',
+        buttons: [{ text: '插件工作区容器', color: $r('app.color.brand') },
+          { text: 'ArkUI 编辑器', color: $r('app.color.text_primary') }]
+      });
+      index = choice.index;
+    } catch { return; }
+    if (index === 0) { await this.setWideOpenTarget('container'); this.openNoteContainer(noteId); }
+    else if (index === 1) { await this.setWideOpenTarget('arkui'); this.openNoteArkui(noteId); }
+  }
+  private async setWideOpenTarget(value: string): Promise<void> {
+    try { await LexiStorageService.setSetting('wideOpenTarget', value); this.wideOpenTarget = value; }
+    catch { this.toast('设置保存失败'); }
   }
   private openContextContent(id: string, mode: string): void {
     this.openContextDestination(id, mode).catch((): void => { this.toast('暂时无法打开内容，请刷新后重试'); });
@@ -871,6 +921,10 @@ struct Index {
     try { await LexiStorageService.setSetting('defaultTier', value); this.defaultTier = value; }
     catch { this.toast('设置保存失败'); }
   }
+  private async setArkuiEditor(on: boolean): Promise<void> {
+    try { await LexiStorageService.setSetting('arkuiEditorOpen', on ? 'true' : 'false'); this.arkuiEditorOpen = on; }
+    catch { this.toast('设置保存失败'); }
+  }
   private async setViewMode(value: string): Promise<void> {
     this.viewMode = value;
     try { await LexiStorageService.setSetting('vaultViewMode', value); } catch {}
@@ -1288,7 +1342,8 @@ struct Index {
         this.pathStack.pushPathByName('noteEditor', param);
       },
       onOpenHelp: (): void => { this.openHelp(); },
-      onOpenSettings: (): void => { this.showSettingsWindow = true; }
+      onOpenSettings: (): void => { this.showSettingsWindow = true; },
+      onNoteOpenRequest: (noteId: string): boolean => this.requestNoteOpen(noteId)
     })
   }
 
@@ -1378,11 +1433,15 @@ struct Index {
         LexiSettingsWindow({
           theme: this.theme,
           defaultTier: this.defaultTier,
+          arkuiEditorOpen: this.arkuiEditorOpen,
+          wideOpenTarget: this.wideOpenTarget,
           busy: this.busy,
           dataStatus: this.dataStatus,
           lastBackup: this.lastBackup,
           onSelectTheme: (theme: string): void => { this.setTheme(theme); },
           onSelectTier: (tier: string): void => { this.setDefaultTier(tier); },
+          onToggleArkuiEditor: (on: boolean): void => { this.setArkuiEditor(on); },
+          onResetWideOpen: (): void => { this.setWideOpenTarget(''); },
           onExportBackup: (): void => { this.exportBackup(); },
           onExportMarkdown: (): void => { this.exportMarkdown(); },
           onImportFiles: (): void => { this.importFiles(); },

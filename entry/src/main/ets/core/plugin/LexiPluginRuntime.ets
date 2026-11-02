@@ -10,23 +10,50 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { LexiStorageService } from '../LexiStorageService';
 import { LexiPluginBus } from './LexiPluginBus';
 import { LexiCommandRegistry, LexiEvents, LexiPluginCommand } from './LexiPluginKernel';
-import { LexiInstalledPlugin, LexiPluginManifest, manifestCompatible, parsePluginManifest } from './LexiPluginManifest';
+import {
+  LexiInstalledPlugin,
+  LexiPluginManifest,
+  LexiCapabilityDecision,
+  manifestCompatMessage,
+  parsePluginManifest,
+  checkFsCapability,
+  ERROR_CAPABILITY_DENIED
+} from './LexiPluginManifest';
+import {
+  LexiNetDeps,
+  LexiNetOutcome,
+  LexiNetResponse,
+  LexiNetTransport,
+  NET_TIMEOUT_MS,
+  executeNetRequest
+} from './LexiNetProbe';
 import { LexiMetadataCache } from './LexiMetadataCache';
 import { LexiVaultFacade } from './LexiVaultFacade';
 import { LexiTFolder, LexiTFile } from './LexiVaultModel';
 import { LexiEditorRegistry } from './LexiEditorRegistry';
 import { LexiPluginViewInfo, LexiPluginViewRegistry } from './LexiPluginViewRegistry';
 import { LexiEditorPosUtil, LexiEditorPosition } from './LexiEditorPos';
-import { LexiPluginInstaller } from './LexiPluginInstaller';
-import { LexiPluginMarketEntry, parseMarketIndex } from './LexiPluginMarketModel';
+import { LexiPluginInstaller, PluginLifecycleOutcome } from './LexiPluginInstaller';
+import { LexiPluginMarketEntry, LexiMarketIndexResult, parseMarketIndexResult } from './LexiPluginMarketModel';
 import { LexiPluginSettingDef, parseSettingDefinitions } from './LexiPluginSettingModel';
 
 const LOAD_TIMEOUT_MS: number = 20000;
+/** 源码分片通道的身份错误码:与 capability_denied / integrity_mismatch 区分开,便于定点断言。 */
+const ERROR_IDENTITY_UNTRUSTED: string = 'identity_untrusted';
 const SOURCE_CHUNK_SIZE: number = 48 * 1024;
 const PLUGIN_DIR_NAME: string = 'plugins';
 const KEY_ENABLED: string = 'lexiPluginEnabled';
 const KEY_SAFE_MODE: string = 'lexiPluginSafeMode';
-const SAMPLE_DIR: string = 'plugins/lexi-sample-plugin';
+/** 随 HAP 内置、启动时复制进 files/plugins 的插件目录(演示插件 + 兼容层探针)。 */
+const BUNDLED_PLUGIN_DIRS: Array<string> = [
+  'plugins/lexi-sample-plugin',
+  'plugins/compat-probe',
+  'plugins/calendar',
+  'plugins/editor-outliner',
+  // 身份判定的活体探针:前者不声明任何 capabilities(攻击方),后者只声明 network 127.0.0.1(被冒名方)。
+  'plugins/cap-probe-unauth',
+  'plugins/cap-probe-open'
+];
 const HI_DOMAIN: number = 0x1051;
 const HI_TAG: string = 'LexiPlugin';
 
@@ -82,6 +109,8 @@ class RpcResponse {
   ok: boolean = false;
   result: Object | null = null;
   error: string = '';
+  /** 机器可读的失败原因(capability_denied / integrity_mismatch / ...)，成功时为空。 */
+  code: string = '';
 }
 
 function okResponse(result: Object | null): string {
@@ -98,18 +127,72 @@ function failResponse(error: string): string {
   return JSON.stringify(body);
 }
 
+function failResponseCode(code: string, error: string): string {
+  const body = new RpcResponse();
+  body.ok = false;
+  body.error = error;
+  body.code = code;
+  return JSON.stringify(body);
+}
+
 /** ArkWeb transport. The Web component exposes `call` as `lexiHost` inside the runtime page. */
 export class LexiWebRuntime {
   private controller: webview.WebviewController | null = null;
-  private handlers: Map<string, (payloadJson: string) => Promise<string>> = new Map();
+  private handlers: Map<string, (payloadJson: string, identity: string, token: string) => Promise<string>> = new Map();
   private ready: boolean = false;
   private readyWaiters: Array<() => void> = [];
+  /**
+   * 插件身份令牌表(token → pluginId)。令牌只由本运行时铸造:装载时下发给运行时页面,
+   * 页面侧每一次宿主调用把它当第 4 个实参带回来,call() 用它反查身份。
+   * 令牌里不含插件 id(不可猜),页面自报的 pluginId 不参与身份判定。
+   */
+  private pluginTokens: Map<string, string> = new Map();
+
+  /** 铸造插件令牌并登记归属。返回空串表示插件 id 非法(调用方必须按失败处理)。 */
+  mintPluginToken(pluginId: string): string {
+    if (pluginId.length === 0) { return ''; }
+    const token: string = 'tk-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 10);
+    this.pluginTokens.set(token, pluginId);
+    return token;
+  }
+
+  /** 吊销某插件的全部令牌(停用/卸载/回滚),返回吊销条数。 */
+  revokePluginTokens(pluginId: string): number {
+    const doomed: string[] = [];
+    this.pluginTokens.forEach((owner: string, token: string): void => {
+      if (owner === pluginId) { doomed.push(token); }
+    });
+    for (const token of doomed) { this.pluginTokens.delete(token); }
+    return doomed.length;
+  }
+
+  /** 只认本运行时铸造的令牌;不是令牌的一律回空串(fail-closed)。 */
+  pluginIdForToken(token: string): string {
+    if (typeof token !== 'string' || token.length === 0) { return ''; }
+    const owner = this.pluginTokens.get(token);
+    return owner === undefined ? '' : owner;
+  }
+
+  /** 取该插件的令牌(没有就铸一个)：身份令牌只在宿主侧铸造，页面无法自造。 */
+  tokenForPlugin(pluginId: string): string {
+    let found: string = '';
+    this.pluginTokens.forEach((owner: string, token: string): void => {
+      if (found.length === 0 && owner === pluginId) { found = token; }
+    });
+    return found.length > 0 ? found : this.mintPluginToken(pluginId);
+  }
+
+  /** 令牌尾 6 位:日志里可对账,又不足以被复用来冒充。 */
+  static tokenTail(token: string): string {
+    return token.length <= 6 ? token : token.substring(token.length - 6);
+  }
 
   attach(controller: webview.WebviewController): void {
     this.controller = controller;
   }
 
-  registerHandler(method: string, handler: (payloadJson: string) => Promise<string>): void {
+  registerHandler(method: string,
+    handler: (payloadJson: string, identity: string, token: string) => Promise<string>): void {
     this.handlers.set(method, handler);
   }
 
@@ -129,12 +212,30 @@ export class LexiWebRuntime {
     await new Promise<void>((resolve: () => void) => { this.readyWaiters.push(resolve); });
   }
 
-  /** javaScriptProxy entry point (exposed as window.lexiHost.call). */
-  async call(_callId: string, method: string, payloadJson: string): Promise<string> {
+  /**
+   * 唯一的两个入口:(1) 运行时页面(lexiHost.call)带回装载时下发的插件令牌;
+   * (2) WorkspaceBridge.delegate 带回它自己已经鉴权过的 pluginId。
+   * 令牌是第一顺位可信身份:命中令牌表就换成归属的 pluginId;没命中则按 bridge 已鉴权的 pluginId 处理。
+   * payload 里的 pluginId 是自述,进处理器之前就被剥掉并落一行审计日志。
+   */
+  async call(_callId: string, method: string, payloadJson: string, identity: string): Promise<string> {
     const handler = this.handlers.get(method);
     if (!handler) { return failResponse(`未知插件通道: ${method}`); }
+    const raw: string = typeof identity === 'string' ? identity : '';
+    const owned: string = this.pluginIdForToken(raw);
+    const trusted: string = owned.length > 0 ? owned : raw;
+    if (owned.length > 0) {
+      pluginLog('identity.token method=' + method + ' identity=' + owned +
+        ' tokenTail=' + LexiWebRuntime.tokenTail(raw));
+    } else if (method === 'plugin.sourceChunk' || method === 'plugin.sourceSize') {
+      // 源码通道只认装载时铸造的令牌:bridge 通道的 pluginId 在这里不作数(否则任何页面都能读别人源码)。
+      pluginError('源码通道拒绝: method=' + method + ' identity=' +
+        (raw.length > 0 ? raw.substring(0, 24) : '(none)') + ' fail_closed=true code=' + ERROR_IDENTITY_UNTRUSTED);
+      return failResponseCode(ERROR_IDENTITY_UNTRUSTED, '源码分片请求缺少可信插件令牌（fail-closed）');
+    }
     try {
-      return await handler(payloadJson);
+      // 原始令牌一并交给处理器：能力判定要能反查"这个身份是否真的持有它自己的令牌"。
+      return await handler(stripClaimedIdentity(payloadJson, trusted, method), trusted, raw);
     } catch (error) {
       return failResponse(String(error));
     }
@@ -171,6 +272,32 @@ function rpcString(payload: RpcRequest, key: string): string {
   return typeof value === 'string' ? value : '';
 }
 
+/**
+ * 能力判定只认令牌解析出来的身份:payload 里的 pluginId 是自述,处理器根本看不到它。
+ * 带自述就落一行审计日志(与 WorkspaceBridge 的 frame.identity 同一口径),然后剥掉该键。
+ * 这是 spec §13.1 的落地:能力声明不能靠调用方自曝 id 来"借用"别人的权限。
+ */
+function stripClaimedIdentity(payloadJson: string, identity: string, method: string): string {
+  let request: RpcRequest;
+  try {
+    request = JSON.parse(payloadJson) as RpcRequest;
+  } catch (error) {
+    return payloadJson;
+  }
+  if (request === null || typeof request !== 'object') { return payloadJson; }
+  const raw = request['pluginId'];
+  const claimed: string = typeof raw === 'string' ? raw as string : '';
+  if (claimed.length === 0) { return payloadJson; }
+  pluginLog('identity.ignored method=' + method + ' identity=' + (identity.length > 0 ? identity : '(none)') +
+    ' claimed=' + claimed + ' ignored=true');
+  const clean: RpcRequest = {};
+  const keys: string[] = Object.keys(request);
+  for (const key of keys) {
+    if (key !== 'pluginId') { clean[key] = request[key]; }
+  }
+  return JSON.stringify(clean);
+}
+
 function rpcBool(payload: RpcRequest, key: string): boolean {
   const value = payload[key];
   return value === true;
@@ -181,12 +308,39 @@ function rpcNumber(payload: RpcRequest, key: string): number {
   return typeof value === 'number' ? value : 0;
 }
 
+/** net.requestUrl 的真实网络边界：全工程唯一接触 @kit.NetworkKit 的实现，测试用假传输替换它。 */
+class LexiHttpTransport implements LexiNetTransport {
+  async send(method: string, url: string, headers: Record<string, string>, body: string,
+    timeoutMs: number): Promise<LexiNetResponse> {
+    const client = http.createHttp();
+    try {
+      const response = await client.request(url, {
+        method: (method === 'POST' ? http.RequestMethod.POST : http.RequestMethod.GET),
+        header: headers,
+        extraData: body.length > 0 ? body : undefined,
+        connectTimeout: timeoutMs,
+        readTimeout: timeoutMs
+      });
+      const headersOut: Record<string, string> = {};
+      const rawOut = response.header as Record<string, string> | undefined;
+      if (rawOut) {
+        for (const key of Object.keys(rawOut)) { headersOut[key] = String(rawOut[key]); }
+      }
+      const text = typeof response.result === 'string' ? response.result : JSON.stringify(response.result);
+      return new LexiNetResponse(response.responseCode, headersOut, text);
+    } finally {
+      client.destroy();
+    }
+  }
+}
+
 export class LexiPluginManager {
   private static instanceRef: LexiPluginManager | null = null;
 
   readonly runtime: LexiWebRuntime = new LexiWebRuntime();
   readonly commands: LexiCommandRegistry = new LexiCommandRegistry();
   readonly workspaceEvents: LexiEvents = new LexiEvents();
+  private netTransport: LexiHttpTransport = new LexiHttpTransport();
   vault: LexiVaultFacade = new LexiVaultFacade();
   metadata: LexiMetadataCache | null = null;
 
@@ -206,6 +360,8 @@ export class LexiPluginManager {
   private pluginSources: Map<string, string> = new Map();
   private ribbonItems: Map<string, LexiRibbonRow> = new Map();
   private iconPaths: Map<string, string> = new Map();
+  /** ui.placeholder 登记表:key=kind#seq, value=标题(真实 DOM 由页面兼容层挂载)。 */
+  private placeholders: Map<string, string> = new Map<string, string>();
 
   static get shared(): LexiPluginManager | null {
     return LexiPluginManager.instanceRef;
@@ -259,7 +415,9 @@ export class LexiPluginManager {
       'pluginId': pluginId as Object,
       'manifestJson': JSON.stringify(record.manifest) as Object,
       'viewType': viewType as Object,
-      'stylesCss': stylesCss as Object
+      'stylesCss': stylesCss as Object,
+      // 视图侧的 net.requestUrl 也要带身份：令牌只在宿主侧铸造，随 boot payload 下发。
+      'token': this.runtime.tokenForPlugin(pluginId) as Object
     };
     return JSON.stringify(body);
   }
@@ -390,16 +548,16 @@ export class LexiPluginManager {
   }
 
   /** Installs a plugin from a local zip (path or file URI), rescans and enables it. */
-  async installZip(zipSource: string): Promise<string> {
-    const manifest = await this.ensureInstaller().installZip(zipSource);
+  async installZip(zipSource: string, expectedSha256: string = ''): Promise<string> {
+    const manifest = await this.ensureInstaller().installZip(zipSource, expectedSha256);
     await this.scanPluginDir();
     pluginLog('插件安装完成: ' + manifest.id + ' v' + manifest.version);
     await this.enablePlugin(manifest.id);
     return manifest.id;
   }
 
-  /** Downloads a plugin zip and installs it. */
-  async installFromUrl(url: string): Promise<string> {
+  /** Downloads a plugin zip and installs it. expectedSha256 comes from the index entry. */
+  async installFromUrl(url: string, expectedSha256: string = ''): Promise<string> {
     if (!this.context) { throw new Error('插件管理器尚未初始化'); }
     if (!/^https?:\/\//i.test(url)) { throw new Error('仅支持 http/https 下载地址'); }
     const cachePath = `${this.context.cacheDir}/plugin-download-${Date.now()}.zip`;
@@ -420,11 +578,47 @@ export class LexiPluginManager {
     } finally {
       client.destroy();
     }
-    return this.installZip(cachePath);
+    return this.installZip(cachePath, expectedSha256);
   }
 
-  /** Fetches and parses a community plugin index. */
-  async fetchMarket(indexUrl: string): Promise<LexiPluginMarketEntry[]> {
+  /** 卸载:先走 disablePlugin 的回收序,再把目录移进 .trash(data.json 一并保留)。 */
+  async uninstallPlugin(pluginId: string): Promise<PluginLifecycleOutcome> {
+    await this.disablePlugin(pluginId);
+    const outcome = this.ensureInstaller().uninstallPlugin(pluginId);
+    if (outcome.ok) {
+      this.plugins.delete(pluginId);
+      this.enabledIds.delete(pluginId);
+      await this.persistEnabled();
+      pluginLog('插件已卸载: ' + pluginId + ' → ' + outcome.path);
+      this.bumpPluginRevision();
+    } else {
+      pluginError('插件卸载失败 ' + pluginId + ': ' + outcome.message);
+    }
+    return outcome;
+  }
+
+  /** 回滚到上一版本(current.json 指针是唯一真源)。 */
+  async rollbackPlugin(pluginId: string): Promise<PluginLifecycleOutcome> {
+    await this.disablePlugin(pluginId);
+    const outcome = await this.ensureInstaller().rollbackPlugin(pluginId);
+    if (outcome.ok) {
+      await this.scanPluginDir();
+      await this.enablePlugin(pluginId).catch((): void => {});
+      pluginLog('插件已回滚: ' + pluginId + ' → v' + outcome.version);
+      this.bumpPluginRevision();
+    } else {
+      pluginError('插件回滚失败 ' + pluginId + ': ' + outcome.message);
+    }
+    return outcome;
+  }
+
+  /** 已安装版本(来自 current.json 指针,不看目录 mtime)。 */
+  pluginVersion(pluginId: string): string {
+    return this.ensureInstaller().currentVersion(pluginId);
+  }
+
+  /** Fetches a community index without losing the rejection reason. */
+  async fetchMarketIndex(indexUrl: string): Promise<LexiMarketIndexResult> {
     const client = http.createHttp();
     try {
       const response = await client.request(indexUrl, {
@@ -437,12 +631,21 @@ export class LexiPluginManager {
         throw new Error('市场索引请求失败: HTTP ' + response.responseCode);
       }
       const text = typeof response.result === 'string' ? response.result : JSON.stringify(response.result);
-      const entries = parseMarketIndex(text);
-      pluginLog('市场索引加载: ' + entries.length + ' 个插件');
-      return entries;
+      const result = parseMarketIndexResult(text);
+      if (result.ok) {
+        pluginLog('市场索引加载: ' + result.entries.length + ' 个插件 schema=' + result.schemaVersion);
+      } else {
+        pluginError('市场索引被拒绝 ' + result.code + ': ' + result.message);
+      }
+      return result;
     } finally {
       client.destroy();
     }
+  }
+
+  /** 展示用包装:历史调用方仍只拿到条目。 */
+  async fetchMarket(indexUrl: string): Promise<LexiPluginMarketEntry[]> {
+    return (await this.fetchMarketIndex(indexUrl)).entries;
   }
 
   private async init(context: common.Context): Promise<void> {
@@ -470,7 +673,41 @@ export class LexiPluginManager {
     }
     pluginLog('插件管理器初始化完成: 已发现 ' + this.plugins.size + ' 个插件, safeMode=' + this.safeMode);
     this.registerRpcHandlers();
+    this.registerHostOnlyCommands();
     this.workspaceEvents.trigger('layout-change', null);
+  }
+
+  /**
+   * 只存在于宿主注册表的命令:容器里的兼容层根本没有这条,所以 executeCommandById 走到
+   * 宿主并回结果,才证明 commands.execute 的成功路径真的存在(拒绝路径只证明防火墙)。
+   */
+  private registerHostOnlyCommands(): void {
+    this.commands.registerPluginCommand('lexinote', {
+      id: 'host-only-selfcheck',
+      name: '宿主自检命令',
+      icon: 'check',
+      editorOnly: false,
+      callback: (): void => {
+        this.hostSelfcheckRuns += 1;
+        pluginLog('宿主命令执行: lexinote:host-only-selfcheck runs=' + this.hostSelfcheckRuns);
+      }
+    });
+    pluginLog('宿主专属命令注册: lexinote:host-only-selfcheck (容器内不存在)');
+  }
+
+  hostSelfcheckRuns: number = 0;
+
+  /** 原始 manifest.json 文本:web 容器要把它原样交给 obsidian 兼容层。 */
+  pluginManifestJson(pluginId: string): string {
+    const record = this.plugins.get(pluginId);
+    if (record === undefined) { throw new Error('未安装的插件: ' + pluginId); }
+    return this.readTextFile(`${record.dir}/manifest.json`);
+  }
+
+  pluginMainCode(pluginId: string): string {
+    const record = this.plugins.get(pluginId);
+    if (record === undefined) { throw new Error('未安装的插件: ' + pluginId); }
+    return this.readTextFile(`${record.dir}/main.js`);
   }
 
   private pluginsRoot(): string {
@@ -479,22 +716,45 @@ export class LexiPluginManager {
   }
 
   private async installBundledSamples(): Promise<void> {
+    for (const sourceDir of BUNDLED_PLUGIN_DIRS) {
+      await this.installBundledPlugin(sourceDir);
+    }
+  }
+
+  /**
+   * 用户卸载过的插件不得被内置资源在下次启动时装回来。卸载会把整个目录移进
+   * plugins/.trash/<id>-<ts>/,所以那片目录的存在就是"用户不要它"的记录。
+   */
+  private wasUninstalled(pluginId: string): boolean {
+    const trash = `${this.pluginsRoot()}/.trash`;
+    try {
+      if (!fs.accessSync(trash)) { return false; }
+      for (const entry of fs.listFileSync(trash)) {
+        if (entry === pluginId || entry.startsWith(`${pluginId}-`)) { return true; }
+      }
+    } catch { /* 没有 trash 目录等于从未卸载 */ }
+    return false;
+  }
+
+  private async installBundledPlugin(sourceDir: string): Promise<void> {
     if (!this.context) { return; }
     try {
       const resource = this.context.resourceManager;
-      const manifestBuffer = await resource.getRawFileContent(`${SAMPLE_DIR}/manifest.json`);
-      const codeBuffer = await resource.getRawFileContent(`${SAMPLE_DIR}/main.js`);
+      const manifestBuffer = await resource.getRawFileContent(`${sourceDir}/manifest.json`);
+      const codeBuffer = await resource.getRawFileContent(`${sourceDir}/main.js`);
       const decoder = new util.TextDecoder('utf-8');
       const manifestJson = decoder.decodeToString(new Uint8Array(manifestBuffer));
       const code = decoder.decodeToString(new Uint8Array(codeBuffer));
       let stylesCss = '';
       try {
-        const stylesBuffer = await resource.getRawFileContent(`${SAMPLE_DIR}/styles.css`);
+        const stylesBuffer = await resource.getRawFileContent(`${sourceDir}/styles.css`);
         stylesCss = decoder.decodeToString(new Uint8Array(stylesBuffer));
       } catch { /* styles.css 可选 */ }
-      const dir = `${this.pluginsRoot()}/lexi-sample-plugin`;
+      const entryName = sourceDir.substring(sourceDir.lastIndexOf('/') + 1);
+      if (this.wasUninstalled(entryName)) { return; }
+      const dir = `${this.pluginsRoot()}/${entryName}`;
       if (!fs.accessSync(dir)) { fs.mkdirSync(dir, true); }
-      // 内置示范插件随应用版本更新:始终覆盖清单与代码,但保留其 data.json 用户配置
+      // 内置插件随应用版本更新:始终覆盖清单与代码,但保留其 data.json 用户配置
       this.writeTextFile(`${dir}/manifest.json`, manifestJson);
       this.writeTextFile(`${dir}/main.js`, code);
       if (stylesCss.length > 0) { this.writeTextFile(`${dir}/styles.css`, stylesCss); }
@@ -573,11 +833,11 @@ export class LexiPluginManager {
       if (waiter) { manager.pendingUnload.delete(id); waiter(); }
       return okResponse(null);
     });
-    runtime.registerHandler('commands.add', async (payload: string): Promise<string> => {
+    runtime.registerHandler('commands.add', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
-      const pluginId = rpcString(request, 'pluginId');
+      const pluginId: string = identity;
       const rawCommand = request['command'] as RpcRequest;
-      if (!pluginId || !rawCommand) { return failResponse('命令注册缺少参数'); }
+      if (!pluginId || !rawCommand) { return failResponse('命令注册缺少可信身份'); }
       const editorOnly = rpcBool(rawCommand, 'editorOnly');
       const spec: LexiPluginCommand = {
         id: rpcString(rawCommand, 'id'),
@@ -613,9 +873,9 @@ export class LexiPluginManager {
       if (manager.uiHost) { manager.uiHost.toast(rpcString(request, 'message')); }
       return okResponse(manager.uiHost !== null);
     });
-    runtime.registerHandler('ui.addRibbon', async (payload: string): Promise<string> => {
+    runtime.registerHandler('ui.addRibbon', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
-      const pluginId = rpcString(request, 'pluginId');
+      const pluginId: string = identity;
       const title = rpcString(request, 'title');
       const iconId = rpcString(request, 'icon');
       if (!pluginId || !title) { return failResponse('Ribbon 参数不完整'); }
@@ -629,9 +889,9 @@ export class LexiPluginManager {
       manager.bumpPluginRevision();
       return okResponse(null);
     });
-    runtime.registerHandler('ui.removeRibbon', async (payload: string): Promise<string> => {
+    runtime.registerHandler('ui.removeRibbon', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
-      manager.ribbonItems.delete(`${rpcString(request, 'pluginId')}:${rpcString(request, 'title')}`);
+      manager.ribbonItems.delete(`${identity}:${rpcString(request, 'title')}`);
       manager.bumpPluginRevision();
       return okResponse(null);
     });
@@ -657,10 +917,10 @@ export class LexiPluginManager {
       }
       return okResponse(null);
     });
-    runtime.registerHandler('views.add', async (payload: string): Promise<string> => {
+    runtime.registerHandler('views.add', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
       const info = new LexiPluginViewInfo();
-      info.pluginId = rpcString(request, 'pluginId');
+      info.pluginId = identity;
       info.type = rpcString(request, 'type');
       info.displayName = rpcString(request, 'displayName');
       info.icon = rpcString(request, 'icon');
@@ -687,64 +947,70 @@ export class LexiPluginManager {
       if (manager.viewCloseHandler) { manager.viewCloseHandler(type); }
       return okResponse(null);
     });
-    runtime.registerHandler('codeblocks.register', async (payload: string): Promise<string> => {
+    runtime.registerHandler('codeblocks.register', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
-      const pluginId = rpcString(request, 'pluginId');
+      const pluginId: string = identity;
       const language = rpcString(request, 'language').toLowerCase();
-      if (!pluginId || !language) { return failResponse('代码块注册缺少参数'); }
+      if (!pluginId || !language) { return failResponse('代码块注册缺少可信身份'); }
       manager.codeBlockPlugins.set(language, pluginId);
       pluginLog('插件代码块注册: ' + language + ' ← ' + pluginId);
       return okResponse(null);
     });
-    runtime.registerHandler('codeblocks.unregister', async (payload: string): Promise<string> => {
+    runtime.registerHandler('codeblocks.unregister', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
       const language = rpcString(request, 'language').toLowerCase();
       const owner = manager.codeBlockPlugins.get(language);
-      if (owner && owner === rpcString(request, 'pluginId')) {
+      if (owner && owner === identity) {
         manager.codeBlockPlugins.delete(language);
       }
       return okResponse(null);
     });
-    runtime.registerHandler('plugin.sourceChunk', async (payload: string): Promise<string> => {
+    // 源码分片只认装载时铸造的插件令牌:没有令牌、令牌不是本运行时铸造的 → 直接拒绝(fail-closed)。
+    // 返回谁的源码只由令牌决定:令牌归属 A 就只会拿到 A 的字节,payload 里任何自述 id 都不参与寻址。
+    runtime.registerHandler('plugin.sourceChunk', async (payload: string, identity: string): Promise<string> => {
+      const pluginId: string = identity;
       const request = JSON.parse(payload) as RpcRequest;
-      const pluginId = rpcString(request, 'pluginId');
       const source = manager.pluginSources.get(pluginId) || '';
       const offset = Math.max(0, rpcNumber(request, 'offset'));
       const length = rpcNumber(request, 'length') > 0 ? rpcNumber(request, 'length') : SOURCE_CHUNK_SIZE;
       const end = Math.min(source.length, offset + length);
+      pluginLog('plugin.sourceChunk pluginId=' + pluginId + ' offset=' + offset +
+        ' tokenTail=' + LexiWebRuntime.tokenTail(identity));
       return okResponse(offset >= source.length ? '' : source.substring(offset, end) as Object);
     });
-    runtime.registerHandler('plugin.sourceSize', async (payload: string): Promise<string> => {
-      const request = JSON.parse(payload) as RpcRequest;
-      const source = manager.pluginSources.get(rpcString(request, 'pluginId')) || '';
+    runtime.registerHandler('plugin.sourceSize', async (_payload: string, identity: string): Promise<string> => {
+      const source = manager.pluginSources.get(identity) || '';
       return okResponse(source.length as Object);
     });
-    runtime.registerHandler('settings.register', async (payload: string): Promise<string> => {
+    runtime.registerHandler('settings.register', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
-      const pluginId = rpcString(request, 'pluginId');
+      const pluginId: string = identity;
       const definitionsJson = rpcString(request, 'definitionsJson');
-      if (!pluginId) { return failResponse('设置注册缺少插件 id'); }
+      if (!pluginId) { return failResponse('设置注册缺少可信身份'); }
       manager.settingDefs.set(pluginId, definitionsJson);
       pluginLog('插件设置注册: ' + pluginId + ' (' + parseSettingDefinitions(definitionsJson).length + ' 项)');
       return okResponse(null);
     });
-    runtime.registerHandler('settings.unregister', async (payload: string): Promise<string> => {
-      const request = JSON.parse(payload) as RpcRequest;
-      manager.settingDefs.delete(rpcString(request, 'pluginId'));
+    runtime.registerHandler('settings.unregister', async (payload: string, identity: string): Promise<string> => {
+      manager.settingDefs.delete(identity);
       return okResponse(null);
     });
-    runtime.registerHandler('data.load', async (payload: string): Promise<string> => {
-      const request = JSON.parse(payload) as RpcRequest;
-      const pluginId = rpcString(request, 'pluginId');
-      const path = `${manager.pluginsRoot()}/${pluginId}/data.json`;
+    runtime.registerHandler('data.load', async (_payload: string, identity: string): Promise<string> => {
+      // 身份来自令牌:归属不到已安装插件时 fail-closed,读不到任何人(包括自己的)data.json。
+      if (manager.manifestFor(identity) === null) {
+        pluginError('capability.fs identity=' + (identity.length > 0 ? identity : '(none)') +
+          ' allowed=false fail_closed=true detail=data.load 调用方无法归属到已安装插件');
+        return failResponseCode(ERROR_CAPABILITY_DENIED, 'fs: 调用方无法归属到已安装插件（fail-closed）');
+      }
+      const path = `${manager.pluginsRoot()}/${identity}/data.json`;
       if (!fs.accessSync(path)) { return okResponse(null); }
       return okResponse(manager.readTextFile(path) as Object);
     });
-    runtime.registerHandler('data.save', async (payload: string): Promise<string> => {
+    runtime.registerHandler('data.save', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
-      const pluginId = rpcString(request, 'pluginId');
-      if (!pluginId) { return failResponse('缺少插件 id'); }
-      const dir = `${manager.pluginsRoot()}/${pluginId}`;
+      const gate = manager.fsGate(identity, 'data.save');
+      if (gate) { return gate; }
+      const dir = `${manager.pluginsRoot()}/${identity}`;
       if (!fs.accessSync(dir)) { fs.mkdirSync(dir, true); }
       manager.writeTextFile(`${dir}/data.json`, rpcString(request, 'dataJson'));
       return okResponse(null);
@@ -752,13 +1018,190 @@ export class LexiPluginManager {
     runtime.registerHandler('app.isDarkMode', async (_payload: string): Promise<string> => {
       return okResponse((AppStorage.get<number>('lexiColorMode') || 0) === 1);
     });
-    runtime.registerHandler('net.requestUrl', async (payload: string): Promise<string> => {
-      const request = JSON.parse(payload) as RpcRequest;
-      return manager.performRequest(request);
+    runtime.registerHandler('net.requestUrl', async (payload: string, identity: string,
+      token: string): Promise<string> => {
+      return manager.performRequest(payload, identity, token);
     });
+    manager.registerChannelHandlers();
     manager.registerVaultHandlers();
     manager.registerMetadataHandlers();
     manager.registerEditorHandlers();
+  }
+
+  /**
+   * 兼容层遗留通道(spec 门禁 1 的死通道):页面侧调用点早已存在,宿主侧一直没有处理器。
+   * 这里全部补成真实现,不改兼容层语义、不删调用点。
+   */
+  private registerChannelHandlers(): void {
+    const manager = this;
+    const runtime = this.runtime;
+    // app.localStorage:Obsidian 的全局键值存储,必须真持久化(filesDir/local-storage.json)。
+    runtime.registerHandler('app.localStorage.get', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const key = rpcString(request, 'key');
+      if (!key) { return failResponse('缺少 localStorage key'); }
+      const stored = manager.readLocalStorage(key);
+      if (stored === null) { return okResponse(null); }
+      let value: Object = stored;
+      try { value = JSON.parse(stored) as Object; } catch { value = stored; }
+      return okResponse(value);
+    });
+    runtime.registerHandler('app.localStorage.set', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const key = rpcString(request, 'key');
+      if (!key) { return failResponse('缺少 localStorage key'); }
+      const data = request['data'];
+      manager.writeLocalStorage(key, data === undefined ? 'null' : JSON.stringify(data));
+      return okResponse(null);
+    });
+    // commands:执行/列举本宿主已注册的插件命令(命名空间 pluginId:commandId,安全模式禁执行)。
+    runtime.registerHandler('commands.execute', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const id = rpcString(request, 'id');
+      if (!id) { return failResponse('缺少命令 id'); }
+      if (manager.safeMode) { return failResponse('安全模式已开启,命令不可执行'); }
+      if (!manager.commands.canExecute(id)) { return failResponse('命令不存在或当前不可执行: ' + id); }
+      const executed: boolean = await manager.commands.execute(id);
+      pluginLog('命令执行: ' + id + ' → ' + (executed ? 'ok' : 'skipped'));
+      const result: Record<string, Object> = { 'id': id as Object, 'executed': executed as Object };
+      return okResponse(result);
+    });
+    runtime.registerHandler('commands.list', async (_payload: string): Promise<string> => {
+      const items: Array<Record<string, Object>> = [];
+      if (!manager.safeMode) {
+        for (const command of manager.commands.list()) {
+          const item: Record<string, Object> = {
+            'id': command.id as Object,
+            'name': command.name as Object,
+            'icon': (command.icon || '') as Object,
+            'editorOnly': (command.editorOnly === true) as Object
+          };
+          items.push(item);
+        }
+      }
+      pluginLog('命令列举: ' + items.length + ' 条(safeMode=' + manager.safeMode + ')');
+      return okResponse(items as Object);
+    });
+    // ui.placeholder:状态栏/模态占位的宿主侧登记页;真实 DOM 由页面(兼容层)挂在 .status-bar 上。
+    runtime.registerHandler('ui.placeholder', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const kind = rpcString(request, 'kind') || 'unknown';
+      const title = rpcString(request, 'title');
+      const seq: number = manager.placeholders.size + 1;
+      manager.placeholders.set(kind + '#' + seq, title);
+      pluginLog('UI 占位登记: kind=' + kind + ' total=' + manager.placeholders.size + (title ? ' title=' + title : ''));
+      const result: Record<string, Object> = {
+        'kind': kind as Object,
+        'accepted': true as Object,
+        'total': manager.placeholders.size as Object
+      };
+      return okResponse(result);
+    });
+    // workspace.onLayoutReady:旧宿主页面在寄存器里已经是"布局就绪"之后才回调。
+    runtime.registerHandler('workspace.onLayoutReady', async (_payload: string): Promise<string> => {
+      pluginLog('布局就绪回调: 旧宿主路径立即放行');
+      return okResponse(true);
+    });
+    // workspace.layoutReady:页面首帧渲染完成后通报(工作区容器路径),旧宿主同样应答。
+    runtime.registerHandler('workspace.layoutReady', async (_payload: string): Promise<string> => {
+      manager.workspaceEvents.trigger('layout-change', null);
+      return okResponse(true);
+    });
+    // workspace.openLinkText:真实链接解析(metadataCache)→ 触发 file-open,返回解析结果。
+    runtime.registerHandler('workspace.openLinkText', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const linktext = rpcString(request, 'linktext');
+      const sourcePath = rpcString(request, 'sourcePath');
+      if (!linktext) { return failResponse('缺少 linktext'); }
+      const target = manager.metadata
+        ? manager.metadata.getFirstLinkpathDest(linktext, sourcePath)
+        : null;
+      if (!target) { return failResponse('链接目标不存在: ' + linktext); }
+      const json: Record<string, Object> = fileToJson(target);
+      manager.workspaceEvents.trigger('file-open', json);
+      pluginLog('链接打开: ' + linktext + ' → ' + target.path);
+      return okResponse(json);
+    });
+    // workspace.saveLayout / workspace.loadLayout:视图状态机持久化。容器把 leaf 列表(type + state)
+    // 落在这里,应用重启后由容器恢复,日历回到同一个视图。
+    runtime.registerHandler('workspace.saveLayout', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const layout = request['layout'];
+      const path = manager.workspaceLayoutPath();
+      if (path.length === 0) { return failResponse('布局存储不可用'); }
+      manager.writeTextFile(path, JSON.stringify(layout === undefined ? null : layout));
+      const saved = manager.readTextFile(path);
+      pluginLog('工作区布局已保存: ' + saved.length + ' bytes body=' + saved.substring(0, 240));
+      return okResponse(true);
+    });
+    runtime.registerHandler('workspace.loadLayout', async (_payload: string): Promise<string> => {
+      const path = manager.workspaceLayoutPath();
+      if (path.length === 0 || !fs.accessSync(path)) { return okResponse(null); }
+      const raw = manager.readTextFile(path);
+      try {
+        const layout = JSON.parse(raw) as Object;
+        pluginLog('工作区布局已读取: ' + raw.length + ' bytes body=' + raw.substring(0, 240));
+        return okResponse(layout);
+      } catch {
+        return okResponse(null);
+      }
+    });
+    // debug.delay:超时回归探针(仅测试用),payload.ms 上限 30s。
+    runtime.registerHandler('debug.delay', async (payload: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const raw: number = rpcNumber(request, 'ms');
+      const ms: number = raw < 0 ? 0 : (raw > 30000 ? 30000 : raw);
+      pluginLog('debug.delay 开始: ' + ms + 'ms');
+      await new Promise<void>((resolve: () => void): void => {
+        setTimeout((): void => resolve(), ms);
+      });
+      pluginLog('debug.delay 结束: ' + ms + 'ms');
+      const result: Record<string, Object> = { 'slept': ms as Object };
+      return okResponse(result);
+    });
+  }
+
+  workspaceLayoutPath(): string {
+    return this.context ? `${this.context.filesDir}/workspace-layout.json` : '';
+  }
+
+  private localStorageCache: Map<string, string> | null = null;
+
+  private localStoragePath(): string {
+    return `${this.context ? this.context.filesDir : ''}/local-storage.json`;
+  }
+
+  private loadLocalStorageCache(): Map<string, string> {
+    if (this.localStorageCache !== null) { return this.localStorageCache; }
+    const cache: Map<string, string> = new Map<string, string>();
+    try {
+      const path = this.localStoragePath();
+      if (path.length > 0 && fs.accessSync(path)) {
+        const raw = JSON.parse(this.readTextFile(path)) as Record<string, string>;
+        for (const key of Object.keys(raw)) { cache.set(key, String(raw[key])); }
+      }
+    } catch { /* 文件损坏时按空存储继续,下一次写入自愈 */ }
+    this.localStorageCache = cache;
+    return cache;
+  }
+
+  private readLocalStorage(key: string): string | null {
+    const cache = this.loadLocalStorageCache();
+    const value = cache.get(key);
+    return value === undefined ? null : value;
+  }
+
+  private writeLocalStorage(key: string, value: string): void {
+    const cache = this.loadLocalStorageCache();
+    cache.set(key, value);
+    const plain: Record<string, string> = {};
+    cache.forEach((stored: string, storedKey: string): void => { plain[storedKey] = stored; });
+    try {
+      const path = this.localStoragePath();
+      if (path.length > 0) { this.writeTextFile(path, JSON.stringify(plain)); }
+    } catch (error) {
+      pluginError('localStorage 写入失败: ' + String(error));
+    }
   }
 
   private registerEditorHandlers(): void {
@@ -847,34 +1290,44 @@ export class LexiPluginManager {
       if (!file) { return failResponse('文件不存在'); }
       return okResponse(await manager.vault.read(file));
     });
-    runtime.registerHandler('vault.modify', async (payload: string): Promise<string> => {
+    runtime.registerHandler('vault.modify', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
+      const gate = manager.fsGate(identity, 'vault.modify');
+      if (gate) { return gate; }
       const file = manager.vault.getFileByPath(rpcString(request, 'path'));
       if (!file) { return failResponse('文件不存在'); }
       await manager.vault.modify(file, rpcString(request, 'data'));
       return okResponse(null);
     });
-    runtime.registerHandler('vault.create', async (payload: string): Promise<string> => {
+    runtime.registerHandler('vault.create', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
+      const gate = manager.fsGate(identity, 'vault.create');
+      if (gate) { return gate; }
       const file = await manager.vault.create(rpcString(request, 'path'), rpcString(request, 'data'));
       return okResponse(fileToJson(file));
     });
-    runtime.registerHandler('vault.delete', async (payload: string): Promise<string> => {
+    runtime.registerHandler('vault.delete', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
+      const gate = manager.fsGate(identity, 'vault.delete');
+      if (gate) { return gate; }
       const file = manager.vault.getFileByPath(rpcString(request, 'path'));
       if (!file) { return failResponse('文件不存在'); }
       await manager.vault.delete(file, rpcBool(request, 'force'));
       return okResponse(null);
     });
-    runtime.registerHandler('vault.rename', async (payload: string): Promise<string> => {
+    runtime.registerHandler('vault.rename', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
+      const gate = manager.fsGate(identity, 'vault.rename');
+      if (gate) { return gate; }
       const file = manager.vault.getFileByPath(rpcString(request, 'path'));
       if (!file) { return failResponse('文件不存在'); }
       await manager.vault.rename(file, rpcString(request, 'newPath'));
       return okResponse(null);
     });
-    runtime.registerHandler('vault.append', async (payload: string): Promise<string> => {
+    runtime.registerHandler('vault.append', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
+      const gate = manager.fsGate(identity, 'vault.append');
+      if (gate) { return gate; }
       const file = manager.vault.getFileByPath(rpcString(request, 'path'));
       if (!file) { return failResponse('文件不存在'); }
       await manager.vault.append(file, rpcString(request, 'data'));
@@ -900,6 +1353,22 @@ export class LexiPluginManager {
     runtime.registerHandler('metadata.resolved', async (_payload: string): Promise<string> => {
       if (!manager.metadata) { return failResponse('元数据服务未就绪'); }
       return okResponse(manager.metadata.resolvedLinks() as Object);
+    });
+    // metadata.graph:同一套解析结果的完整投影(resolved + unresolved),容器据此实现两个 getter。
+    runtime.registerHandler('metadata.graph', async (_payload: string): Promise<string> => {
+      if (!manager.metadata) { return failResponse('元数据服务未就绪'); }
+      const links: Object[] = [];
+      for (const occurrence of manager.metadata.linkOccurrences()) {
+        links.push(occurrence as Object);
+      }
+      const graph: Record<string, Object> = {
+        'resolved': manager.metadata.resolvedLinks() as Object,
+        'unresolved': manager.metadata.unresolvedLinks() as Object,
+        'links': links as Object
+      };
+      pluginLog('元数据图: resolved源=' + Object.keys(graph['resolved'] as Record<string, Object>).length +
+        ' unresolved源=' + Object.keys(graph['unresolved'] as Record<string, Object>).length);
+      return okResponse(graph);
     });
   }
 
@@ -939,41 +1408,51 @@ export class LexiPluginManager {
     this.hostEventListeners.delete(refId);
   }
 
-  private async performRequest(request: RpcRequest): Promise<string> {
-    const url = rpcString(request, 'url');
-    if (!url) { return failResponse('缺少 url'); }
-    const client = http.createHttp();
-    try {
-      const method = rpcString(request, 'method') || 'GET';
-      const headers: Record<string, string> = {};
-      const rawHeaders = request['headers'] as Record<string, string> | undefined;
-      if (rawHeaders) {
-        for (const key of Object.keys(rawHeaders)) { headers[key] = String(rawHeaders[key]); }
-      }
-      const response = await client.request(url, {
-        method: (method.toUpperCase() === 'POST' ? http.RequestMethod.POST : http.RequestMethod.GET),
-        header: headers,
-        extraData: rpcString(request, 'body') || undefined,
-        connectTimeout: 15000,
-        readTimeout: 15000
-      });
-      const headersOut: Record<string, Object> = {};
-      const rawOut = response.header as Record<string, string> | undefined;
-      if (rawOut) {
-        for (const key of Object.keys(rawOut)) { headersOut[key] = String(rawOut[key]) as Object; }
-      }
-      const bodyText = typeof response.result === 'string' ? response.result : JSON.stringify(response.result);
-      const result: Record<string, Object> = {
-        'status': response.responseCode as Object,
-        'headers': headersOut as Object,
-        'text': bodyText as Object
-      };
-      return okResponse(result);
-    } catch (error) {
-      return failResponse(String(error));
-    } finally {
-      client.destroy();
+  private manifestFor(pluginId: string): LexiPluginManifest | null {
+    if (!pluginId) { return null; }
+    const record = this.plugins.get(pluginId);
+    return record ? record.manifest : null;
+  }
+
+  /**
+   * '' = 放行, 否则返回已序列化的 capability_denied 响应。
+   * 身份只认令牌解析结果:归属不到已安装插件时一律 fail-closed(不再套用 v1 清单默认值),
+   * 否则"认不出是谁"就成了最省事的越权通道。
+   */
+  private fsGate(identity: string, method: string): string {
+    const manifest: LexiPluginManifest | null = this.manifestFor(identity);
+    if (manifest === null) {
+      pluginError('capability.fs method=' + method + ' identity=' + (identity.length > 0 ? identity : '(none)') +
+        ' allowed=false fail_closed=true detail=调用方无法归属到已安装插件');
+      return failResponseCode(ERROR_CAPABILITY_DENIED, 'fs: 调用方无法归属到已安装插件（fail-closed）');
     }
+    const decision: LexiCapabilityDecision = checkFsCapability(manifest);
+    if (decision.allowed) { return ''; }
+    pluginError('capability.fs method=' + method + ' identity=' + identity + ' allowed=false detail=' + decision.detail);
+    return failResponseCode(decision.code, decision.kind + ': ' + decision.detail);
+  }
+
+  /**
+   * net.requestUrl 的宿主适配层：令牌→身份、capability.net 判定、超时与传输全在 LexiNetProbe，
+   * 这里只把判定结果序列化成 RpcResponse(失败带 code，成功带 status/headers/text)。
+   */
+  private async performRequest(payloadJson: string, identity: string, token: string): Promise<string> {
+    const deps = new LexiNetDeps((value: string): string => this.runtime.pluginIdForToken(value),
+      (pluginId: string): LexiPluginManifest | null => this.manifestFor(pluginId),
+      this.netTransport,
+      (message: string): void => pluginLog(message),
+      (message: string): void => pluginError(message),
+      NET_TIMEOUT_MS);
+    const outcome: LexiNetOutcome = await executeNetRequest(payloadJson, identity, token, deps);
+    if (!outcome.ok) { return failResponseCode(outcome.code, outcome.error); }
+    const headersOut: Record<string, Object> = {};
+    for (const key of Object.keys(outcome.headers)) { headersOut[key] = outcome.headers[key] as Object; }
+    const result: Record<string, Object> = {
+      'status': outcome.status as Object,
+      'headers': headersOut as Object,
+      'text': outcome.text as Object
+    };
+    return okResponse(result);
   }
 
   private async invokePluginCommand(pluginId: string, fullId: string): Promise<void> {
@@ -1057,9 +1536,10 @@ export class LexiPluginManager {
     if (this.safeMode) { return false; }
     const record = this.plugins.get(pluginId);
     if (!record || record.enabled) { return false; }
-    if (!manifestCompatible(record.manifest)) {
-      record.errorState = `需要 LexiNote ${record.manifest.minAppVersion} 及以上`;
-      pluginError('插件版本不兼容: ' + pluginId + ' 需要 ' + record.manifest.minAppVersion);
+    const compatMessage = manifestCompatMessage(record.manifest);
+    if (compatMessage.length > 0) {
+      record.errorState = compatMessage;
+      pluginError('插件版本不兼容: ' + pluginId + ' — ' + compatMessage);
       return false;
     }
     const mainPath = `${record.dir}/main.js`;
@@ -1069,13 +1549,19 @@ export class LexiPluginManager {
       return false;
     }
     try {
+      // 上一次尝试留下的失败记录不能冒充本次结果:先清空,再由 onload 回调写回
+      record.errorState = '';
       const code = this.readTextFile(mainPath);
       this.pluginSources.set(pluginId, code);
+      // 装载令牌由本运行时铸造:页面侧后续每一次宿主调用(含源码分片)都靠它证明"我是哪个插件"。
+      const token: string = this.runtime.mintPluginToken(pluginId);
+      if (token.length === 0) { throw new Error('插件令牌铸造失败: ' + pluginId); }
       // 大源码经 runJavaScript 直传会静默挂起,改为分片拉取
       const payloadBody: Record<string, Object> = {
         'id': pluginId as Object,
         'manifest': record.manifest as Object,
-        'size': code.length as Object
+        'size': code.length as Object,
+        'token': token as Object
       };
       const payload = JSON.stringify(payloadBody);
       const done = new Promise<void>((resolve: () => void): void => { this.pendingOnload.set(pluginId, resolve); });
@@ -1083,8 +1569,13 @@ export class LexiPluginManager {
       pluginLog('插件源码就绪: ' + pluginId + ' ' + code.length + ' 字符');
       await this.runtime.dispatchWithTimeout('load.plugin', payload, LOAD_TIMEOUT_MS);
       await LexiWebRuntime.withTimeout(done, LOAD_TIMEOUT_MS, 'onload');
+      // 垫片把 onload 成功与失败都当作"装载结束"唤醒同一个等待点(见 plugin.onload.error),
+      // 所以这里必须回读 errorState:非空即装载失败,不许落进"已启用"分支把它抹成正常。
+      if (record.errorState.length > 0) {
+        pluginError('插件装载失败 ' + pluginId + ': ' + record.errorState);
+        return false;
+      }
       record.enabled = true;
-      record.errorState = '';
       this.enabledIds.add(pluginId);
       await this.persistEnabled();
       pluginLog('插件已启用: ' + pluginId);
@@ -1115,6 +1606,7 @@ export class LexiPluginManager {
     LexiPluginViewRegistry.removePlugin(pluginId);
     this.settingDefs.delete(pluginId);
     this.pluginSources.delete(pluginId);
+    this.runtime.revokePluginTokens(pluginId);
     const doomedRibbons: string[] = [];
     this.ribbonItems.forEach((row: LexiRibbonRow, key: string): void => {
       if (row.pluginId === pluginId) { doomedRibbons.push(key); }

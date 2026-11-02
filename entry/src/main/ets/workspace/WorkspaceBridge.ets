@@ -1,0 +1,772 @@
+import { LexiPluginManager } from '../core/plugin/LexiPluginRuntime';
+import { LexiNoteChange } from '../core/plugin/LexiPluginBus';
+import { LexiFileEventPayload } from '../core/plugin/LexiVaultFacade';
+import { LexiTFile } from '../core/plugin/LexiVaultModel';
+import { WorkspaceLog } from './WorkspaceLog';
+import { WorkspacePluginEntry, WorkspacePluginRegistry } from './WorkspacePluginCatalog';
+import {
+  DEFAULT_THEME_SOURCE,
+  WorkspaceThemeCatalog,
+  WorkspaceThemeCss,
+  WorkspaceThemeInstallResult,
+  WorkspaceThemeSummary
+} from './WorkspaceThemeCatalog';
+import {
+  WORKSPACE_CALL_TIMEOUT_MS,
+  WORKSPACE_EVENT_NOTE_OPEN,
+  WORKSPACE_MAX_BATCH,
+  WORKSPACE_METHOD_NOTE_WRITE,
+  WORKSPACE_PROTOCOL_VERSION,
+  fieldOf,
+  parseWorkspaceFrame,
+  textOf,
+
+  WorkspaceAuthData,
+  WorkspaceBatchReply,
+  WorkspaceCall,
+  WorkspaceCallReply,
+  WorkspaceEventFrame,
+  WorkspaceHelloData,
+  WorkspacePayload,
+  WorkspacePluginDescriptorData,
+  WorkspacePluginListData,
+  WorkspacePong,
+  WorkspaceReply
+} from './WorkspaceProtocol';
+
+const ERR_UNAUTHORIZED: string = 'unauthorized';
+const ERR_BAD_REQUEST: string = 'bad_request';
+const ERR_UNKNOWN_METHOD: string = 'unknown_method';
+const ERR_UNKNOWN_PLUGIN: string = 'unknown_plugin';
+const ERR_ALREADY_AUTHED: string = 'already_authed';
+const ERR_HOST_NOT_READY: string = 'host_not_ready';
+const ERR_TIMEOUT: string = 'timeout';
+const ERR_BATCH_OVERFLOW: string = 'batch_overflow';
+const ERR_UNKNOWN_THEME: string = 'unknown_theme';
+const ERR_INSTALL_FAILED: string = 'install_failed';
+const ERR_NOTE_NOT_FOUND: string = 'note_not_found';
+const ERR_WRITE_FAILED: string = 'write_failed';
+
+/** theme.config / theme.list 的应答形状:安装源 + 已装主题 + 当前激活项。 */
+interface WorkspaceThemeListData {
+  source: string;
+  active: string;
+  themes: WorkspaceThemeSummary[];
+}
+
+/** theme.setActive 的应答形状。 */
+interface WorkspaceThemeActiveData {
+  active: string;
+  themes: WorkspaceThemeSummary[];
+}
+
+/** 会话身份:页面级令牌映射到这个空 pluginId(全局 app/vault/workspace/editor 调用不归属任何插件)。 */
+const SESSION_PLUGIN_ID: string = '';
+
+/** 旧宿主 LexiWebRuntime.call() 的应答形状:{"ok":true,"result":…} | {"ok":false,"error":"…"}。 */
+interface LegacyOutcome {
+  ok?: boolean;
+  result?: Object | null;
+  error?: string;
+  /** 机器可读失败原因(capability_denied/timeout/…):必须原样传给页面,否则插件侧只看得到 unknown_method。 */
+  code?: string;
+}
+
+/**
+ * Frame-protocol v1 adapter (spec section 2) over the two things this track must not duplicate:
+ *  - identity: the host mints a session token at channel.auth and one token per plugin at plugin.load;
+ *    identity only ever travels out-of-band as the call's token argument. payload.pluginId is never
+ *    trusted and never rewritten: LexiPluginRuntime ignores it and logs an audit line (spec 13.1).
+ *  - business methods: delegated to the old host's 41 handlers instead of a second implementation.
+ */
+export class WorkspaceBridge {
+  private readonly managerReady: Promise<LexiPluginManager | null>;
+  private registry: WorkspacePluginRegistry = new WorkspacePluginRegistry();
+  private registryLoaded: boolean = false;
+  /** token -> pluginId ('' means the page session). Tokens die with plugin.unload / page teardown. */
+  private tokens: Map<string, string> = new Map<string, string>();
+  private channelId: string = '';
+  private nonce: string = '';
+  private authed: boolean = false;
+  private seq: number = 0;
+  private minted: number = 0;
+  /** 页面首帧渲染完成后置真:在此之前 workspace.onLayoutReady 的调用者排队等真实布局。 */
+  private layoutReady: boolean = false;
+  private layoutWaiters: Array<() => void> = [];
+  /** 宿主→页面事件帧的下推出口(由页面注入,复用同一个 WebMessagePort)。 */
+  private eventSink: ((text: string) => void) | null = null;
+  /** 宿主事件源只订阅一次:同一个 manager 的所有 vault/metadata/workspace 事件都走这几条线。 */
+  private eventsAttached: boolean = false;
+  private managerRef: LexiPluginManager | null = null;
+  /** 装载序号:异步读正文期间又来了新的 file-open 时,旧的那次只落日志、不再下推(防乱序覆盖)。 */
+  private noteSeq: number = 0;
+  /** 路由参数带来的初始笔记:页面只给 noteId,path 由宿主索引反查(页面不自填路径/身份)。 */
+  private initialNoteId: string = '';
+  private initialNoteSent: boolean = false;
+
+  private readonly themes: WorkspaceThemeCatalog;
+
+  constructor(managerReady: Promise<LexiPluginManager | null>, themes: WorkspaceThemeCatalog) {
+    this.managerReady = managerReady;
+    this.themes = themes;
+  }
+
+  /** Always returns the text to post back; an empty string means "no reply for this frame". */
+  async handleText(text: string): Promise<string> {
+    const frame = parseWorkspaceFrame(text);
+    if (frame === null) {
+      WorkspaceLog.warn('frame.reject', 'not a protocol v1 frame, bytes=' + text.length);
+      return '';
+    }
+    const calls: Array<WorkspaceCall> | undefined = frame.calls;
+    if (calls !== undefined && calls.length > 0) {
+      return this.handleBatch(calls, textOf(frame.token));
+    }
+    const reply: WorkspaceCallReply = await this.dispatch(textOf(frame.method), textOf(frame.token), frame.payload);
+    const single: WorkspaceReply = {
+      v: WORKSPACE_PROTOCOL_VERSION,
+      id: textOf(frame.id),
+      ok: reply.ok
+    };
+    if (reply.data !== undefined) {
+      single.data = reply.data;
+    }
+    if (reply.error !== undefined) {
+      single.error = reply.error;
+    }
+    return JSON.stringify(single);
+  }
+
+  private async handleBatch(calls: Array<WorkspaceCall>, token: string): Promise<string> {
+    // 超限不是"截断后当没事":整批拒绝并给出明确错误码,页面侧 sendBatch 也会先本地拦一层。
+    if (calls.length > WORKSPACE_MAX_BATCH) {
+      WorkspaceLog.warn('frame.batch.overflow',
+        'calls=' + calls.length + ' limit=' + WORKSPACE_MAX_BATCH + ' code=' + ERR_BATCH_OVERFLOW);
+      const refusal: WorkspaceReply = {
+        v: WORKSPACE_PROTOCOL_VERSION,
+        id: '',
+        ok: false,
+        error: { code: ERR_BATCH_OVERFLOW, message: '单批上限 ' + WORKSPACE_MAX_BATCH + ',收到 ' + calls.length }
+      };
+      return JSON.stringify(refusal);
+    }
+    const replies: Array<WorkspaceCallReply> = [];
+    for (const call of calls) {
+      const reply: WorkspaceCallReply = await this.dispatch(textOf(call.method), token, call.payload);
+      reply.id = textOf(call.id);
+      replies.push(reply);
+    }
+    WorkspaceLog.info('frame.batch', 'calls=' + replies.length + ' limit=' + WORKSPACE_MAX_BATCH);
+    const batch: WorkspaceBatchReply = { v: WORKSPACE_PROTOCOL_VERSION, calls: replies };
+    return JSON.stringify(batch);
+  }
+
+  /** 页面注入事件通道:与请求-应答共用端口,但事件帧只有一个方向(宿主→页面)。 */
+  setEventSink(sink: (text: string) => void): void {
+    this.eventSink = sink;
+  }
+
+  /** 页面把路由参数里的笔记标识交给桥:装载复用 file-open→note-open 同一条通道,只是起点换成本地 id。 */
+  setInitialNote(noteId: string): void {
+    this.initialNoteId = noteId;
+  }
+
+  /** spec section 2 事件帧:{v:1,type:'event',topic,payload}。 */
+  pushEvent(topic: string, payload: Object): void {
+    const sink = this.eventSink;
+    if (sink === null) {
+      WorkspaceLog.warn('frame.event.drop', 'topic=' + topic + ' sink missing');
+      return;
+    }
+    const frame: WorkspaceEventFrame = {
+      v: WORKSPACE_PROTOCOL_VERSION,
+      type: 'event',
+      topic: topic,
+      payload: payload
+    };
+    WorkspaceLog.info('frame.event.out', 'topic=' + topic + ' bytes=' + JSON.stringify(frame).length);
+    sink(JSON.stringify(frame));
+  }
+
+  private async dispatch(method: string, token: string, payload: WorkspacePayload | undefined): Promise<WorkspaceCallReply> {
+    if (method === 'channel.hello') {
+      return this.onHello();
+    }
+    if (method === 'channel.auth') {
+      return this.onAuth(payload);
+    }
+    if (method === 'log.event') {
+      return this.onLogEvent(payload);
+    }
+    if (method === 'plugin.list') {
+      if (!this.authed) {
+        return this.fail(ERR_UNAUTHORIZED, 'channel.auth 未完成');
+      }
+      return this.onPluginList();
+    }
+    if (method === 'plugin.load') {
+      if (!this.authed) {
+        return this.fail(ERR_UNAUTHORIZED, 'channel.auth 未完成');
+      }
+      return this.onPluginLoad(payload);
+    }
+    if (method === 'plugin.unload') {
+      return this.onPluginUnload(token);
+    }
+    if (method === 'demo.ready' || method === 'demo.ping') {
+      return this.onDemoHostCall(method, token);
+    }
+    if (method === 'workspace.onLayoutReady') {
+      if (this.layoutReady) {
+        WorkspaceLog.info('frame.layoutReady', 'immediate=true waiters=0');
+        return this.success(null);
+      }
+      return this.waitLayoutReady();
+    }
+    if (method === 'workspace.layoutReady') {
+      this.markLayoutReady();
+      return this.success(null);
+    }
+    if (method === 'theme.config' || method === 'theme.list' || method === 'theme.load' ||
+      method === 'theme.install' || method === 'theme.setActive') {
+      if (!this.authed) {
+        return this.fail(ERR_UNAUTHORIZED, 'channel.auth 未完成');
+      }
+      return this.onTheme(method, payload);
+    }
+    if (method === WORKSPACE_METHOD_NOTE_WRITE) {
+      return this.onNoteWrite(token, payload);
+    }
+    return this.delegate(method, token, payload);
+  }
+
+  private onHello(): WorkspaceCallReply {
+    this.nonce = this.mint('n');
+    this.channelId = this.mint('ch');
+    WorkspaceLog.info('channel.hello', 'channelId=' + this.channelId);
+    const data: WorkspaceHelloData = {
+      nonce: this.nonce,
+      channelId: this.channelId,
+      protocol: WORKSPACE_PROTOCOL_VERSION
+    };
+    return this.success(data);
+  }
+
+  private onAuth(payload: WorkspacePayload | undefined): WorkspaceCallReply {
+    if (this.authed) {
+      return this.fail(ERR_ALREADY_AUTHED, '通道已鉴权');
+    }
+    const offered: string = fieldOf(payload, 'nonce');
+    if (this.nonce.length === 0 || offered !== this.nonce) {
+      WorkspaceLog.warn('channel.auth', 'nonce mismatch');
+      return this.fail(ERR_UNAUTHORIZED, 'nonce 校验失败');
+    }
+    this.authed = true;
+    this.nonce = '';
+    // 身份在这里出生:token -> pluginId('' = 页面会话),此后所有调用只认它。
+    const sessionToken: string = this.mint('st');
+    this.tokens.set(sessionToken, SESSION_PLUGIN_ID);
+    // 身份就绪后立刻接上宿主事件源:插件 onload 期间发生的 vault 变化也必须能到页面。
+    this.managerReady.then((ready: LexiPluginManager | null): void => {
+      if (ready !== null) {
+        this.attachHostEvents(ready);
+      }
+    });
+    const data: WorkspaceAuthData = {
+      channelId: this.channelId,
+      authed: true,
+      protocol: WORKSPACE_PROTOCOL_VERSION,
+      token: sessionToken
+    };
+    WorkspaceLog.info('channel.auth',
+      'channelId=' + this.channelId + ' authed=true tokenTail=' + this.tail(sessionToken));
+    return this.success(data);
+  }
+
+  /** 订阅宿主三类事件源并转成事件帧:topic 与 Obsidian 同名(vault/metadata/workspace)。 */
+  private attachHostEvents(manager: LexiPluginManager): void {
+    if (this.eventsAttached) {
+      return;
+    }
+    this.eventsAttached = true;
+    this.managerRef = manager;
+    manager.vault.events.on('create', (payload: Object | null): void => { this.pushVault('create', payload); });
+    manager.vault.events.on('modify', (payload: Object | null): void => { this.pushVault('modify', payload); });
+    manager.vault.events.on('delete', (payload: Object | null): void => { this.pushVault('delete', payload); });
+    manager.vault.events.on('rename', (payload: Object | null): void => { this.pushVault('rename', payload); });
+    const metadata = manager.metadata;
+    if (metadata !== null) {
+      metadata.events.on('changed', (payload: Object | null): void => { this.pushMetadata('changed', payload); });
+      metadata.events.on('resolved', (payload: Object | null): void => { this.pushMetadata('resolved', payload); });
+    }
+    manager.workspaceEvents.on('file-open', (payload: Object | null): void => {
+      this.pushWorkspace('file-open', payload);
+      this.openNoteOf(payload);
+    });
+    manager.workspaceEvents.on('layout-change', (payload: Object | null): void => { this.pushWorkspace('layout-change', payload); });
+    WorkspaceLog.info('frame.event.source', 'vault=4 metadata=2 workspace=2');
+  }
+
+  private pushVault(kind: string, payload: Object | null): void {
+    const event: LexiFileEventPayload | null = payload as LexiFileEventPayload | null;
+    const frame: Record<string, Object> = { 'name': kind as Object };
+    if (event !== null) {
+      frame['file'] = this.fileJson(event.file);
+      frame['oldPath'] = event.oldPath as Object;
+    }
+    this.pushEvent('vault', frame);
+  }
+
+  private pushMetadata(kind: string, payload: Object | null): void {
+    const frame: Record<string, Object> = { 'name': kind as Object };
+    if (kind === 'changed') {
+      const change: LexiNoteChange | null = payload as LexiNoteChange | null;
+      if (change !== null && change.noteId.length > 0) {
+        frame['noteId'] = change.noteId as Object;
+        const manager = this.managerRef;
+        const file: LexiTFile | null = manager === null ? null : manager.vault.fileForNoteId(change.noteId);
+        if (file !== null && file.path.length > 0) {
+          frame['path'] = file.path as Object;
+        }
+      }
+    }
+    // 解析图与事件同帧下发:插件在 changed/resolved 回调里同步读 resolvedLinks 必须已是新值。
+    // 只再发一次异步 RPC 会让这条读取稳定读到上一版图(实测 rename 后 oldLinkGone 恒为 false)。
+    const owner = this.managerRef;
+    if (owner !== null && owner.metadata !== null) {
+      const occurrences: Object[] = [];
+      for (const occurrence of owner.metadata.linkOccurrences()) { occurrences.push(occurrence as Object); }
+      const graph: Record<string, Object> = {
+        'resolved': owner.metadata.resolvedLinks() as Object,
+        'unresolved': owner.metadata.unresolvedLinks() as Object,
+        'links': occurrences as Object
+      };
+      frame['graph'] = graph;
+    }
+    this.pushEvent('metadata', frame);
+  }
+
+  private pushWorkspace(kind: string, payload: Object | null): void {
+    const frame: Record<string, Object> = { 'name': kind as Object };
+    if (payload !== null) {
+      const record: Record<string, Object> = payload as Record<string, Object>;
+      if (record['path'] !== undefined) {
+        frame['file'] = payload;
+      }
+    }
+    this.pushEvent('workspace', frame);
+  }
+
+  /**
+   * 装载方向:file-open 的 path 取出正文,再以 note-open 事件下推给页面。
+   * 读文件只走 vault 既有读取实现(getFileByPath + read),不直读文件系统绕开门禁。
+   */
+  private openNoteOf(payload: Object | null): void {
+    const path: string = payload === null ? '' : WorkspaceBridge.pathOf(payload);
+    if (path.length === 0) {
+      WorkspaceLog.warn('note.open.skip', 'reason=empty_path');
+      return;
+    }
+    this.noteSeq += 1;
+    this.pumpNote(path, this.noteSeq);
+  }
+
+  /**
+   * 初始笔记只在页面报过布局就绪后装载一次:那时页面的事件钩子已经装好,早推的 note-open 会被丢掉。
+   * 身份化路径不变——noteId 来自路由参数,path 由 vault 索引给出。
+   */
+  private openInitialNote(): void {
+    if (this.initialNoteSent || this.initialNoteId.length === 0) {
+      return;
+    }
+    const manager: LexiPluginManager | null = this.managerRef;
+    if (manager === null) {
+      WorkspaceLog.warn('note.open.initial', 'reason=host_not_ready noteId=' + this.initialNoteId);
+      return;
+    }
+    const file: LexiTFile | null = manager.vault.fileForNoteId(this.initialNoteId);
+    if (file === null) {
+      this.initialNoteSent = true;
+      WorkspaceLog.warn('note.open.initial', 'miss noteId=' + this.initialNoteId);
+      return;
+    }
+    this.initialNoteSent = true;
+    this.noteSeq += 1;
+    WorkspaceLog.info('note.open.initial',
+      'noteId=' + this.initialNoteId + ' path=' + file.path + ' seq=' + this.noteSeq);
+    this.pumpNote(file.path, this.noteSeq);
+  }
+
+  /** 读正文并入队下推。整段失败都收敛成事件里的 error,不把异常抛回事件总线。 */
+  private pumpNote(path: string, seq: number): void {
+    const manager: LexiPluginManager | null = this.managerRef;
+    if (manager === null) {
+      WorkspaceLog.warn('note.open.skip', 'reason=host_not_ready path=' + path);
+      return;
+    }
+    const file: LexiTFile | null = manager.vault.getFileByPath(path);
+    if (file === null) {
+      WorkspaceLog.warn('note.open.miss', 'path=' + path + ' error=not_found');
+      this.pushNoteOpen(path, '', 'not_found');
+      return;
+    }
+    manager.vault.read(file).then((text: string): void => {
+      if (seq !== this.noteSeq) {
+        WorkspaceLog.warn('note.open.stale', 'path=' + path + ' seq=' + seq + ' latest=' + this.noteSeq);
+        return;
+      }
+      this.pushNoteOpen(path, text, '');
+      WorkspaceLog.info('note.open.out', 'path=' + path + ' chars=' + text.length);
+    }, (err: Error): void => {
+      const message: string = err instanceof Error ? err.message : String(err);
+      WorkspaceLog.error('note.open.read', 'path=' + path + ' threw: ' + message);
+      this.pushNoteOpen(path, '', 'read_failed');
+    });
+  }
+
+  private pushNoteOpen(path: string, content: string, error: string): void {
+    const payload: Record<string, Object> = {
+      'name': WORKSPACE_EVENT_NOTE_OPEN as Object,
+      'path': path as Object,
+      'content': content as Object,
+      'error': error as Object
+    };
+    this.pushEvent('workspace', payload);
+  }
+
+  private static pathOf(payload: Object): string {
+    const record: Record<string, Object> = payload as Record<string, Object>;
+    const raw: Object | undefined = record['path'];
+    return typeof raw === 'string' ? raw as string : '';
+  }
+
+  /** 与旧宿主 fileToJson 同一投影:页面侧 fileFromJson 认的就是这些字段。 */
+  private fileJson(file: LexiTFile): Record<string, Object> {
+    const stat: Record<string, Object> = {
+      'ctime': file.stat.ctime as Object,
+      'mtime': file.stat.mtime as Object,
+      'size': file.stat.size as Object
+    };
+    return {
+      'kind': 'file' as Object,
+      'path': file.path as Object,
+      'name': file.name as Object,
+      'basename': file.basename as Object,
+      'extension': file.extension as Object,
+      'noteId': file.noteId as Object,
+      'vaultId': file.vaultId as Object,
+      'stat': stat as Object
+    };
+  }
+
+  private onLogEvent(payload: WorkspacePayload | undefined): WorkspaceCallReply {
+    const topic: string = fieldOf(payload, 'topic');
+    let detail: string = '{}';
+    if (payload !== undefined) {
+      const raw: Object | undefined = payload['detail'];
+      if (raw !== undefined && raw !== null) {
+        detail = JSON.stringify(raw);
+      }
+    }
+    WorkspaceLog.info(topic.length === 0 ? 'log.event' : topic, detail);
+    const ack: Record<string, Object> = { 'ok': true };
+    return this.success(ack);
+  }
+
+  private async onPluginList(): Promise<WorkspaceCallReply> {
+    const registry: WorkspacePluginRegistry = await this.registryReady();
+    const data: WorkspacePluginListData = { plugins: registry.summaries() };
+    WorkspaceLog.info('plugin.list', 'count=' + data.plugins.length);
+    return this.success(data);
+  }
+
+  private async onPluginLoad(payload: WorkspacePayload | undefined): Promise<WorkspaceCallReply> {
+    const id: string = fieldOf(payload, 'id');
+    const registry: WorkspacePluginRegistry = await this.registryReady();
+    const entry: WorkspacePluginEntry | null = registry.entry(id);
+    if (entry === null) {
+      WorkspaceLog.warn('plugin.load', 'unknown plugin id=' + id);
+      return this.fail(ERR_UNKNOWN_PLUGIN, '未安装的插件: ' + id);
+    }
+    const token: string = this.mint('tk');
+    this.tokens.set(token, entry.id);
+    const data: WorkspacePluginDescriptorData = {
+      id: entry.id,
+      name: entry.name,
+      version: entry.version,
+      code: entry.code,
+      token: token
+    };
+    if (entry.manifest !== null) {
+      data.manifest = entry.manifest;
+    }
+    WorkspaceLog.info('plugin.load',
+      'id=' + entry.id + ' version=' + entry.version + ' codeBytes=' + entry.code.length +
+        ' tokenTail=' + this.tail(token));
+    return this.success(data);
+  }
+
+  private onPluginUnload(token: string): WorkspaceCallReply {
+    const pluginId: string | undefined = this.tokens.get(token);
+    if (pluginId === undefined || pluginId === SESSION_PLUGIN_ID) {
+      WorkspaceLog.warn('plugin.unload', 'unknown plugin token');
+      return this.fail(ERR_UNAUTHORIZED, '未知身份令牌');
+    }
+    this.tokens.delete(token);
+    WorkspaceLog.info('plugin.unload',
+      'id=' + pluginId + ' tokenRevoked=true remainingTokens=' + this.tokens.size);
+    const ack: Record<string, Object> = { 'ok': true, 'pluginId': pluginId };
+    return this.success(ack);
+  }
+
+  private onDemoHostCall(method: string, token: string): WorkspaceCallReply {
+    const pluginId: string | undefined = this.tokens.get(token);
+    if (pluginId === undefined || pluginId === SESSION_PLUGIN_ID) {
+      return this.fail(ERR_UNAUTHORIZED, '未知身份令牌');
+    }
+    this.seq = this.seq + 1;
+    WorkspaceLog.info('demo.hostcall', 'method=' + method + ' pluginId=' + pluginId + ' seq=' + this.seq);
+    const pong: WorkspacePong = { pong: true, seq: this.seq, pluginId: pluginId };
+    return this.success(pong);
+  }
+
+  /** 其余方法全部转给旧宿主既有 handler;身份覆盖 payload.pluginId。 */
+  /** 页面回报布局首帧就绪:放行所有排队者,并单向下推一次 layout-change。 */
+  private markLayoutReady(): void {
+    this.layoutReady = true;
+    const waiting: Array<() => void> = this.layoutWaiters;
+    this.layoutWaiters = [];
+    for (const waiter of waiting) {
+      waiter();
+    }
+    WorkspaceLog.info('frame.layoutReady', 'flushed=' + waiting.length);
+    const payload: Record<string, Object> = { 'name': 'layout-change' };
+    this.pushEvent('workspace', payload);
+    this.openInitialNote();
+  }
+
+  /** onLayoutReady 必须真的等布局,不能同步回调;等不到就按超时口径放行(回调仍会被 layout-change 事件补一次)。 */
+  private waitLayoutReady(): Promise<WorkspaceCallReply> {
+    return new Promise<WorkspaceCallReply>((resolve: (reply: WorkspaceCallReply) => void) => {
+      const timer: number = setTimeout((): void => {
+        WorkspaceLog.warn('frame.layoutReady', 'wait 10s, releasing waiter without layout');
+        resolve(this.success(null));
+      }, 10000);
+      this.layoutWaiters.push((): void => {
+        clearTimeout(timer);
+        resolve(this.success(null));
+      });
+    });
+  }
+
+  private withTimeout(call: Promise<string>, method: string): Promise<string> {
+    return new Promise<string>((resolve: (value: string) => void, reject: (err: Error) => void) => {
+      let settled: boolean = false;
+      const timer: number = setTimeout((): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        WorkspaceLog.warn('frame.timeout', 'method=' + method + ' ms=' + WORKSPACE_CALL_TIMEOUT_MS + ' code=' + ERR_TIMEOUT);
+        reject(new Error('调用超时 ' + WORKSPACE_CALL_TIMEOUT_MS + 'ms: ' + method));
+      }, WORKSPACE_CALL_TIMEOUT_MS);
+      call.then((value: string): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      }, (err: Error): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        reject(err);
+      });
+    });
+  }
+
+  /**
+   * 写回方向:页面把编辑器正文写回装载时那个 path。
+   * 只认页面会话身份(插件令牌不许用这条通道改正文);写入复用 vault 既有 modify 通道。
+   */
+  private async onNoteWrite(token: string, payload: WorkspacePayload | undefined): Promise<WorkspaceCallReply> {
+    const pluginId: string | undefined = this.tokens.get(token);
+    if (pluginId === undefined || pluginId !== SESSION_PLUGIN_ID) {
+      WorkspaceLog.warn('note.write.deny', 'identity not session token');
+      return this.fail(ERR_UNAUTHORIZED, '笔记写回只接受页面会话身份');
+    }
+    const path: string = fieldOf(payload, 'path');
+    if (path.length === 0) {
+      return this.fail(ERR_BAD_REQUEST, '缺少 path');
+    }
+    const raw: Object | undefined = payload === undefined ? undefined : payload['content'];
+    if (typeof raw !== 'string') {
+      return this.fail(ERR_BAD_REQUEST, '缺少 content');
+    }
+    const data: string = raw as string;
+    const manager: LexiPluginManager | null = await this.managerReady;
+    if (manager === null) {
+      return this.fail(ERR_HOST_NOT_READY, '旧宿主运行时尚未就绪');
+    }
+    const file: LexiTFile | null = manager.vault.getFileByPath(path);
+    if (file === null) {
+      WorkspaceLog.warn('note.write.miss', 'path=' + path);
+      return this.fail(ERR_NOTE_NOT_FOUND, '文件不存在: ' + path);
+    }
+    try {
+      await manager.vault.modify(file, data);
+    } catch (err) {
+      const message: string = err instanceof Error ? err.message : String(err);
+      WorkspaceLog.error('note.write', 'path=' + path + ' threw: ' + message);
+      return this.fail(ERR_WRITE_FAILED, message);
+    }
+    const ack: Record<string, Object> = { 'path': path as Object, 'chars': data.length as Object };
+    WorkspaceLog.info('note.write.saved', 'path=' + path + ' chars=' + data.length);
+    return this.success(ack);
+  }
+
+  private async delegate(method: string, token: string, payload: WorkspacePayload | undefined): Promise<WorkspaceCallReply> {
+    const pluginId: string | undefined = this.tokens.get(token);
+    if (pluginId === undefined) {
+      WorkspaceLog.warn('frame.token', 'unknown token method=' + method);
+      return this.fail(ERR_UNAUTHORIZED, '未知身份令牌');
+    }
+    const manager: LexiPluginManager | null = await this.managerReady;
+    if (manager === null) {
+      return this.fail(ERR_HOST_NOT_READY, '旧宿主运行时尚未就绪');
+    }
+    // 负向证据:页面/插件自报的 pluginId 一律不作数,只打印"ignored"。
+    const claimed: string = fieldOf(payload, 'pluginId');
+    if (claimed.length > 0 && claimed !== pluginId) {
+      WorkspaceLog.warn('frame.identity',
+        'method=' + method + ' identity=' + pluginId + ' claimed=' + claimed + ' ignored=true');
+    }
+    // 身份只走带外参数(第 4 个实参 pluginId):payload 原样转发,不改写、不注入。
+    // 页面自报的 pluginId 由 LexiPluginRuntime 统一忽略并落审计日志,这一层不再替它打掩护。
+    const forwarded: WorkspacePayload = payload === undefined ? {} : payload;
+    let raw: string = '';
+    try {
+      raw = await this.withTimeout(manager.runtime.call('', method, JSON.stringify(forwarded), pluginId), method);
+    } catch (err) {
+      const message: string = err instanceof Error ? err.message : String(err);
+      WorkspaceLog.error('frame.dispatch', method + ' threw: ' + message);
+      return this.fail(message.indexOf('调用超时') === 0 ? ERR_TIMEOUT : ERR_UNKNOWN_METHOD, message);
+    }
+    let outcome: LegacyOutcome | null = null;
+    try {
+      outcome = JSON.parse(raw) as LegacyOutcome;
+    } catch (err) {
+      outcome = null;
+    }
+    if (outcome === null || outcome.ok === undefined) {
+      return this.fail(ERR_HOST_NOT_READY, '宿主返回了非 JSON 应答');
+    }
+    if (outcome.ok) {
+      const data: Object | null | undefined = outcome.result;
+      return this.success(data === undefined || data === null ? null : data);
+    }
+    const reason: string = outcome.error === undefined ? '宿主通道调用失败' : outcome.error;
+    const code: string = outcome.code === undefined || outcome.code.length === 0 ? ERR_UNKNOWN_METHOD : outcome.code;
+    return this.fail(code, reason);
+  }
+
+  /**
+   * 主题不是插件:不走 manager.runtime 的 handler 表,但同样只认已鉴权的会话身份。
+   * 页面拿到的 CSS 与宿主落盘文件是同一份字节(load 时重新算 sha256,不做任何改写)。
+   */
+  /** http 失败抛的是 BusinessError（不是 Error 子类），直接 String(err) 只会打出 [object Object]。 */
+  private static describeError(err: Object): string {
+    if (err instanceof Error) {
+      return err.message;
+    }
+    const record: Record<string, Object> = err as Record<string, Object>;
+    const code: number = typeof record['code'] === 'number' ? record['code'] as number : 0;
+    const message: string = typeof record['message'] === 'string' ? record['message'] as string : '';
+    const tail: string = code === 0 ? '' : ' (code ' + code.toString() + ')';
+    return message.length > 0 ? message + tail : 'install failed' + tail;
+  }
+
+  private async onTheme(method: string, payload: WorkspacePayload | undefined): Promise<WorkspaceCallReply> {
+    if (method === 'theme.config' || method === 'theme.list') {
+      const themes: WorkspaceThemeSummary[] = this.themes.list();
+      const active: string = this.themes.active();
+      WorkspaceLog.info('theme.list',
+        'count=' + themes.length + ' active=' + (active.length === 0 ? '(none)' : active));
+      const data: WorkspaceThemeListData = {
+        source: DEFAULT_THEME_SOURCE,
+        active: active,
+        themes: themes
+      };
+      return this.success(data);
+    }
+    if (method === 'theme.load') {
+      const requested: string = fieldOf(payload, 'id');
+      const id: string = requested.length > 0 ? requested : this.themes.active();
+      const css: WorkspaceThemeCss | null = this.themes.load(id);
+      if (css === null) {
+        WorkspaceLog.warn('theme.load', 'unknown theme id=' + id);
+        return this.fail(ERR_UNKNOWN_THEME, '未安装的主题: ' + id);
+      }
+      return this.success(css);
+    }
+    if (method === 'theme.install') {
+      const requested: string = fieldOf(payload, 'url');
+      const url: string = requested.length > 0 ? requested : DEFAULT_THEME_SOURCE;
+      const installId: string = fieldOf(payload, 'id');
+      try {
+        const result: WorkspaceThemeInstallResult = await this.themes.install(url, installId);
+        WorkspaceLog.info('theme.install',
+          'id=' + result.id + ' manifest=' + (result.manifest ? 'true' : 'false') + ' source=' + url);
+        return this.success(result);
+      } catch (err) {
+        const message: string = WorkspaceBridge.describeError(err);
+        WorkspaceLog.error('theme.install', 'failed: ' + message);
+        return this.fail(ERR_INSTALL_FAILED, message);
+      }
+    }
+    const id: string = fieldOf(payload, 'id');
+    this.themes.setActive(id);
+    const data: WorkspaceThemeActiveData = { active: id, themes: this.themes.list() };
+    return this.success(data);
+  }
+
+  private async registryReady(): Promise<WorkspacePluginRegistry> {
+    if (this.registryLoaded) {
+      return this.registry;
+    }
+    const manager: LexiPluginManager | null = await this.managerReady;
+    if (manager !== null) {
+      this.registry.loadFromManager(manager);
+    }
+    this.registryLoaded = true;
+    WorkspaceLog.info('plugin.registry', 'entries=' + this.registry.summaries().length);
+    return this.registry;
+  }
+
+  private tail(token: string): string {
+    return token.substring(Math.max(0, token.length - 6));
+  }
+
+  private mint(prefix: string): string {
+    this.minted = this.minted + 1;
+    return prefix + '-' + Date.now().toString(36) + '-' + this.minted.toString(36) + '-' +
+      Math.random().toString(36).substring(2, 10);
+  }
+
+  private success(data: Object | null): WorkspaceCallReply {
+    const reply: WorkspaceCallReply = { id: '', ok: true };
+    if (data !== null) {
+      reply.data = data;
+    }
+    return reply;
+  }
+
+  private fail(code: string, message: string): WorkspaceCallReply {
+    const reply: WorkspaceCallReply = { id: '', ok: false };
+    reply.error = { code: code, message: message };
+    return reply;
+  }
+}

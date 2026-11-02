@@ -74,11 +74,15 @@ class LexiSettingsCategory {
 export struct LexiSettingsWindow {
   @Prop theme: string = 'system';
   @Prop defaultTier: string = 'simple';
+  @Prop arkuiEditorOpen: boolean = false;
+  @Prop wideOpenTarget: string = '';
   @Prop busy: boolean = false;
   @Prop dataStatus: string = '';
   @Prop lastBackup: string = '';
   onSelectTheme: (theme: string) => void = (_theme: string): void => {};
   onSelectTier: (tier: string) => void = (_tier: string): void => {};
+  onToggleArkuiEditor: (on: boolean) => void = (_on: boolean): void => {};
+  onResetWideOpen: () => void = (): void => {};
   onExportBackup: () => void = (): void => {};
   onExportMarkdown: () => void = (): void => {};
   onImportFiles: () => void = (): void => {};
@@ -243,6 +247,17 @@ export struct LexiSettingsWindow {
       }
       .width('100%')
 
+      Button('插件工作区（实验）', { type: ButtonType.Normal })
+        .id('plugin-workspace-entry')
+        .width('100%').height(38).fontSize(12).borderRadius(10)
+        .backgroundColor($r('app.color.soft_surface'))
+        .fontColor($r('app.color.text_primary'))
+        .onClick((): void => {
+          this.getUIContext().getRouter().pushUrl({ url: 'workspace/LexiWorkspacePage' })
+            .catch((): void => {
+            });
+        })
+
       Row({ space: 10 }) {
         Column({ space: 2 }) {
           Text('安全模式').fontSize(13).fontColor($r('app.color.text_primary'))
@@ -289,6 +304,12 @@ export struct LexiSettingsWindow {
     .alignItems(HorizontalAlign.Start)
   }
 
+  private wideTargetLabel(): string {
+    if (this.wideOpenTarget === 'container') { return '宽屏点击笔记：插件工作区容器'; }
+    if (this.wideOpenTarget === 'arkui') { return '宽屏点击笔记：ArkUI 编辑器'; }
+    return '宽屏点击笔记：下次点击时询问';
+  }
+
   @Builder
   private editorSection() {
     Column({ space: 12 }) {
@@ -302,6 +323,33 @@ export struct LexiSettingsWindow {
             .fontColor(this.defaultTier === item[0] ? $r('app.color.inverse_text') : $r('app.color.text_primary'))
             .onClick((): void => { this.onSelectTier(item[0]); })
         }, (item: string[]): string => item[0])
+      }
+      .width('100%')
+
+      Row({ space: 10 }) {
+        Column({ space: 2 }) {
+          Text('用 ArkUI 编辑器打开笔记').fontSize(13).fontColor($r('app.color.text_primary'))
+          Text('关闭时笔记在插件工作区容器里打开').fontSize(11).fontColor($r('app.color.text_secondary'))
+        }
+        .layoutWeight(1).alignItems(HorizontalAlign.Start)
+        Toggle({ type: ToggleType.Switch, isOn: this.arkuiEditorOpen })
+          .id('settings-arkui-editor-toggle')
+          .selectedColor($r('app.color.brand'))
+          .onChange((isOn: boolean): void => { this.onToggleArkuiEditor(isOn); })
+      }
+      .width('100%')
+
+      Row({ space: 10 }) {
+        Column({ space: 2 }) {
+          Text('宽屏默认打开方式').fontSize(13).fontColor($r('app.color.text_primary'))
+          Text(this.wideTargetLabel()).fontSize(11).fontColor($r('app.color.text_secondary'))
+        }
+        .layoutWeight(1).alignItems(HorizontalAlign.Start)
+        Button('重新询问', { type: ButtonType.Normal })
+          .id('settings-wide-open-reset')
+          .height(30).fontSize(13).borderRadius(10)
+          .backgroundColor($r('app.color.soft_surface')).fontColor($r('app.color.brand'))
+          .onClick((): void => { this.onResetWideOpen(); })
       }
       .width('100%')
     }

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>LexiNote 工作区</title>
+<!-- 宿主基础层:主题之前注入,只用 :root 与单类选择器,不用 !important(change 由主题特异性与注入顺序取得) -->
+<link rel="stylesheet" href="lexinote_theme.css">
+<!-- 阅读内核产物(只读):骨架 .markdown-preview-view > .markdown-preview-sizer > .markdown-rendered
+     > .markdown-preview-section[data-heading-level] 由 lexinote_reading.js 生成,这里只装载样式与脚本。 -->
+<link rel="stylesheet" href="lexinote_reading.css">
+</head>
+<body class="theme-light">
+  <div class="app-container">
+    <div class="horizontal-main-container">
+      <div class="workspace">
+        <div class="workspace-ribbon mod-left">
+          <div class="workspace-ribbon-inner">
+            <button id="btn-theme-panel" type="button" class="clickable-icon lexi-icon" title="主题面板">主题</button>
+          </div>
+        </div>
+        <div class="workspace-split mod-root">
+          <div class="workspace-tabs mod-active">
+            <div class="workspace-tab-header-container">
+              <div class="workspace-tab-header is-active" id="tab-note">
+                <span class="workspace-tab-header-inner-title" id="tab-note-title">未命名</span>
+              </div>
+            </div>
+            <div class="workspace-leaf mod-active">
+              <div class="workspace-leaf-content" data-type="markdown">
+                <div class="view-header" id="view-header">
+                  <span id="brand" class="view-header-title">LexiNote 工作区</span>
+                  <div class="lexi-toolbar">
+                    <button id="btn-palette" type="button" class="lexi-button">命令面板</button>
+                    <button id="btn-notice" type="button" class="lexi-button">Notice 自检</button>
+                  </div>
+                </div>
+                <div class="view-content">
+                  <div class="view-body">
+                    <!-- Obsidian 阅读/编辑视图类名由主题轨补齐:CM6 自己在 #editor 内生成 .cm-editor/.cm-scroller/.cm-content -->
+                    <div id="editor" class="markdown-source-view cm-s-obsidian mod-cm6"></div>
+                    <!-- 阅读区挂载点:正文交给 window.LexiReading.render,容器只负责装载位置 -->
+                    <div id="reading-root" class="markdown-reading-view" data-type="markdown"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="sidebar" class="workspace-split mod-right-sidedock workspace-sidenav">
+          <!-- 主题面板放在侧栏顶部：插件视图卡片会随插件数量增高，把面板挤到视口外后
+               按钮在 uitest 里仍报 bounds 却点不到（实测 run6 的"切换明暗"就这么丢了）。 -->
+          <div id="theme-panel" class="theme-panel">
+            <h2 class="lexi-sidebar-title">主题（Obsidian 主题兼容）</h2>
+            <input id="theme-source" type="text" class="theme-input" spellcheck="false" autocomplete="off"
+              placeholder="http://127.0.0.1:18080/theme-minimal/styles.css">
+            <div class="theme-actions">
+              <button id="btn-theme-install" type="button" class="lexi-button">安装主题</button>
+              <button id="btn-theme-enable" type="button" class="lexi-button">启用主题</button>
+              <button id="btn-theme-disable" type="button" class="lexi-button">停用主题</button>
+              <button id="btn-theme-probe" type="button" class="lexi-button">主题自检</button>
+              <button id="btn-theme-mode" type="button" class="lexi-button">切换明暗</button>
+            </div>
+            <div id="theme-state" class="theme-state">主题：未加载</div>
+          </div>
+          <h2 class="lexi-sidebar-title">插件视图（同一实例）</h2>
+          <div id="views" class="workspace-leaf-content" data-type="plugin"></div>
+          <button id="btn-retry" type="button" class="lexi-button">重新加载页面</button>
+        </div>
+      </div>
+      <div class="status-bar" id="status-bar">
+        <span id="status" class="status-bar-item">启动中…</span>
+        <span id="status-theme" class="status-bar-item">主题：无</span>
+        <button id="status-mode" type="button" class="status-bar-item">亮色</button>
+      </div>
+    </div>
+  </div>
+  <!-- 命令面板 / 通知 / 错误面板补 Obsidian 同名类：#palette 是遮罩(.prompt-container)、
+       #palette-modal 是居中层(.modal-container)、#palette-panel 是面板(.prompt/.modal)。
+       主题对 .prompt/.modal 的规则只有在这套类名存在时才命中；宿主自己的样式则降级成单类
+       选择器，否则 ID 的 (1,0,0) 会反过来压住主题。id 全部保留：uitest 与门禁靠 id 定位。 -->
+  <p id="boot-error" class="notice-container boot-error" hidden></p>
+  <div id="palette" class="prompt-container" hidden>
+    <div id="palette-modal" class="modal-container">
+      <div id="palette-panel" class="prompt modal">
+        <input id="palette-input" class="prompt-input" type="text" placeholder="输入命令名…" autocomplete="off" spellcheck="false">
+        <ul id="palette-list" class="prompt-results suggestion-container"></ul>
+      </div>
+    </div>
+  </div>
+  <div id="notices" class="notice-container"></div>
+  <script src="lexinote_plugin_shim.js"></script>
+  <script src="lexinote_workspace_shim.js"></script>
+  <!-- 必须先于 workspace.js:接线段在 bundle 末尾执行,那时要拿到 window.LexiReading -->
+  <script src="lexinote_reading.js"></script>
+  <script src="lexinote_workspace.js"></script>
+  <script src="lexinote_theme.js"></script>
+</body>
+</html>

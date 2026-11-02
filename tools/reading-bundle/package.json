@@ -1,0 +1,19 @@
+{
+  "name": "lexinote-reading-bundle",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Builds the single-file Markdown reading runtime (markdown-it + LexiReading post-processor kernel).",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "markdown-it": "14.1.0",
+    "markdown-it-footnote": "4.0.0",
+    "markdown-it-task-lists": "2.1.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "jsdom": "27.4.0"
+  }
+}

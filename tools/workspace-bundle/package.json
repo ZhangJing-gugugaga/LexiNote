@@ -1,0 +1,21 @@
+{
+  "name": "lexinote-workspace-bundle",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Builds the single-file ArkWeb workspace runtime (CodeMirror 6 + LexiNote web runtime).",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.18.0",
+    "@codemirror/commands": "^6.7.0",
+    "@codemirror/language": "^6.10.0",
+    "@codemirror/search": "^6.5.0",
+    "@codemirror/state": "^6.5.0",
+    "@codemirror/view": "^6.34.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}

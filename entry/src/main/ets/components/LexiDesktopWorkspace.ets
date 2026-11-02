@@ -92,6 +92,8 @@ export struct LexiDesktopWorkspace {
   onOpenAdvancedNote: (noteId: string) => void = (_id: string): void => {};
   onOpenHelp: () => void = (): void => {};
   onOpenSettings: () => void = (): void => {};
+  // 返回 true 表示宿主已接管这次打开(容器路由或询问中),组件不要再就地开标签。
+  onNoteOpenRequest: (noteId: string) => boolean = (_noteId: string): boolean => false;
   onExecuteCommand: (command: string, noteId: string, title: string) => Promise<void> =
     async (_command: string, _id: string, _title: string): Promise<void> => {};
 
@@ -362,7 +364,7 @@ export struct LexiDesktopWorkspace {
     try {
       await this.flushAll(); this.showPalette = false;
       if (id.startsWith('canvas:')) { this.onOpenCanvas(id.substring(7)); }
-      else { this.openDocument(id); }
+      else if (!this.onNoteOpenRequest(id)) { this.openDocument(id); }
     } catch { this.getUIContext().getPromptAction().showToast({ message: '保存未完成，请重试。' }); }
   }
 
@@ -505,7 +507,7 @@ export struct LexiDesktopWorkspace {
     }
     .id(`workspace-note-${$$.note.id}`).width('100%').height(38).padding({ left: 14, right: this.inlineContextMenus() ? 48 : 10 }).borderRadius(7)
     .backgroundColor(this.selectedId === $$.note.id && this.activeSection <= 1 ? $r('app.color.workspace_selection') : Color.Transparent)
-    .onClick((): void => { this.openDocument($$.note.id); })
+    .onClick((): void => { if (!this.onNoteOpenRequest($$.note.id)) { this.openDocument($$.note.id); } })
     }
   }
 

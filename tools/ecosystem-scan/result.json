@@ -1,0 +1,1306 @@
+{
+  "generatedAt": "2026-11-02T12:35:02.265Z",
+  "source": "https://raw.githubusercontent.com/obsidianmd/obsidian-releases/master/community-plugins.json",
+  "sampleRule": "first 24 entries in community-plugins.json order",
+  "sampleSize": 24,
+  "downloads": {
+    "lastRun": {
+      "at": "2026-11-02T12:31:47.187Z",
+      "downloadsMade": 0,
+      "cacheHits": 24,
+      "ok": 24,
+      "failed": 0,
+      "networkBytes": 0
+    },
+    "runs": [
+      {
+        "at": "2026-11-02T12:24:35.507Z",
+        "downloadsMade": 24,
+        "cacheHits": 0,
+        "networkBytes": 11013937
+      },
+      {
+        "at": "2026-11-02T12:31:47.187Z",
+        "downloadsMade": 0,
+        "cacheHits": 24,
+        "ok": 24,
+        "failed": 0,
+        "networkBytes": 0
+      }
+    ],
+    "totalDownloads": 24,
+    "totalNetworkBytes": 11013937,
+    "ok": 24,
+    "failed": 0,
+    "cachedBytes": 11013937
+  },
+  "counts": {
+    "A": 14,
+    "B": 2,
+    "C": 5,
+    "D": 3,
+    "U": 0,
+    "FAIL": 0
+  },
+  "denom": 24,
+  "loadableRate": 0.5833333333333334,
+  "projectedAfterCodemirror": 0.6666666666666666,
+  "aPluginsWithHostGlobals": [
+    {
+      "id": "nldates-obsidian",
+      "globals": [
+        "moment"
+      ]
+    },
+    {
+      "id": "note-refactor-obsidian",
+      "globals": [
+        "moment"
+      ]
+    },
+    {
+      "id": "calendar",
+      "globals": [
+        "moment"
+      ]
+    },
+    {
+      "id": "obsidian-vimrc-support",
+      "globals": [
+        "activeWindow",
+        "CodeMirror(CM5)"
+      ]
+    },
+    {
+      "id": "obsidian-day-planner",
+      "globals": [
+        "moment"
+      ]
+    },
+    {
+      "id": "review-obsidian",
+      "globals": [
+        "moment"
+      ]
+    }
+  ],
+  "aStrictRisk": 6,
+  "aStrictRate": 0.3333333333333333,
+  "dynamicRequirePlugins": [
+    {
+      "id": "templater-obsidian",
+      "exprs": [
+        "window.require @offset 185614 · t i=l=>window.require&&window.require(l),n={},a={exports:n},s=await th"
+      ]
+    }
+  ],
+  "hostGlobalPlugins": [
+    {
+      "id": "nldates-obsidian",
+      "globals": [
+        "moment"
+      ]
+    },
+    {
+      "id": "obsidian-git",
+      "globals": [
+        "activeDocument"
+      ]
+    },
+    {
+      "id": "table-editor-obsidian",
+      "globals": [
+        "activeWindow",
+        "activeDocument"
+      ]
+    },
+    {
+      "id": "note-refactor-obsidian",
+      "globals": [
+        "moment"
+      ]
+    },
+    {
+      "id": "calendar",
+      "globals": [
+        "moment"
+      ]
+    },
+    {
+      "id": "mrj-jump-to-link",
+      "globals": [
+        "activeDocument"
+      ]
+    },
+    {
+      "id": "obsidian-vimrc-support",
+      "globals": [
+        "activeWindow",
+        "CodeMirror(CM5)"
+      ]
+    },
+    {
+      "id": "darlal-switcher-plus",
+      "globals": [
+        "window.require"
+      ]
+    },
+    {
+      "id": "obsidian-day-planner",
+      "globals": [
+        "moment"
+      ]
+    },
+    {
+      "id": "review-obsidian",
+      "globals": [
+        "moment"
+      ]
+    },
+    {
+      "id": "templater-obsidian",
+      "globals": [
+        "moment",
+        "window.require",
+        "activeDocument",
+        "CodeMirror(CM5)"
+      ]
+    },
+    {
+      "id": "better-word-count",
+      "globals": [
+        "moment"
+      ]
+    }
+  ],
+  "codemirrorSymbolFreq": [
+    {
+      "module": "@codemirror/view",
+      "symbol": "Decoration",
+      "mentions": 6,
+      "plugins": 2,
+      "pluginIds": [
+        "mrj-jump-to-link",
+        "better-word-count"
+      ]
+    },
+    {
+      "module": "@codemirror/view",
+      "symbol": "ViewPlugin",
+      "mentions": 3,
+      "plugins": 2,
+      "pluginIds": [
+        "mrj-jump-to-link",
+        "better-word-count"
+      ]
+    },
+    {
+      "module": "@codemirror/view",
+      "symbol": "WidgetType",
+      "mentions": 2,
+      "plugins": 2,
+      "pluginIds": [
+        "mrj-jump-to-link",
+        "better-word-count"
+      ]
+    },
+    {
+      "module": "@codemirror/state",
+      "symbol": "EditorSelection",
+      "mentions": 2,
+      "plugins": 1,
+      "pluginIds": [
+        "mrj-jump-to-link"
+      ]
+    },
+    {
+      "module": "@codemirror/language",
+      "symbol": "syntaxTree",
+      "mentions": 2,
+      "plugins": 1,
+      "pluginIds": [
+        "better-word-count"
+      ]
+    },
+    {
+      "module": "@codemirror/view",
+      "symbol": "EditorView",
+      "mentions": 1,
+      "plugins": 1,
+      "pluginIds": [
+        "mrj-jump-to-link"
+      ]
+    },
+    {
+      "module": "@codemirror/state",
+      "symbol": "StateField",
+      "mentions": 1,
+      "plugins": 1,
+      "pluginIds": [
+        "better-word-count"
+      ]
+    },
+    {
+      "module": "@codemirror/state",
+      "symbol": "Transaction",
+      "mentions": 1,
+      "plugins": 1,
+      "pluginIds": [
+        "better-word-count"
+      ]
+    },
+    {
+      "module": "@codemirror/state",
+      "symbol": "EditorState",
+      "mentions": 1,
+      "plugins": 1,
+      "pluginIds": [
+        "better-word-count"
+      ]
+    },
+    {
+      "module": "@codemirror/state",
+      "symbol": "RangeSetBuilder",
+      "mentions": 1,
+      "plugins": 1,
+      "pluginIds": [
+        "better-word-count"
+      ]
+    },
+    {
+      "module": "@codemirror/state",
+      "symbol": "StateEffect",
+      "mentions": 1,
+      "plugins": 1,
+      "pluginIds": [
+        "better-word-count"
+      ]
+    }
+  ],
+  "allCodemirrorUsers": [
+    "obsidian-git",
+    "table-editor-obsidian",
+    "mrj-jump-to-link",
+    "templater-obsidian",
+    "better-word-count"
+  ],
+  "allCodemirrorSymbolFreq": [
+    {
+      "module": "@codemirror/view",
+      "symbol": "Decoration",
+      "mentions": 23,
+      "plugins": 3,
+      "pluginIds": [
+        "obsidian-git",
+        "mrj-jump-to-link",
+        "better-word-count"
+      ]
+    },
+    {
+      "module": "@codemirror/view",
+      "symbol": "WidgetType",
+      "mentions": 6,
+      "plugins": 3,
+      "pluginIds": [
+        "obsidian-git",
+        "mrj-jump-to-link",
+        "better-word-count"
+      ]
+    },
+    {
+      "module": "@codemirror/state",
+      "symbol": "Prec",
+      "mentions": 5,
+      "plugins": 3,
+      "pluginIds": [
+        "obsidian-git",
+        "table-editor-obsidian",
+        "templater-obsidian"
+      ]
+    },
+    {
+      "module": "@codemirror/view",
+      "symbol": "ViewPlugin",
+      "mentions": 5,
+      "plugins": 3,
+      "pluginIds": [
+        "obsidian-git",
+        "mrj-jump-to-link",
+        "better-word-count"
+      ]
+    },
+    {
+      "module": "@codemirror/view",
+      "symbol": "EditorView",
+      "mentions": 19,
+      "plugins": 2,
+      "pluginIds": [
+        "obsidian-git",
+        "mrj-jump-to-link"
+      ]
+    },
+    {
+      "module": "@codemirror/state",
+      "symbol": "StateField",
+      "mentions": 13,
+      "plugins": 2,
+      "pluginIds": [
+        "obsidian-git",
+        "better-word-count"
+      ]
+    },
+    {
+      "module": "@codemirror/state",
+      "symbol": "StateEffect",
+      "mentions": 10,
+      "plugins": 2,
+      "pluginIds": [
+        "obsidian-git",
+        "better-word-count"
+      ]
+    },
+    {
+      "module": "@codemirror/state",
+      "symbol": "EditorState",
+      "mentions": 7,
+      "plugins": 2,
+      "pluginIds": [
+        "obsidian-git",
+        "better-word-count"
+      ]
+    },
+    {
+      "module": "@codemirror/state",
+      "symbol": "RangeSetBuilder",
+      "mentions": 6,
+      "plugins": 2,
+      "pluginIds": [
+        "obsidian-git",
+        "better-word-count"
+      ]
+    },
+    {
+      "module": "@codemirror/state",
+      "symbol": "Transaction",
+      "mentions": 3,
+      "plugins": 2,
+      "pluginIds": [
+        "obsidian-git",
+        "better-word-count"
+      ]
+    },
+    {
+      "module": "@codemirror/view",
+      "symbol": "keymap",
+      "mentions": 3,
+      "plugins": 2,
+      "pluginIds": [
+        "obsidian-git",
+        "table-editor-obsidian"
+      ]
+    },
+    {
+      "module": "@codemirror/state",
+      "symbol": "RangeSet",
+      "mentions": 6,
+      "plugins": 1,
+      "pluginIds": [
+        "obsidian-git"
+      ]
+    },
+    {
+      "module": "@codemirror/view",
+      "symbol": "GutterMarker",
+      "mentions": 4,
+      "plugins": 1,
+      "pluginIds": [
+        "obsidian-git"
+      ]
+    },
+    {
+      "module": "@codemirror/state",
+      "symbol": "Facet",
+      "mentions": 2,
+      "plugins": 1,
+      "pluginIds": [
+        "obsidian-git"
+      ]
+    },
+    {
+      "module": "@codemirror/state",
+      "symbol": "Compartment",
+      "mentions": 2,
+      "plugins": 1,
+      "pluginIds": [
+        "obsidian-git"
+      ]
+    },
+    {
+      "module": "@codemirror/state",
+      "symbol": "Text",
+      "mentions": 2,
+      "plugins": 1,
+      "pluginIds": [
+        "obsidian-git"
+      ]
+    },
+    {
+      "module": "@codemirror/view",
+      "symbol": "gutter",
+      "mentions": 2,
+      "plugins": 1,
+      "pluginIds": [
+        "obsidian-git"
+      ]
+    },
+    {
+      "module": "@codemirror/view",
+      "symbol": "lineNumbers",
+      "mentions": 2,
+      "plugins": 1,
+      "pluginIds": [
+        "obsidian-git"
+      ]
+    },
+    {
+      "module": "@codemirror/view",
+      "symbol": "drawSelection",
+      "mentions": 2,
+      "plugins": 1,
+      "pluginIds": [
+        "obsidian-git"
+      ]
+    },
+    {
+      "module": "@codemirror/search",
+      "symbol": "search",
+      "mentions": 2,
+      "plugins": 1,
+      "pluginIds": [
+        "obsidian-git"
+      ]
+    },
+    {
+      "module": "@codemirror/state",
+      "symbol": "EditorSelection",
+      "mentions": 2,
+      "plugins": 1,
+      "pluginIds": [
+        "mrj-jump-to-link"
+      ]
+    },
+    {
+      "module": "@codemirror/language",
+      "symbol": "syntaxTree",
+      "mentions": 2,
+      "plugins": 1,
+      "pluginIds": [
+        "better-word-count"
+      ]
+    },
+    {
+      "module": "@codemirror/state",
+      "symbol": "ChangeSet",
+      "mentions": 1,
+      "plugins": 1,
+      "pluginIds": [
+        "obsidian-git"
+      ]
+    },
+    {
+      "module": "@codemirror/view",
+      "symbol": "showPanel",
+      "mentions": 1,
+      "plugins": 1,
+      "pluginIds": [
+        "obsidian-git"
+      ]
+    },
+    {
+      "module": "@codemirror/commands",
+      "symbol": "history",
+      "mentions": 1,
+      "plugins": 1,
+      "pluginIds": [
+        "obsidian-git"
+      ]
+    },
+    {
+      "module": "@codemirror/search",
+      "symbol": "highlightSelectionMatches",
+      "mentions": 1,
+      "plugins": 1,
+      "pluginIds": [
+        "obsidian-git"
+      ]
+    },
+    {
+      "module": "@codemirror/language",
+      "symbol": "StreamLanguage",
+      "mentions": 1,
+      "plugins": 1,
+      "pluginIds": [
+        "templater-obsidian"
+      ]
+    }
+  ],
+  "minimalSetUnion": [
+    {
+      "module": "@codemirror/state",
+      "symbols": [
+        "EditorSelection",
+        "EditorState",
+        "RangeSetBuilder",
+        "StateEffect",
+        "StateField",
+        "Transaction"
+      ]
+    },
+    {
+      "module": "@codemirror/view",
+      "symbols": [
+        "Decoration",
+        "EditorView",
+        "ViewPlugin",
+        "WidgetType"
+      ]
+    },
+    {
+      "module": "@codemirror/language",
+      "symbols": [
+        "syntaxTree"
+      ]
+    }
+  ],
+  "perPluginNeeds": [
+    {
+      "id": "mrj-jump-to-link",
+      "need": [
+        "@codemirror/state:EditorSelection",
+        "@codemirror/view:Decoration",
+        "@codemirror/view:EditorView",
+        "@codemirror/view:ViewPlugin",
+        "@codemirror/view:WidgetType"
+      ]
+    },
+    {
+      "id": "better-word-count",
+      "need": [
+        "@codemirror/language:syntaxTree",
+        "@codemirror/state:EditorState",
+        "@codemirror/state:RangeSetBuilder",
+        "@codemirror/state:StateEffect",
+        "@codemirror/state:StateField",
+        "@codemirror/state:Transaction",
+        "@codemirror/view:Decoration",
+        "@codemirror/view:ViewPlugin",
+        "@codemirror/view:WidgetType"
+      ]
+    }
+  ],
+  "coverageMilestones": [
+    {
+      "added": "@codemirror/view:Decoration",
+      "size": 1,
+      "covered": 0,
+      "coveredIds": [],
+      "rate": 0.5833333333333334
+    },
+    {
+      "added": "@codemirror/view:ViewPlugin",
+      "size": 2,
+      "covered": 0,
+      "coveredIds": [],
+      "rate": 0.5833333333333334
+    },
+    {
+      "added": "@codemirror/view:WidgetType",
+      "size": 3,
+      "covered": 0,
+      "coveredIds": [],
+      "rate": 0.5833333333333334
+    },
+    {
+      "added": "@codemirror/state:EditorSelection",
+      "size": 4,
+      "covered": 0,
+      "coveredIds": [],
+      "rate": 0.5833333333333334
+    },
+    {
+      "added": "@codemirror/language:syntaxTree",
+      "size": 5,
+      "covered": 0,
+      "coveredIds": [],
+      "rate": 0.5833333333333334
+    },
+    {
+      "added": "@codemirror/view:EditorView",
+      "size": 6,
+      "covered": 1,
+      "coveredIds": [
+        "mrj-jump-to-link"
+      ],
+      "rate": 0.625
+    },
+    {
+      "added": "@codemirror/state:StateField",
+      "size": 7,
+      "covered": 1,
+      "coveredIds": [
+        "mrj-jump-to-link"
+      ],
+      "rate": 0.625
+    },
+    {
+      "added": "@codemirror/state:Transaction",
+      "size": 8,
+      "covered": 1,
+      "coveredIds": [
+        "mrj-jump-to-link"
+      ],
+      "rate": 0.625
+    },
+    {
+      "added": "@codemirror/state:EditorState",
+      "size": 9,
+      "covered": 1,
+      "coveredIds": [
+        "mrj-jump-to-link"
+      ],
+      "rate": 0.625
+    },
+    {
+      "added": "@codemirror/state:RangeSetBuilder",
+      "size": 10,
+      "covered": 1,
+      "coveredIds": [
+        "mrj-jump-to-link"
+      ],
+      "rate": 0.625
+    },
+    {
+      "added": "@codemirror/state:StateEffect",
+      "size": 11,
+      "covered": 2,
+      "coveredIds": [
+        "mrj-jump-to-link",
+        "better-word-count"
+      ],
+      "rate": 0.6666666666666666
+    }
+  ],
+  "cheapestSinglePlugin": {
+    "id": "mrj-jump-to-link",
+    "need": [
+      "@codemirror/state:EditorSelection",
+      "@codemirror/view:Decoration",
+      "@codemirror/view:EditorView",
+      "@codemirror/view:ViewPlugin",
+      "@codemirror/view:WidgetType"
+    ]
+  },
+  "cheapestSinglePluginRate": 0.625,
+  "plugins": [
+    {
+      "id": "hotkeysplus-obsidian",
+      "repo": "argenos/hotkeysplus-obsidian",
+      "bytes": 55946,
+      "status": "ok",
+      "category": "A",
+      "externals": [],
+      "symbols": {},
+      "dynamicRequires": [],
+      "hostGlobals": [],
+      "error": null,
+      "optionalModules": []
+    },
+    {
+      "id": "nldates-obsidian",
+      "repo": "obsidian-community/nldates",
+      "bytes": 1376761,
+      "status": "ok",
+      "category": "A",
+      "externals": [],
+      "symbols": {},
+      "dynamicRequires": [],
+      "hostGlobals": [
+        "moment"
+      ],
+      "error": null,
+      "optionalModules": []
+    },
+    {
+      "id": "obsidian-git",
+      "repo": "vinzent03/obsidian-git",
+      "bytes": 813552,
+      "status": "ok",
+      "category": "D",
+      "externals": [
+        "fs",
+        "path",
+        "child_process",
+        "os",
+        "fs/promises",
+        "node:child_process",
+        "node:path",
+        "node:events",
+        "node:crypto",
+        "node:http",
+        "@codemirror/state",
+        "@codemirror/view",
+        "node:util",
+        "@codemirror/language",
+        "@lezer/highlight",
+        "@codemirror/commands",
+        "@codemirror/search"
+      ],
+      "symbols": {
+        "@codemirror/state": [
+          {
+            "name": "StateField",
+            "count": 12
+          },
+          {
+            "name": "StateEffect",
+            "count": 9
+          },
+          {
+            "name": "RangeSet",
+            "count": 6
+          },
+          {
+            "name": "EditorState",
+            "count": 6
+          },
+          {
+            "name": "RangeSetBuilder",
+            "count": 5
+          },
+          {
+            "name": "Prec",
+            "count": 3
+          },
+          {
+            "name": "Facet",
+            "count": 2
+          },
+          {
+            "name": "Compartment",
+            "count": 2
+          },
+          {
+            "name": "Text",
+            "count": 2
+          },
+          {
+            "name": "Transaction",
+            "count": 2
+          },
+          {
+            "name": "ChangeSet",
+            "count": 1
+          }
+        ],
+        "@codemirror/view": [
+          {
+            "name": "EditorView",
+            "count": 18
+          },
+          {
+            "name": "Decoration",
+            "count": 17
+          },
+          {
+            "name": "GutterMarker",
+            "count": 4
+          },
+          {
+            "name": "WidgetType",
+            "count": 4
+          },
+          {
+            "name": "ViewPlugin",
+            "count": 2
+          },
+          {
+            "name": "gutter",
+            "count": 2
+          },
+          {
+            "name": "lineNumbers",
+            "count": 2
+          },
+          {
+            "name": "drawSelection",
+            "count": 2
+          },
+          {
+            "name": "keymap",
+            "count": 2
+          },
+          {
+            "name": "showPanel",
+            "count": 1
+          }
+        ],
+        "@codemirror/language": [],
+        "@codemirror/commands": [
+          {
+            "name": "history",
+            "count": 1
+          }
+        ],
+        "@codemirror/search": [
+          {
+            "name": "search",
+            "count": 2
+          },
+          {
+            "name": "highlightSelectionMatches",
+            "count": 1
+          }
+        ]
+      },
+      "dynamicRequires": [],
+      "hostGlobals": [
+        "activeDocument"
+      ],
+      "error": null,
+      "optionalModules": [
+        "path"
+      ]
+    },
+    {
+      "id": "url-into-selection",
+      "repo": "denolehov/obsidian-url-into-selection",
+      "bytes": 8085,
+      "status": "ok",
+      "category": "C",
+      "externals": [
+        "path"
+      ],
+      "symbols": {},
+      "dynamicRequires": [],
+      "hostGlobals": [],
+      "error": null,
+      "optionalModules": []
+    },
+    {
+      "id": "table-editor-obsidian",
+      "repo": "tgrosinger/advanced-tables-obsidian",
+      "bytes": 272036,
+      "status": "ok",
+      "category": "C",
+      "externals": [
+        "util",
+        "@codemirror/state",
+        "@codemirror/view"
+      ],
+      "symbols": {
+        "@codemirror/state": [
+          {
+            "name": "Prec",
+            "count": 1
+          }
+        ],
+        "@codemirror/view": [
+          {
+            "name": "keymap",
+            "count": 1
+          }
+        ]
+      },
+      "dynamicRequires": [],
+      "hostGlobals": [
+        "activeWindow",
+        "activeDocument"
+      ],
+      "error": null,
+      "optionalModules": [
+        "util"
+      ]
+    },
+    {
+      "id": "note-refactor-obsidian",
+      "repo": "lynchjames/note-refactor-obsidian",
+      "bytes": 852677,
+      "status": "ok",
+      "category": "A",
+      "externals": [],
+      "symbols": {},
+      "dynamicRequires": [],
+      "hostGlobals": [
+        "moment"
+      ],
+      "error": null,
+      "optionalModules": []
+    },
+    {
+      "id": "calendar",
+      "repo": "liamcain/obsidian-calendar-plugin",
+      "bytes": 489435,
+      "status": "ok",
+      "category": "A",
+      "externals": [],
+      "symbols": {},
+      "dynamicRequires": [],
+      "hostGlobals": [
+        "moment"
+      ],
+      "error": null,
+      "optionalModules": []
+    },
+    {
+      "id": "obsidian-reading-time",
+      "repo": "avr/obsidian-reading-time",
+      "bytes": 15701,
+      "status": "ok",
+      "category": "A",
+      "externals": [],
+      "symbols": {},
+      "dynamicRequires": [],
+      "hostGlobals": [],
+      "error": null,
+      "optionalModules": []
+    },
+    {
+      "id": "mrj-jump-to-link",
+      "repo": "mrjackphil/obsidian-jump-to-link",
+      "bytes": 138158,
+      "status": "ok",
+      "category": "B",
+      "externals": [
+        "@codemirror/state",
+        "@codemirror/view"
+      ],
+      "symbols": {
+        "@codemirror/state": [
+          {
+            "name": "EditorSelection",
+            "count": 2
+          }
+        ],
+        "@codemirror/view": [
+          {
+            "name": "Decoration",
+            "count": 3
+          },
+          {
+            "name": "WidgetType",
+            "count": 1
+          },
+          {
+            "name": "ViewPlugin",
+            "count": 1
+          },
+          {
+            "name": "EditorView",
+            "count": 1
+          }
+        ]
+      },
+      "dynamicRequires": [],
+      "hostGlobals": [
+        "activeDocument"
+      ],
+      "error": null,
+      "optionalModules": []
+    },
+    {
+      "id": "mrj-text-expand",
+      "repo": "mrjackphil/obsidian-text-expand",
+      "bytes": 244113,
+      "status": "ok",
+      "category": "D",
+      "externals": [
+        "fs",
+        "path",
+        "eta"
+      ],
+      "symbols": {},
+      "dynamicRequires": [],
+      "hostGlobals": [],
+      "error": null,
+      "optionalModules": []
+    },
+    {
+      "id": "todoist-sync-plugin",
+      "repo": "jamiebrynes7/obsidian-todoist-plugin",
+      "bytes": 768842,
+      "status": "ok",
+      "category": "D",
+      "externals": [
+        "@emotion/is-prop-valid"
+      ],
+      "symbols": {},
+      "dynamicRequires": [],
+      "hostGlobals": [],
+      "error": null,
+      "optionalModules": [
+        "@emotion/is-prop-valid"
+      ]
+    },
+    {
+      "id": "obsidian-vimrc-support",
+      "repo": "esm7/obsidian-vimrc-support",
+      "bytes": 177880,
+      "status": "ok",
+      "category": "A",
+      "externals": [],
+      "symbols": {},
+      "dynamicRequires": [],
+      "hostGlobals": [
+        "activeWindow",
+        "CodeMirror(CM5)"
+      ],
+      "error": null,
+      "optionalModules": []
+    },
+    {
+      "id": "shortcuts-extender",
+      "repo": "ryjjin/Obsidian-shortcuts-extender",
+      "bytes": 13083,
+      "status": "ok",
+      "category": "A",
+      "externals": [],
+      "symbols": {},
+      "dynamicRequires": [],
+      "hostGlobals": [],
+      "error": null,
+      "optionalModules": []
+    },
+    {
+      "id": "mrj-crosslink-between-notes",
+      "repo": "mrjackphil/obsidian-crosslink-between-notes",
+      "bytes": 52235,
+      "status": "ok",
+      "category": "A",
+      "externals": [],
+      "symbols": {},
+      "dynamicRequires": [],
+      "hostGlobals": [],
+      "error": null,
+      "optionalModules": []
+    },
+    {
+      "id": "darlal-switcher-plus",
+      "repo": "darlal/obsidian-switcher-plus",
+      "bytes": 135733,
+      "status": "ok",
+      "category": "C",
+      "externals": [
+        "electron"
+      ],
+      "symbols": {},
+      "dynamicRequires": [],
+      "hostGlobals": [
+        "window.require"
+      ],
+      "error": null,
+      "optionalModules": [
+        "electron"
+      ]
+    },
+    {
+      "id": "obsidian-day-planner",
+      "repo": "ivan-lednev/obsidian-day-planner",
+      "bytes": 1664694,
+      "status": "ok",
+      "category": "A",
+      "externals": [],
+      "symbols": {},
+      "dynamicRequires": [],
+      "hostGlobals": [
+        "moment"
+      ],
+      "error": null,
+      "optionalModules": []
+    },
+    {
+      "id": "review-obsidian",
+      "repo": "ryanjamurphy/review-obsidian",
+      "bytes": 190925,
+      "status": "ok",
+      "category": "A",
+      "externals": [],
+      "symbols": {},
+      "dynamicRequires": [],
+      "hostGlobals": [
+        "moment"
+      ],
+      "error": null,
+      "optionalModules": []
+    },
+    {
+      "id": "obsidian-discordrpc",
+      "repo": "lukeleppan/obsidian-discordrpc",
+      "bytes": 214785,
+      "status": "ok",
+      "category": "C",
+      "externals": [
+        "electron",
+        "events",
+        "timers",
+        "net"
+      ],
+      "symbols": {},
+      "dynamicRequires": [],
+      "hostGlobals": [],
+      "error": null,
+      "optionalModules": []
+    },
+    {
+      "id": "templater-obsidian",
+      "repo": "silentvoid13/Templater",
+      "bytes": 454294,
+      "status": "ok",
+      "category": "C",
+      "externals": [
+        "util",
+        "child_process",
+        "@codemirror/language",
+        "@codemirror/state"
+      ],
+      "symbols": {
+        "@codemirror/language": [
+          {
+            "name": "StreamLanguage",
+            "count": 1
+          }
+        ],
+        "@codemirror/state": [
+          {
+            "name": "Prec",
+            "count": 1
+          }
+        ]
+      },
+      "dynamicRequires": [
+        "window.require @offset 185614 · t i=l=>window.require&&window.require(l),n={},a={exports:n},s=await th"
+      ],
+      "hostGlobals": [
+        "moment",
+        "window.require",
+        "activeDocument",
+        "CodeMirror(CM5)"
+      ],
+      "error": null,
+      "optionalModules": []
+    },
+    {
+      "id": "convert-url-to-iframe",
+      "repo": "fhachez/obsidian-convert-url-to-iframe",
+      "bytes": 220616,
+      "status": "ok",
+      "category": "A",
+      "externals": [],
+      "symbols": {},
+      "dynamicRequires": [],
+      "hostGlobals": [],
+      "error": null,
+      "optionalModules": []
+    },
+    {
+      "id": "searchpp",
+      "repo": "nhaouari/searchpp",
+      "bytes": 61008,
+      "status": "ok",
+      "category": "A",
+      "externals": [],
+      "symbols": {},
+      "dynamicRequires": [],
+      "hostGlobals": [],
+      "error": null,
+      "optionalModules": []
+    },
+    {
+      "id": "better-word-count",
+      "repo": "lukeleppan/better-word-count",
+      "bytes": 2655549,
+      "status": "ok",
+      "category": "B",
+      "externals": [
+        "@codemirror/state",
+        "@codemirror/view",
+        "@codemirror/language"
+      ],
+      "symbols": {
+        "@codemirror/state": [
+          {
+            "name": "StateField",
+            "count": 1
+          },
+          {
+            "name": "Transaction",
+            "count": 1
+          },
+          {
+            "name": "EditorState",
+            "count": 1
+          },
+          {
+            "name": "RangeSetBuilder",
+            "count": 1
+          },
+          {
+            "name": "StateEffect",
+            "count": 1
+          }
+        ],
+        "@codemirror/view": [
+          {
+            "name": "Decoration",
+            "count": 3
+          },
+          {
+            "name": "ViewPlugin",
+            "count": 2
+          },
+          {
+            "name": "WidgetType",
+            "count": 1
+          }
+        ],
+        "@codemirror/language": [
+          {
+            "name": "syntaxTree",
+            "count": 2
+          }
+        ]
+      },
+      "dynamicRequires": [],
+      "hostGlobals": [
+        "moment"
+      ],
+      "error": null,
+      "optionalModules": []
+    },
+    {
+      "id": "workbench-obsidian",
+      "repo": "ryanjamurphy/workbench-obsidian",
+      "bytes": 121709,
+      "status": "ok",
+      "category": "A",
+      "externals": [],
+      "symbols": {},
+      "dynamicRequires": [],
+      "hostGlobals": [],
+      "error": null,
+      "optionalModules": []
+    },
+    {
+      "id": "obsidian-latex-environments",
+      "repo": "raineszm/obsidian-latex-environments",
+      "bytes": 16120,
+      "status": "ok",
+      "category": "A",
+      "externals": [],
+      "symbols": {},
+      "dynamicRequires": [],
+      "hostGlobals": [],
+      "error": null,
+      "optionalModules": []
+    }
+  ]
+}

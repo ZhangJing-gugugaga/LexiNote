@@ -1,0 +1,1407 @@
+{
+  "generatedAt": "2026-11-01T23:02:08.186Z",
+  "contractBaseline": "obsidian@1.14.4",
+  "contractSymbolCount": 334,
+  "lockUpdatedAt": "2026-11-01",
+  "fixtures": [
+    {
+      "id": "view-calendar",
+      "role": "view",
+      "repo": "liamcain/obsidian-calendar-plugin",
+      "commit": "ef3f2696da11aa1d11a272179caea062d6144640",
+      "license": "MIT",
+      "artifacts": [
+        {
+          "file": "main.js",
+          "bytes": 142387,
+          "sha256": "2be4abe5cdf8d4a76858bb22b256d92df4574e724fdbb028aeb1257b8cb0be16"
+        },
+        {
+          "file": "manifest.json",
+          "bytes": 306,
+          "sha256": "3ec2e2666d37fdef152b5e04f07588a143ab44befcd9e03e2838f68212587de4"
+        },
+        {
+          "file": "styles.css",
+          "bytes": 194,
+          "sha256": "b52f02b77f723fda3d267b355dc580203e4ef48359c26e82316ba172eda6c6e6"
+        }
+      ],
+      "markerHits": [
+        {
+          "id": "app-any",
+          "label": "this.app",
+          "capability": "app-object",
+          "symbol": "App",
+          "hits": 24,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: lexi-sample-plugin（本仓样例）、compat-probe（本仓探针）。vault/metadataCache/workspace/commands/fileManager/isDarkMode 已挂载；loadLocalStorage/saveLocalStorage 已通（app.localStorage.get/set，宿主落 filesDir/local-storage.json，读回自动 JSON.parse）；仍缺 setting/plugins/internalPlugins，keymap 与 scope 为 null 占位。证据 H:app.localStorage.get H:app.localStorage.set W:loadLocalStorage\nmembers: app.localStorage.get, app.localStorage.set, app.isDarkMode, loadLocalStorage, saveLocalStorage\nmembers(excludes): app.setting, app.plugins, app.internalPlugins, app.keymap, app.scope"
+        },
+        {
+          "id": "workspace-any",
+          "label": "app.workspace.*",
+          "capability": "workspace",
+          "symbol": "Workspace",
+          "hits": 15,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。openView/closeView/onLayoutReady/事件、getActiveFile/getActiveViewOfType/getLeavesOfType、iterateAllLeaves/iterateRootLeaves/getMostRecentLeaf、openLinkText（宿主经 metadata.getFirstLinkpathDest 解析后触发 file-open）均已通；仍缺 splitLeaf/createLeafBySplit/getLayout 布局树，revealLeaf 只 resolve 不切页，getLeaf/getRightLeaf 返回新建子叶而非宿主真实 pane。证据 H:workspace.openLinkText H:workspace.onLayoutReady W:iterateAllLeaves W:getMostRecentLeaf\nmembers: workspace.openLinkText, workspace.openView, workspace.closeView, workspace.onLayoutReady, workspace.layoutReady, workspace.loadLayout, workspace.saveLayout, openLinkText, iterateAllLeaves, iterateRootLeaves, getMostRecentLeaf, getLeavesOfType, getActiveFile, getActiveViewOfType, revealLeaf\nmembers(excludes): splitLeaf, createLeafBySplit, getLayout, getLeaf, getRightLeaf, activeLeaf"
+        },
+        {
+          "id": "create-el",
+          "label": "createEl/createDiv/createSpan",
+          "capability": "dom",
+          "symbol": "DomElementInfo",
+          "hits": 12,
+          "status": "implemented",
+          "gap": null,
+          "owner": "宿主轨",
+          "note": "cls/text/title/placeholder/href/value/attr 均由 applyInfo 落地。证据 W:applyInfo"
+        },
+        {
+          "id": "moment",
+          "label": "moment(",
+          "capability": "time",
+          "symbol": "moment",
+          "hits": 12,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）。本项目 moment 是 MiniMoment 子集，不是完整 moment：实例侧已通 format/add/subtract/startOf/endOf/diff/unix/valueOf/toDate/toISOString/clone/isValid/isBefore/isAfter/isSame/isSameOrBefore/isSameOrAfter/calendar/locale/localeData/utc/local 与七个取值设值字段、day/weekday/isoWeekday/week/dayOfYear/daysInMonth；静态侧已通 moment(input)/isMoment/utc/unix/now/locale/localeData/updateLocale/defineLocale/locales/months/monthsShort/weekdays/weekdaysShort/weekdaysMin。这些是按 calendar 的真实调用逐条补齐的，不是按 moment 文档铺开：format 只认 YYYY/YY/MMMM/MMM/MM/M/DD/D/Do/dddd/ddd/dd/HH/H/hh/mm/ss/SSS/A/a，diff 只能按毫秒/秒/分/时/天，calendar 恒返回 YYYY-MM-DD 而非今天/昨天文案，locale 与 localeData 恒报 zh-cn。换一个用到未覆盖 API 的插件会在使用处直接抛 TypeError（xxx is not a function），装载期不会提示。证据 W:MiniMoment W:moment\nmembers: format, add, subtract, startOf, endOf, diff, unix, calendar, localeData, isoWeekday, daysInMonth, updateLocale, defineLocale, locales, monthsShort, weekdaysMin, clone, toDate, toObject, isValid\nmembers(excludes): tz, duration, fromNow, toNow, toJSON, utcOffset, isDST, parseZone"
+        },
+        {
+          "id": "window-moment",
+          "label": "window.moment(",
+          "capability": "time",
+          "symbol": "moment",
+          "hits": 9,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）。本项目 moment 是 MiniMoment 子集，不是完整 moment：实例侧已通 format/add/subtract/startOf/endOf/diff/unix/valueOf/toDate/toISOString/clone/isValid/isBefore/isAfter/isSame/isSameOrBefore/isSameOrAfter/calendar/locale/localeData/utc/local 与七个取值设值字段、day/weekday/isoWeekday/week/dayOfYear/daysInMonth；静态侧已通 moment(input)/isMoment/utc/unix/now/locale/localeData/updateLocale/defineLocale/locales/months/monthsShort/weekdays/weekdaysShort/weekdaysMin。这些是按 calendar 的真实调用逐条补齐的，不是按 moment 文档铺开：format 只认 YYYY/YY/MMMM/MMM/MM/M/DD/D/Do/dddd/ddd/dd/HH/H/hh/mm/ss/SSS/A/a，diff 只能按毫秒/秒/分/时/天，calendar 恒返回 YYYY-MM-DD 而非今天/昨天文案，locale 与 localeData 恒报 zh-cn。换一个用到未覆盖 API 的插件会在使用处直接抛 TypeError（xxx is not a function），装载期不会提示。证据 W:MiniMoment W:moment\nmembers: format, add, subtract, startOf, endOf, diff, unix, calendar, localeData, isoWeekday, daysInMonth, updateLocale, defineLocale, locales, monthsShort, weekdaysMin, clone, toDate, toObject, isValid\nmembers(excludes): tz, duration, fromNow, toNow, toJSON, utcOffset, isDST, parseZone"
+        },
+        {
+          "id": "vault-any",
+          "label": "app.vault.*",
+          "capability": "vault-read",
+          "symbol": "Vault",
+          "hits": 7,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。read/modify/create/append/delete/rename/files/getByPath 已通；adapter 已实现（exists/read/write/append/process/list/stat/remove/rename，目录存在性由 vault.files 路径前缀推导，stat 无 size/mtime 时如实返回 0）；仍缺 getName/configDir，createBinary/readBinary 直接 reject，getAbstractFileByPath 返回 Promise（官方同步签名）。证据 H:vault.read H:vault.files W:adapter\nmembers: vault.read, vault.files, vault.create, vault.modify, vault.append, vault.delete, vault.rename, vault.getByPath, adapter\nmembers(excludes): getName, configDir, createBinary, readBinary, copy, getAbstractFileByPath"
+        },
+        {
+          "id": "vault-modify",
+          "label": "vault.modify/create/delete/adapter",
+          "capability": "vault-write",
+          "symbol": "Vault",
+          "hits": 6,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。read/modify/create/append/delete/rename/files/getByPath 已通；adapter 已实现（exists/read/write/append/process/list/stat/remove/rename，目录存在性由 vault.files 路径前缀推导，stat 无 size/mtime 时如实返回 0）；仍缺 getName/configDir，createBinary/readBinary 直接 reject，getAbstractFileByPath 返回 Promise（官方同步签名）。证据 H:vault.read H:vault.files W:adapter\nmembers: vault.read, vault.files, vault.create, vault.modify, vault.append, vault.delete, vault.rename, vault.getByPath, adapter\nmembers(excludes): getName, configDir, createBinary, readBinary, copy, getAbstractFileByPath"
+        },
+        {
+          "id": "load-save-data",
+          "label": "loadData(/saveData(",
+          "capability": "persistence",
+          "symbol": "Plugin",
+          "hits": 3,
+          "status": "implemented",
+          "gap": null,
+          "owner": "运行时轨",
+          "note": "生命周期、命令、Ribbon、设置页、视图注册、代码块处理器、数据读写均已接通。证据 H:commands.add H:data.load W:PluginShim"
+        },
+        {
+          "id": "add-command",
+          "label": "addCommand(",
+          "capability": "commands",
+          "symbol": "Plugin",
+          "hits": 3,
+          "status": "implemented",
+          "gap": null,
+          "owner": "运行时轨",
+          "note": "生命周期、命令、Ribbon、设置页、视图注册、代码块处理器、数据读写均已接通。证据 H:commands.add H:data.load W:PluginShim"
+        },
+        {
+          "id": "tfile",
+          "label": "TFile / TFolder",
+          "capability": "files",
+          "symbol": "TFile",
+          "hits": 2,
+          "status": "implemented",
+          "gap": null,
+          "owner": "运行时轨",
+          "note": "path/name/basename/extension/stat/noteId 由宿主回传填充并缓存为单例。证据 W:TFile H:vault.getByPath"
+        },
+        {
+          "id": "file-manager",
+          "label": "app.fileManager.*",
+          "capability": "file-manager",
+          "symbol": "FileManager",
+          "hits": 1,
+          "status": "partial",
+          "gap": "low-risk",
+          "owner": "运行时轨",
+          "note": "generateMarkdownLink/renameFile 可用；processFrontMatter 直接 reject。证据 W:app"
+        },
+        {
+          "id": "register-view",
+          "label": "registerView(",
+          "capability": "view-registration",
+          "symbol": "ItemView",
+          "hits": 1,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "视图槽内以 ItemViewShim 提供容器与 onOpen/onClose；缺 addAction/getViewType/getDisplayText 完整语义。证据 W:ItemViewShim"
+        },
+        {
+          "id": "item-view",
+          "label": "ItemView（继承/引用）",
+          "capability": "view-registration",
+          "symbol": "ItemView",
+          "hits": 1,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "视图槽内以 ItemViewShim 提供容器与 onOpen/onClose；缺 addAction/getViewType/getDisplayText 完整语义。证据 W:ItemViewShim"
+        },
+        {
+          "id": "set-view-state",
+          "label": "setViewState(",
+          "capability": "workspace-leaf",
+          "symbol": "WorkspaceLeaf",
+          "hits": 1,
+          "status": "stub",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "空构造；插件视图拿到的 leaf 是 makePluginLeaf 的假对象。证据 W:WorkspaceLeaf"
+        },
+        {
+          "id": "add-setting-tab",
+          "label": "addSettingTab(",
+          "capability": "settings-ui",
+          "symbol": "PluginSettingTab",
+          "hits": 1,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "display/hide 空实现，但 getSettingDefinitions 经 settings.register 下发宿主渲染；宿主仅支持 heading/toggle/text/textarea/dropdown/slider 六类。证据 H:settings.register W:PluginSettingTab"
+        },
+        {
+          "id": "set-icon",
+          "label": "setIcon(",
+          "capability": "icons",
+          "symbol": "setIcon",
+          "hits": 1,
+          "status": "stub",
+          "gap": "low-risk",
+          "owner": "运行时轨",
+          "note": "空函数，元素上不渲染图标。证据 W:setIcon"
+        },
+        {
+          "id": "ctx-frontmatter",
+          "label": "ctx.frontmatter",
+          "capability": "markdown-postprocessor",
+          "symbol": "MarkdownPostProcessorContext",
+          "hits": 1,
+          "status": "unsupported",
+          "gap": "needs-architecture",
+          "owner": "宿主轨",
+          "note": "渲染后处理与编辑器 suggest 面缺失：registerMarkdownPostProcessor 只 console.warn、registerEditorSuggest 是空实现，源码已记录。证据 W:PluginShim"
+        }
+      ],
+      "symbolHitsTop": [
+        {
+          "symbol": "moment",
+          "hits": 30,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "kind": "const"
+        },
+        {
+          "symbol": "createEl",
+          "hits": 10,
+          "status": "implemented",
+          "gap": null,
+          "owner": "宿主轨",
+          "kind": "function"
+        },
+        {
+          "symbol": "ready",
+          "hits": 8,
+          "status": "unsupported",
+          "gap": "low-risk",
+          "owner": "宿主轨",
+          "kind": "function"
+        },
+        {
+          "symbol": "Setting",
+          "hits": 8,
+          "status": "stub",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "kind": "class"
+        },
+        {
+          "symbol": "normalizePath",
+          "hits": 4,
+          "status": "implemented",
+          "gap": null,
+          "owner": "运行时轨",
+          "kind": "function"
+        },
+        {
+          "symbol": "Notice",
+          "hits": 3,
+          "status": "partial",
+          "gap": "low-risk",
+          "owner": "运行时轨",
+          "kind": "class"
+        },
+        {
+          "symbol": "Array",
+          "hits": 2,
+          "status": "unsupported",
+          "gap": "low-risk",
+          "owner": "宿主轨",
+          "kind": "interface"
+        },
+        {
+          "symbol": "ConfirmationModal",
+          "hits": 2,
+          "status": "unsupported",
+          "gap": "needs-architecture",
+          "owner": "宿主轨",
+          "kind": "class"
+        },
+        {
+          "symbol": "createDiv",
+          "hits": 2,
+          "status": "implemented",
+          "gap": null,
+          "owner": "宿主轨",
+          "kind": "function"
+        },
+        {
+          "symbol": "FileView",
+          "hits": 2,
+          "status": "unsupported",
+          "gap": "needs-architecture",
+          "owner": "宿主轨",
+          "kind": "abstract class"
+        },
+        {
+          "symbol": "String",
+          "hits": 2,
+          "status": "unsupported",
+          "gap": "low-risk",
+          "owner": "宿主轨",
+          "kind": "interface"
+        },
+        {
+          "symbol": "TFile",
+          "hits": 2,
+          "status": "implemented",
+          "gap": null,
+          "owner": "运行时轨",
+          "kind": "class"
+        },
+        {
+          "symbol": "Vault",
+          "hits": 2,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "kind": "class"
+        },
+        {
+          "symbol": "getIcon",
+          "hits": 1,
+          "status": "stub",
+          "gap": "low-risk",
+          "owner": "运行时轨",
+          "kind": "function"
+        },
+        {
+          "symbol": "ItemView",
+          "hits": 1,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "kind": "abstract class"
+        }
+      ],
+      "cssHits": [
+        {
+          "id": "theme-vars",
+          "label": "主题背景/文字变量",
+          "capability": "theme-vars",
+          "hits": 2,
+          "hostHits": 87,
+          "hostFiles": 151,
+          "status": "implemented",
+          "gap": null
+        }
+      ]
+    },
+    {
+      "id": "editor-outliner",
+      "role": "editor",
+      "repo": "vslinko/obsidian-outliner",
+      "commit": "b51918d4eaa75223780a404c40f2d9406df6a3c0",
+      "license": "MIT",
+      "artifacts": [
+        {
+          "file": "main.js",
+          "bytes": 108865,
+          "sha256": "0c1838c55d44ab23566599f10226362b3f2a715e883cb741867023f120c8e752"
+        },
+        {
+          "file": "manifest.json",
+          "bytes": 286,
+          "sha256": "277a8887eb959cc7a4ae047608421153b359bdf451c2d66caab91c35ca98b93f"
+        },
+        {
+          "file": "styles.css",
+          "bytes": 2169,
+          "sha256": "7922a264883894e69f22c37f549744f7d46d1de926fc802aa4e94c75cd2fbceb"
+        }
+      ],
+      "markerHits": [
+        {
+          "id": "editor-api",
+          "label": "Editor.getValue/setValue/replaceRange/listSelections",
+          "capability": "editor-api",
+          "symbol": "Editor",
+          "hits": 20,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "读写/选区/替换/transaction 已通；undo/redo/exec/processLines/wordAt/getScrollInfo 为桩，无 CM6 扩展面。证据 W:EditorProxy H:editor.replace H:editor.selection"
+        },
+        {
+          "id": "register-editor-extension",
+          "label": "registerEditorExtension(",
+          "capability": "editor-cm6",
+          "symbol": "Plugin",
+          "hits": 11,
+          "status": "implemented",
+          "gap": null,
+          "owner": "运行时轨",
+          "note": "生命周期、命令、Ribbon、设置页、视图注册、代码块处理器、数据读写均已接通。证据 H:commands.add H:data.load W:PluginShim"
+        },
+        {
+          "id": "cm-decoration",
+          "label": "Decoration.* / EditorView.decorations|theme|domEventHandlers",
+          "capability": "editor-cm6",
+          "symbol": null,
+          "hits": 9,
+          "status": "unsupported",
+          "gap": "needs-architecture"
+        },
+        {
+          "id": "add-command",
+          "label": "addCommand(",
+          "capability": "commands",
+          "symbol": "Plugin",
+          "hits": 7,
+          "status": "implemented",
+          "gap": null,
+          "owner": "运行时轨",
+          "note": "生命周期、命令、Ribbon、设置页、视图注册、代码块处理器、数据读写均已接通。证据 H:commands.add H:data.load W:PluginShim"
+        },
+        {
+          "id": "app-any",
+          "label": "this.app",
+          "capability": "app-object",
+          "symbol": "App",
+          "hits": 7,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: lexi-sample-plugin（本仓样例）、compat-probe（本仓探针）。vault/metadataCache/workspace/commands/fileManager/isDarkMode 已挂载；loadLocalStorage/saveLocalStorage 已通（app.localStorage.get/set，宿主落 filesDir/local-storage.json，读回自动 JSON.parse）；仍缺 setting/plugins/internalPlugins，keymap 与 scope 为 null 占位。证据 H:app.localStorage.get H:app.localStorage.set W:loadLocalStorage\nmembers: app.localStorage.get, app.localStorage.set, app.isDarkMode, loadLocalStorage, saveLocalStorage\nmembers(excludes): app.setting, app.plugins, app.internalPlugins, app.keymap, app.scope"
+        },
+        {
+          "id": "editor-callback",
+          "label": "editorCallback/editorCheckCallback/editorPaste",
+          "capability": "editor-callback",
+          "symbol": "Plugin",
+          "hits": 6,
+          "status": "implemented",
+          "gap": null,
+          "owner": "运行时轨",
+          "note": "生命周期、命令、Ribbon、设置页、视图注册、代码块处理器、数据读写均已接通。证据 H:commands.add H:data.load W:PluginShim"
+        },
+        {
+          "id": "cm-dispatch",
+          "label": ".dispatch(",
+          "capability": "editor-cm6",
+          "symbol": null,
+          "hits": 5,
+          "status": "unsupported",
+          "gap": "needs-architecture"
+        },
+        {
+          "id": "cm-editorview",
+          "label": "EditorView（构造/静态方法）",
+          "capability": "editor-cm6",
+          "symbol": null,
+          "hits": 3,
+          "status": "unsupported",
+          "gap": "needs-architecture"
+        },
+        {
+          "id": "vault-any",
+          "label": "app.vault.*",
+          "capability": "vault-read",
+          "symbol": "Vault",
+          "hits": 2,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。read/modify/create/append/delete/rename/files/getByPath 已通；adapter 已实现（exists/read/write/append/process/list/stat/remove/rename，目录存在性由 vault.files 路径前缀推导，stat 无 size/mtime 时如实返回 0）；仍缺 getName/configDir，createBinary/readBinary 直接 reject，getAbstractFileByPath 返回 Promise（官方同步签名）。证据 H:vault.read H:vault.files W:adapter\nmembers: vault.read, vault.files, vault.create, vault.modify, vault.append, vault.delete, vault.rename, vault.getByPath, adapter\nmembers(excludes): getName, configDir, createBinary, readBinary, copy, getAbstractFileByPath"
+        },
+        {
+          "id": "cm-statefield",
+          "label": "StateField.define",
+          "capability": "editor-cm6",
+          "symbol": null,
+          "hits": 2,
+          "status": "unsupported",
+          "gap": "needs-architecture",
+          "note": "同上：StateField 依赖宿主持有的 EditorState 类型，跨实例会因构造函数不同而失效。"
+        },
+        {
+          "id": "load-save-data",
+          "label": "loadData(/saveData(",
+          "capability": "persistence",
+          "symbol": "Plugin",
+          "hits": 2,
+          "status": "implemented",
+          "gap": null,
+          "owner": "运行时轨",
+          "note": "生命周期、命令、Ribbon、设置页、视图注册、代码块处理器、数据读写均已接通。证据 H:commands.add H:data.load W:PluginShim"
+        },
+        {
+          "id": "create-el",
+          "label": "createEl/createDiv/createSpan",
+          "capability": "dom",
+          "symbol": "DomElementInfo",
+          "hits": 2,
+          "status": "implemented",
+          "gap": null,
+          "owner": "宿主轨",
+          "note": "cls/text/title/placeholder/href/value/attr 均由 applyInfo 落地。证据 W:applyInfo"
+        },
+        {
+          "id": "platform",
+          "label": "Platform.*",
+          "capability": "platform",
+          "symbol": "Platform",
+          "hits": 2,
+          "status": "implemented",
+          "gap": null,
+          "owner": "运行时轨",
+          "note": "移动端常量表（isMobile/isPhone/isAndroidApp=false 等需与真机核对）。证据 W:Platform"
+        },
+        {
+          "id": "workspace-any",
+          "label": "app.workspace.*",
+          "capability": "workspace",
+          "symbol": "Workspace",
+          "hits": 1,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。openView/closeView/onLayoutReady/事件、getActiveFile/getActiveViewOfType/getLeavesOfType、iterateAllLeaves/iterateRootLeaves/getMostRecentLeaf、openLinkText（宿主经 metadata.getFirstLinkpathDest 解析后触发 file-open）均已通；仍缺 splitLeaf/createLeafBySplit/getLayout 布局树，revealLeaf 只 resolve 不切页，getLeaf/getRightLeaf 返回新建子叶而非宿主真实 pane。证据 H:workspace.openLinkText H:workspace.onLayoutReady W:iterateAllLeaves W:getMostRecentLeaf\nmembers: workspace.openLinkText, workspace.openView, workspace.closeView, workspace.onLayoutReady, workspace.layoutReady, workspace.loadLayout, workspace.saveLayout, openLinkText, iterateAllLeaves, iterateRootLeaves, getMostRecentLeaf, getLeavesOfType, getActiveFile, getActiveViewOfType, revealLeaf\nmembers(excludes): splitLeaf, createLeafBySplit, getLayout, getLeaf, getRightLeaf, activeLeaf"
+        },
+        {
+          "id": "get-active-view",
+          "label": "getActiveViewOfType(",
+          "capability": "workspace",
+          "symbol": "Workspace",
+          "hits": 1,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。openView/closeView/onLayoutReady/事件、getActiveFile/getActiveViewOfType/getLeavesOfType、iterateAllLeaves/iterateRootLeaves/getMostRecentLeaf、openLinkText（宿主经 metadata.getFirstLinkpathDest 解析后触发 file-open）均已通；仍缺 splitLeaf/createLeafBySplit/getLayout 布局树，revealLeaf 只 resolve 不切页，getLeaf/getRightLeaf 返回新建子叶而非宿主真实 pane。证据 H:workspace.openLinkText H:workspace.onLayoutReady W:iterateAllLeaves W:getMostRecentLeaf\nmembers: workspace.openLinkText, workspace.openView, workspace.closeView, workspace.onLayoutReady, workspace.layoutReady, workspace.loadLayout, workspace.saveLayout, openLinkText, iterateAllLeaves, iterateRootLeaves, getMostRecentLeaf, getLeavesOfType, getActiveFile, getActiveViewOfType, revealLeaf\nmembers(excludes): splitLeaf, createLeafBySplit, getLayout, getLeaf, getRightLeaf, activeLeaf"
+        },
+        {
+          "id": "cm-viewplugin",
+          "label": "ViewPlugin.fromClass/define",
+          "capability": "editor-cm6",
+          "symbol": null,
+          "hits": 1,
+          "status": "unsupported",
+          "gap": "needs-architecture",
+          "note": "CM6 运行时对象不在 obsidian.d.ts 里；宿主必须把同一份 @codemirror/view 实例交给插件，插件才能把 ViewPlugin 挂到真实编辑器上。"
+        },
+        {
+          "id": "cm-transaction",
+          "label": "EditorState.create/transaction/readOnly",
+          "capability": "editor-cm6",
+          "symbol": null,
+          "hits": 1,
+          "status": "unsupported",
+          "gap": "needs-architecture"
+        },
+        {
+          "id": "add-setting-tab",
+          "label": "addSettingTab(",
+          "capability": "settings-ui",
+          "symbol": "PluginSettingTab",
+          "hits": 1,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "display/hide 空实现，但 getSettingDefinitions 经 settings.register 下发宿主渲染；宿主仅支持 heading/toggle/text/textarea/dropdown/slider 六类。证据 H:settings.register W:PluginSettingTab"
+        }
+      ],
+      "symbolHitsTop": [
+        {
+          "symbol": "Setting",
+          "hits": 10,
+          "status": "stub",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "kind": "class"
+        },
+        {
+          "symbol": "Array",
+          "hits": 3,
+          "status": "unsupported",
+          "gap": "low-risk",
+          "owner": "宿主轨",
+          "kind": "interface"
+        },
+        {
+          "symbol": "Notice",
+          "hits": 3,
+          "status": "partial",
+          "gap": "low-risk",
+          "owner": "运行时轨",
+          "kind": "class"
+        },
+        {
+          "symbol": "createEl",
+          "hits": 2,
+          "status": "implemented",
+          "gap": null,
+          "owner": "宿主轨",
+          "kind": "function"
+        },
+        {
+          "symbol": "Platform",
+          "hits": 2,
+          "status": "implemented",
+          "gap": null,
+          "owner": "运行时轨",
+          "kind": "const"
+        },
+        {
+          "symbol": "Command",
+          "hits": 1,
+          "status": "implemented",
+          "gap": null,
+          "owner": "运行时轨",
+          "kind": "interface"
+        },
+        {
+          "symbol": "editorInfoField",
+          "hits": 1,
+          "status": "unsupported",
+          "gap": "needs-architecture",
+          "owner": "宿主轨",
+          "kind": "const"
+        },
+        {
+          "symbol": "MarkdownView",
+          "hits": 1,
+          "status": "stub",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "kind": "class"
+        },
+        {
+          "symbol": "Modal",
+          "hits": 1,
+          "status": "stub",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "kind": "class"
+        },
+        {
+          "symbol": "Plugin",
+          "hits": 1,
+          "status": "implemented",
+          "gap": null,
+          "owner": "运行时轨",
+          "kind": "abstract class"
+        },
+        {
+          "symbol": "PluginSettingTab",
+          "hits": 1,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "kind": "abstract class"
+        },
+        {
+          "symbol": "String",
+          "hits": 1,
+          "status": "unsupported",
+          "gap": "low-risk",
+          "owner": "宿主轨",
+          "kind": "interface"
+        }
+      ],
+      "cssHits": [
+        {
+          "id": "theme-vars",
+          "label": "主题背景/文字变量",
+          "capability": "theme-vars",
+          "hits": 3,
+          "hostHits": 87,
+          "hostFiles": 151,
+          "status": "implemented",
+          "gap": null
+        },
+        {
+          "id": "semantic-color-vars",
+          "label": "语义色变量",
+          "capability": "semantic-color-vars",
+          "hits": 1,
+          "hostHits": 6,
+          "hostFiles": 151,
+          "status": "implemented",
+          "gap": null
+        },
+        {
+          "id": "markdown-view-classes",
+          "label": "Markdown 视图 DOM 类",
+          "capability": "markdown-view-classes",
+          "hits": 2,
+          "hostHits": 5,
+          "hostFiles": 151,
+          "status": "implemented",
+          "gap": null
+        }
+      ]
+    },
+    {
+      "id": "markdown-postprocessor-tasks",
+      "role": "markdown-postprocessor",
+      "repo": "obsidian-tasks-group/obsidian-tasks",
+      "commit": "83f54fbba0c6b9a89952b8bd64172b51b3567c09",
+      "license": "MIT",
+      "artifacts": [
+        {
+          "file": "main.js",
+          "bytes": 1053970,
+          "sha256": "cf8039c0a2c759ef595a5d06cd68a1313c6acb337bcc5e13f81c1ec75773d1ad"
+        },
+        {
+          "file": "manifest.json",
+          "bytes": 518,
+          "sha256": "2efc88df9e973247360d486b420791c266c8824516919303b948d0192e159127"
+        },
+        {
+          "file": "styles.css",
+          "bytes": 28060,
+          "sha256": "d70d8ebd41fc23bfd5d59873b1a93ed9554b154546a3e637bd4e042e62d1cf23"
+        }
+      ],
+      "markerHits": [
+        {
+          "id": "create-el",
+          "label": "createEl/createDiv/createSpan",
+          "capability": "dom",
+          "symbol": "DomElementInfo",
+          "hits": 77,
+          "status": "implemented",
+          "gap": null,
+          "owner": "宿主轨",
+          "note": "cls/text/title/placeholder/href/value/attr 均由 applyInfo 落地。证据 W:applyInfo"
+        },
+        {
+          "id": "moment",
+          "label": "moment(",
+          "capability": "time",
+          "symbol": "moment",
+          "hits": 43,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）。本项目 moment 是 MiniMoment 子集，不是完整 moment：实例侧已通 format/add/subtract/startOf/endOf/diff/unix/valueOf/toDate/toISOString/clone/isValid/isBefore/isAfter/isSame/isSameOrBefore/isSameOrAfter/calendar/locale/localeData/utc/local 与七个取值设值字段、day/weekday/isoWeekday/week/dayOfYear/daysInMonth；静态侧已通 moment(input)/isMoment/utc/unix/now/locale/localeData/updateLocale/defineLocale/locales/months/monthsShort/weekdays/weekdaysShort/weekdaysMin。这些是按 calendar 的真实调用逐条补齐的，不是按 moment 文档铺开：format 只认 YYYY/YY/MMMM/MMM/MM/M/DD/D/Do/dddd/ddd/dd/HH/H/hh/mm/ss/SSS/A/a，diff 只能按毫秒/秒/分/时/天，calendar 恒返回 YYYY-MM-DD 而非今天/昨天文案，locale 与 localeData 恒报 zh-cn。换一个用到未覆盖 API 的插件会在使用处直接抛 TypeError（xxx is not a function），装载期不会提示。证据 W:MiniMoment W:moment\nmembers: format, add, subtract, startOf, endOf, diff, unix, calendar, localeData, isoWeekday, daysInMonth, updateLocale, defineLocale, locales, monthsShort, weekdaysMin, clone, toDate, toObject, isValid\nmembers(excludes): tz, duration, fromNow, toNow, toJSON, utcOffset, isDST, parseZone"
+        },
+        {
+          "id": "app-any",
+          "label": "this.app",
+          "capability": "app-object",
+          "symbol": "App",
+          "hits": 42,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: lexi-sample-plugin（本仓样例）、compat-probe（本仓探针）。vault/metadataCache/workspace/commands/fileManager/isDarkMode 已挂载；loadLocalStorage/saveLocalStorage 已通（app.localStorage.get/set，宿主落 filesDir/local-storage.json，读回自动 JSON.parse）；仍缺 setting/plugins/internalPlugins，keymap 与 scope 为 null 占位。证据 H:app.localStorage.get H:app.localStorage.set W:loadLocalStorage\nmembers: app.localStorage.get, app.localStorage.set, app.isDarkMode, loadLocalStorage, saveLocalStorage\nmembers(excludes): app.setting, app.plugins, app.internalPlugins, app.keymap, app.scope"
+        },
+        {
+          "id": "window-moment",
+          "label": "window.moment(",
+          "capability": "time",
+          "symbol": "moment",
+          "hits": 42,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）。本项目 moment 是 MiniMoment 子集，不是完整 moment：实例侧已通 format/add/subtract/startOf/endOf/diff/unix/valueOf/toDate/toISOString/clone/isValid/isBefore/isAfter/isSame/isSameOrBefore/isSameOrAfter/calendar/locale/localeData/utc/local 与七个取值设值字段、day/weekday/isoWeekday/week/dayOfYear/daysInMonth；静态侧已通 moment(input)/isMoment/utc/unix/now/locale/localeData/updateLocale/defineLocale/locales/months/monthsShort/weekdays/weekdaysShort/weekdaysMin。这些是按 calendar 的真实调用逐条补齐的，不是按 moment 文档铺开：format 只认 YYYY/YY/MMMM/MMM/MM/M/DD/D/Do/dddd/ddd/dd/HH/H/hh/mm/ss/SSS/A/a，diff 只能按毫秒/秒/分/时/天，calendar 恒返回 YYYY-MM-DD 而非今天/昨天文案，locale 与 localeData 恒报 zh-cn。换一个用到未覆盖 API 的插件会在使用处直接抛 TypeError（xxx is not a function），装载期不会提示。证据 W:MiniMoment W:moment\nmembers: format, add, subtract, startOf, endOf, diff, unix, calendar, localeData, isoWeekday, daysInMonth, updateLocale, defineLocale, locales, monthsShort, weekdaysMin, clone, toDate, toObject, isValid\nmembers(excludes): tz, duration, fromNow, toNow, toJSON, utcOffset, isDST, parseZone"
+        },
+        {
+          "id": "vault-any",
+          "label": "app.vault.*",
+          "capability": "vault-read",
+          "symbol": "Vault",
+          "hits": 11,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。read/modify/create/append/delete/rename/files/getByPath 已通；adapter 已实现（exists/read/write/append/process/list/stat/remove/rename，目录存在性由 vault.files 路径前缀推导，stat 无 size/mtime 时如实返回 0）；仍缺 getName/configDir，createBinary/readBinary 直接 reject，getAbstractFileByPath 返回 Promise（官方同步签名）。证据 H:vault.read H:vault.files W:adapter\nmembers: vault.read, vault.files, vault.create, vault.modify, vault.append, vault.delete, vault.rename, vault.getByPath, adapter\nmembers(excludes): getName, configDir, createBinary, readBinary, copy, getAbstractFileByPath"
+        },
+        {
+          "id": "workspace-any",
+          "label": "app.workspace.*",
+          "capability": "workspace",
+          "symbol": "Workspace",
+          "hits": 9,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。openView/closeView/onLayoutReady/事件、getActiveFile/getActiveViewOfType/getLeavesOfType、iterateAllLeaves/iterateRootLeaves/getMostRecentLeaf、openLinkText（宿主经 metadata.getFirstLinkpathDest 解析后触发 file-open）均已通；仍缺 splitLeaf/createLeafBySplit/getLayout 布局树，revealLeaf 只 resolve 不切页，getLeaf/getRightLeaf 返回新建子叶而非宿主真实 pane。证据 H:workspace.openLinkText H:workspace.onLayoutReady W:iterateAllLeaves W:getMostRecentLeaf\nmembers: workspace.openLinkText, workspace.openView, workspace.closeView, workspace.onLayoutReady, workspace.layoutReady, workspace.loadLayout, workspace.saveLayout, openLinkText, iterateAllLeaves, iterateRootLeaves, getMostRecentLeaf, getLeavesOfType, getActiveFile, getActiveViewOfType, revealLeaf\nmembers(excludes): splitLeaf, createLeafBySplit, getLayout, getLeaf, getRightLeaf, activeLeaf"
+        },
+        {
+          "id": "metadata-cache",
+          "label": "app.metadataCache.*",
+          "capability": "metadata",
+          "symbol": "MetadataCache",
+          "hits": 9,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。getFileCache/getCache/getFirstLinkpathDest/事件已通；仍缺 getBacklinksForFile/listLinks/unresolvedLinks（宿主只建正向链接索引，无反向链接表），产出无 blocks/listItems/embeds/footnotes、无 heading 层级 patch 信息；缓存只能按需单文件拉取，无全量预热。证据 H:metadata.get H:metadata.firstLink W:getCache\nmembers: metadata.get, metadata.firstLink, metadata.resolved, metadata.graph, getCache, getFileCache, getFirstLinkpathDest\nmembers(excludes): getBacklinksForFile, listLinks, unresolvedLinks, resolvedLinks"
+        },
+        {
+          "id": "set-icon",
+          "label": "setIcon(",
+          "capability": "icons",
+          "symbol": "setIcon",
+          "hits": 6,
+          "status": "stub",
+          "gap": "low-risk",
+          "owner": "运行时轨",
+          "note": "空函数，元素上不渲染图标。证据 W:setIcon"
+        },
+        {
+          "id": "ctx-frontmatter",
+          "label": "ctx.frontmatter",
+          "capability": "markdown-postprocessor",
+          "symbol": "MarkdownPostProcessorContext",
+          "hits": 6,
+          "status": "unsupported",
+          "gap": "needs-architecture",
+          "owner": "宿主轨",
+          "note": "渲染后处理与编辑器 suggest 面缺失：registerMarkdownPostProcessor 只 console.warn、registerEditorSuggest 是空实现，源码已记录。证据 W:PluginShim"
+        },
+        {
+          "id": "add-command",
+          "label": "addCommand(",
+          "capability": "commands",
+          "symbol": "Plugin",
+          "hits": 5,
+          "status": "implemented",
+          "gap": null,
+          "owner": "运行时轨",
+          "note": "生命周期、命令、Ribbon、设置页、视图注册、代码块处理器、数据读写均已接通。证据 H:commands.add H:data.load W:PluginShim"
+        },
+        {
+          "id": "get-leaf",
+          "label": "getLeaf(",
+          "capability": "workspace-leaf",
+          "symbol": "WorkspaceLeaf",
+          "hits": 4,
+          "status": "stub",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "空构造；插件视图拿到的 leaf 是 makePluginLeaf 的假对象。证据 W:WorkspaceLeaf"
+        },
+        {
+          "id": "tfile",
+          "label": "TFile / TFolder",
+          "capability": "files",
+          "symbol": "TFile",
+          "hits": 4,
+          "status": "implemented",
+          "gap": null,
+          "owner": "运行时轨",
+          "note": "path/name/basename/extension/stat/noteId 由宿主回传填充并缓存为单例。证据 W:TFile H:vault.getByPath"
+        },
+        {
+          "id": "md-renderer",
+          "label": "MarkdownRenderer.render*",
+          "capability": "markdown-render",
+          "symbol": "MarkdownRenderer",
+          "hits": 3,
+          "status": "stub",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "render/renderMarkdown 直接 reject，嵌入与代码块渲染未实现。证据 W:MarkdownRenderer"
+        },
+        {
+          "id": "editor-callback",
+          "label": "editorCallback/editorCheckCallback/editorPaste",
+          "capability": "editor-callback",
+          "symbol": "Plugin",
+          "hits": 3,
+          "status": "implemented",
+          "gap": null,
+          "owner": "运行时轨",
+          "note": "生命周期、命令、Ribbon、设置页、视图注册、代码块处理器、数据读写均已接通。证据 H:commands.add H:data.load W:PluginShim"
+        },
+        {
+          "id": "editor-api",
+          "label": "Editor.getValue/setValue/replaceRange/listSelections",
+          "capability": "editor-api",
+          "symbol": "Editor",
+          "hits": 3,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "读写/选区/替换/transaction 已通；undo/redo/exec/processLines/wordAt/getScrollInfo 为桩，无 CM6 扩展面。证据 W:EditorProxy H:editor.replace H:editor.selection"
+        },
+        {
+          "id": "vault-modify",
+          "label": "vault.modify/create/delete/adapter",
+          "capability": "vault-write",
+          "symbol": "Vault",
+          "hits": 2,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。read/modify/create/append/delete/rename/files/getByPath 已通；adapter 已实现（exists/read/write/append/process/list/stat/remove/rename，目录存在性由 vault.files 路径前缀推导，stat 无 size/mtime 时如实返回 0）；仍缺 getName/configDir，createBinary/readBinary 直接 reject，getAbstractFileByPath 返回 Promise（官方同步签名）。证据 H:vault.read H:vault.files W:adapter\nmembers: vault.read, vault.files, vault.create, vault.modify, vault.append, vault.delete, vault.rename, vault.getByPath, adapter\nmembers(excludes): getName, configDir, createBinary, readBinary, copy, getAbstractFileByPath"
+        },
+        {
+          "id": "load-save-data",
+          "label": "loadData(/saveData(",
+          "capability": "persistence",
+          "symbol": "Plugin",
+          "hits": 2,
+          "status": "implemented",
+          "gap": null,
+          "owner": "运行时轨",
+          "note": "生命周期、命令、Ribbon、设置页、视图注册、代码块处理器、数据读写均已接通。证据 H:commands.add H:data.load W:PluginShim"
+        },
+        {
+          "id": "ctx-source-path",
+          "label": "ctx.sourcePath",
+          "capability": "markdown-postprocessor",
+          "symbol": "MarkdownPostProcessorContext",
+          "hits": 2,
+          "status": "unsupported",
+          "gap": "needs-architecture",
+          "owner": "宿主轨",
+          "note": "渲染后处理与编辑器 suggest 面缺失：registerMarkdownPostProcessor 只 console.warn、registerEditorSuggest 是空实现，源码已记录。证据 W:PluginShim"
+        },
+        {
+          "id": "ctx-add-child",
+          "label": "ctx.addChild(",
+          "capability": "markdown-postprocessor",
+          "symbol": "MarkdownPostProcessorContext",
+          "hits": 2,
+          "status": "unsupported",
+          "gap": "needs-architecture",
+          "owner": "宿主轨",
+          "note": "渲染后处理与编辑器 suggest 面缺失：registerMarkdownPostProcessor 只 console.warn、registerEditorSuggest 是空实现，源码已记录。证据 W:PluginShim"
+        },
+        {
+          "id": "md-render-child",
+          "label": "MarkdownRenderChild（new / extends）",
+          "capability": "markdown-render",
+          "symbol": "MarkdownRenderChild",
+          "hits": 2,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "基于 ComponentShim 的容器子节点，containerEl 为桩对象。证据 W:MarkdownRenderChildStub"
+        },
+        {
+          "id": "file-manager",
+          "label": "app.fileManager.*",
+          "capability": "file-manager",
+          "symbol": "FileManager",
+          "hits": 1,
+          "status": "partial",
+          "gap": "low-risk",
+          "owner": "运行时轨",
+          "note": "generateMarkdownLink/renameFile 可用；processFrontMatter 直接 reject。证据 W:app"
+        },
+        {
+          "id": "md-post-processor",
+          "label": "registerMarkdownPostProcessor(",
+          "capability": "markdown-render",
+          "symbol": "MarkdownPostProcessor",
+          "hits": 1,
+          "status": "unsupported",
+          "gap": "needs-architecture",
+          "owner": "宿主轨",
+          "note": "渲染后处理与编辑器 suggest 面缺失：registerMarkdownPostProcessor 只 console.warn、registerEditorSuggest 是空实现，源码已记录。证据 W:PluginShim"
+        },
+        {
+          "id": "register-editor-extension",
+          "label": "registerEditorExtension(",
+          "capability": "editor-cm6",
+          "symbol": "Plugin",
+          "hits": 1,
+          "status": "implemented",
+          "gap": null,
+          "owner": "运行时轨",
+          "note": "生命周期、命令、Ribbon、设置页、视图注册、代码块处理器、数据读写均已接通。证据 H:commands.add H:data.load W:PluginShim"
+        },
+        {
+          "id": "cm-viewplugin",
+          "label": "ViewPlugin.fromClass/define",
+          "capability": "editor-cm6",
+          "symbol": null,
+          "hits": 1,
+          "status": "unsupported",
+          "gap": "needs-architecture",
+          "note": "CM6 运行时对象不在 obsidian.d.ts 里；宿主必须把同一份 @codemirror/view 实例交给插件，插件才能把 ViewPlugin 挂到真实编辑器上。"
+        },
+        {
+          "id": "cm-dispatch",
+          "label": ".dispatch(",
+          "capability": "editor-cm6",
+          "symbol": null,
+          "hits": 1,
+          "status": "unsupported",
+          "gap": "needs-architecture"
+        },
+        {
+          "id": "add-setting-tab",
+          "label": "addSettingTab(",
+          "capability": "settings-ui",
+          "symbol": "PluginSettingTab",
+          "hits": 1,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "note": "display/hide 空实现，但 getSettingDefinitions 经 settings.register 下发宿主渲染；宿主仅支持 heading/toggle/text/textarea/dropdown/slider 六类。证据 H:settings.register W:PluginSettingTab"
+        },
+        {
+          "id": "ctx-get-section-info",
+          "label": "ctx.getSectionInfo(",
+          "capability": "markdown-postprocessor",
+          "symbol": "MarkdownPostProcessorContext",
+          "hits": 1,
+          "status": "unsupported",
+          "gap": "needs-architecture",
+          "owner": "宿主轨",
+          "note": "渲染后处理与编辑器 suggest 面缺失：registerMarkdownPostProcessor 只 console.warn、registerEditorSuggest 是空实现，源码已记录。证据 W:PluginShim"
+        }
+      ],
+      "symbolHitsTop": [
+        {
+          "symbol": "Tasks",
+          "hits": 291,
+          "status": "unsupported",
+          "gap": "out-of-scope",
+          "owner": "未排期",
+          "kind": "class"
+        },
+        {
+          "symbol": "Array",
+          "hits": 88,
+          "status": "unsupported",
+          "gap": "low-risk",
+          "owner": "宿主轨",
+          "kind": "interface"
+        },
+        {
+          "symbol": "moment",
+          "hits": 58,
+          "status": "partial",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "kind": "const"
+        },
+        {
+          "symbol": "String",
+          "hits": 51,
+          "status": "unsupported",
+          "gap": "low-risk",
+          "owner": "宿主轨",
+          "kind": "interface"
+        },
+        {
+          "symbol": "createEl",
+          "hits": 33,
+          "status": "implemented",
+          "gap": null,
+          "owner": "宿主轨",
+          "kind": "function"
+        },
+        {
+          "symbol": "createDiv",
+          "hits": 26,
+          "status": "implemented",
+          "gap": null,
+          "owner": "宿主轨",
+          "kind": "function"
+        },
+        {
+          "symbol": "Notice",
+          "hits": 17,
+          "status": "partial",
+          "gap": "low-risk",
+          "owner": "运行时轨",
+          "kind": "class"
+        },
+        {
+          "symbol": "Plugin",
+          "hits": 11,
+          "status": "implemented",
+          "gap": null,
+          "owner": "运行时轨",
+          "kind": "abstract class"
+        },
+        {
+          "symbol": "setIcon",
+          "hits": 10,
+          "status": "stub",
+          "gap": "low-risk",
+          "owner": "运行时轨",
+          "kind": "function"
+        },
+        {
+          "symbol": "createSpan",
+          "hits": 9,
+          "status": "implemented",
+          "gap": null,
+          "owner": "宿主轨",
+          "kind": "function"
+        },
+        {
+          "symbol": "ButtonComponent",
+          "hits": 8,
+          "status": "unsupported",
+          "gap": "needs-architecture",
+          "owner": "宿主轨",
+          "kind": "class"
+        },
+        {
+          "symbol": "setTooltip",
+          "hits": 8,
+          "status": "unsupported",
+          "gap": "needs-architecture",
+          "owner": "宿主轨",
+          "kind": "function"
+        },
+        {
+          "symbol": "HTMLElement",
+          "hits": 7,
+          "status": "partial",
+          "gap": "low-risk",
+          "owner": "宿主轨",
+          "kind": "interface"
+        },
+        {
+          "symbol": "Modal",
+          "hits": 7,
+          "status": "stub",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "kind": "class"
+        },
+        {
+          "symbol": "MarkdownView",
+          "hits": 6,
+          "status": "stub",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "kind": "class"
+        }
+      ],
+      "cssHits": [
+        {
+          "id": "theme-vars",
+          "label": "主题背景/文字变量",
+          "capability": "theme-vars",
+          "hits": 12,
+          "hostHits": 87,
+          "hostFiles": 151,
+          "status": "implemented",
+          "gap": null
+        },
+        {
+          "id": "typography-vars",
+          "label": "字体变量",
+          "capability": "typography-vars",
+          "hits": 5,
+          "hostHits": 17,
+          "hostFiles": 151,
+          "status": "implemented",
+          "gap": null
+        },
+        {
+          "id": "radius-vars",
+          "label": "圆角/间距变量",
+          "capability": "radius-vars",
+          "hits": 3,
+          "hostHits": 20,
+          "hostFiles": 151,
+          "status": "implemented",
+          "gap": null
+        }
+      ]
+    },
+    {
+      "id": "theme-minimal",
+      "role": "theme",
+      "repo": "kepano/obsidian-minimal",
+      "commit": "93321bdc23fc879966e1e3aa0cfeda77012f540f",
+      "license": "MIT",
+      "artifacts": [
+        {
+          "file": "manifest.json",
+          "bytes": 200,
+          "sha256": "67a4ff8e848607644a3092bb5b016c934dba0672a3411143e314348ac6d4f7e7"
+        },
+        {
+          "file": "styles.css",
+          "bytes": 505243,
+          "sha256": "19fa8e88f8da24450c67a49d99a3484603c1abf24f40b8ba16f06a4b914cf5b3"
+        }
+      ],
+      "markerHits": [],
+      "symbolHitsTop": [],
+      "cssHits": [
+        {
+          "id": "theme-vars",
+          "label": "主题背景/文字变量",
+          "capability": "theme-vars",
+          "hits": 353,
+          "hostHits": 87,
+          "hostFiles": 151,
+          "status": "partial",
+          "gap": "needs-architecture"
+        },
+        {
+          "id": "typography-vars",
+          "label": "字体变量",
+          "capability": "typography-vars",
+          "hits": 39,
+          "hostHits": 17,
+          "hostFiles": 151,
+          "status": "partial",
+          "gap": "needs-architecture"
+        },
+        {
+          "id": "radius-vars",
+          "label": "圆角/间距变量",
+          "capability": "radius-vars",
+          "hits": 37,
+          "hostHits": 20,
+          "hostFiles": 151,
+          "status": "partial",
+          "gap": "needs-architecture"
+        },
+        {
+          "id": "theme-mode",
+          "label": "明暗主题类（body.theme-dark/light）",
+          "capability": "theme-mode",
+          "hits": 351,
+          "hostHits": 19,
+          "hostFiles": 151,
+          "status": "partial",
+          "gap": "needs-architecture"
+        },
+        {
+          "id": "editor-dom-classes",
+          "label": "编辑器 DOM 类（.cm-*）",
+          "capability": "editor-dom-classes",
+          "hits": 96,
+          "hostHits": 31,
+          "hostFiles": 151,
+          "status": "partial",
+          "gap": "needs-architecture"
+        },
+        {
+          "id": "markdown-view-classes",
+          "label": "Markdown 视图 DOM 类",
+          "capability": "markdown-view-classes",
+          "hits": 528,
+          "hostHits": 5,
+          "hostFiles": 151,
+          "status": "partial",
+          "gap": "needs-architecture"
+        },
+        {
+          "id": "workspace-dom-classes",
+          "label": "工作区 DOM 类",
+          "capability": "workspace-dom-classes",
+          "hits": 661,
+          "hostHits": 16,
+          "hostFiles": 151,
+          "status": "partial",
+          "gap": "needs-architecture"
+        },
+        {
+          "id": "view-chrome",
+          "label": "视图外壳 DOM 类",
+          "capability": "view-chrome",
+          "hits": 226,
+          "hostHits": 3,
+          "hostFiles": 151,
+          "status": "partial",
+          "gap": "needs-architecture"
+        }
+      ]
+    }
+  ],
+  "sharedGapCount": 0,
+  "gapTop10": [
+    {
+      "label": "this.app",
+      "kind": "调用点",
+      "fixtureCount": 3,
+      "counts": {
+        "view-calendar": 24,
+        "editor-outliner": 7,
+        "markdown-postprocessor-tasks": 42
+      },
+      "totalHits": 73,
+      "status": "partial",
+      "gap": "needs-architecture"
+    },
+    {
+      "label": "app.workspace.*",
+      "kind": "调用点",
+      "fixtureCount": 3,
+      "counts": {
+        "view-calendar": 15,
+        "editor-outliner": 1,
+        "markdown-postprocessor-tasks": 9
+      },
+      "totalHits": 25,
+      "status": "partial",
+      "gap": "needs-architecture"
+    },
+    {
+      "label": "Setting",
+      "kind": "契约符号",
+      "fixtureCount": 3,
+      "counts": {
+        "view-calendar": 8,
+        "editor-outliner": 10,
+        "markdown-postprocessor-tasks": 6
+      },
+      "totalHits": 24,
+      "status": "stub",
+      "gap": "needs-architecture"
+    },
+    {
+      "label": "Notice",
+      "kind": "契约符号",
+      "fixtureCount": 3,
+      "counts": {
+        "view-calendar": 3,
+        "editor-outliner": 3,
+        "markdown-postprocessor-tasks": 17
+      },
+      "totalHits": 23,
+      "status": "partial",
+      "gap": "low-risk"
+    },
+    {
+      "label": "app.vault.*",
+      "kind": "调用点",
+      "fixtureCount": 3,
+      "counts": {
+        "view-calendar": 7,
+        "editor-outliner": 2,
+        "markdown-postprocessor-tasks": 11
+      },
+      "totalHits": 20,
+      "status": "partial",
+      "gap": "needs-architecture"
+    },
+    {
+      "label": "Modal",
+      "kind": "契约符号",
+      "fixtureCount": 3,
+      "counts": {
+        "view-calendar": 1,
+        "editor-outliner": 1,
+        "markdown-postprocessor-tasks": 7
+      },
+      "totalHits": 9,
+      "status": "stub",
+      "gap": "needs-architecture"
+    },
+    {
+      "label": "addSettingTab(",
+      "kind": "调用点",
+      "fixtureCount": 3,
+      "counts": {
+        "view-calendar": 1,
+        "editor-outliner": 1,
+        "markdown-postprocessor-tasks": 1
+      },
+      "totalHits": 3,
+      "status": "partial",
+      "gap": "needs-architecture"
+    },
+    {
+      "label": "PluginSettingTab",
+      "kind": "契约符号",
+      "fixtureCount": 3,
+      "counts": {
+        "view-calendar": 1,
+        "editor-outliner": 1,
+        "markdown-postprocessor-tasks": 1
+      },
+      "totalHits": 3,
+      "status": "partial",
+      "gap": "needs-architecture"
+    },
+    {
+      "label": "moment",
+      "kind": "契约符号",
+      "fixtureCount": 2,
+      "counts": {
+        "view-calendar": 30,
+        "markdown-postprocessor-tasks": 58
+      },
+      "totalHits": 88,
+      "status": "partial",
+      "gap": "needs-architecture"
+    },
+    {
+      "label": "moment(",
+      "kind": "调用点",
+      "fixtureCount": 2,
+      "counts": {
+        "view-calendar": 12,
+        "markdown-postprocessor-tasks": 43
+      },
+      "totalHits": 55,
+      "status": "partial",
+      "gap": "needs-architecture"
+    }
+  ]
+}

@@ -42,6 +42,7 @@ export class LexiSectionCache {
 export class LexiCachedMetadata {
   headings: LexiHeadingCache[] | null = null;
   links: LexiLinkCache[] | null = null;
+  embeds: LexiLinkCache[] | null = null;
   tags: LexiTagCache[] | null = null;
   sections: LexiSectionCache[] | null = null;
   frontmatter: Record<string, Object> | null = null;
@@ -128,16 +129,17 @@ export class LexiMetadataModel {
     result.headings = headings.length > 0 ? headings : null;
 
     const links: LexiLinkCache[] = [];
+    const embeds: LexiLinkCache[] = [];
     let fence = '';
     for (let lineNo = 0; lineNo < lines.length; lineNo++) {
       const line = lines[lineNo];
       const lineStart = index.lineStart(lineNo);
       fence = fencedAt(line, fence);
       if (fence) { continue; }
-      const wiki = /\[\[([^\[\]]+)\]\]/g;
+      const wiki = /(!?)\[\[([^\[\]]+)\]\]/g;
       let match: RegExpExecArray | null = wiki.exec(line);
       while (match !== null) {
-        const inner = match[1].trim();
+        const inner = match[2].trim();
         if (inner.length > 0) {
           const pipeParts = inner.split('|');
           const hashParts = pipeParts[0].split('#');
@@ -147,24 +149,30 @@ export class LexiMetadataModel {
           cache.displayText = pipeParts.length > 1 ? pipeParts.slice(1).join('|').trim() : cache.link;
           const start = lineStart + match.index;
           cache.position = index.rangeAt(start, start + match[0].length);
-          links.push(cache);
+          // '![[' 是嵌入:Obsidian 把它记进 embeds,不再冒充普通链接
+          if (match[1] === '!') { embeds.push(cache); } else { links.push(cache); }
         }
         match = wiki.exec(line);
       }
-      const markdown = /\[([^\]]+)\]\((<[^>]+>|[^)\s]+)(?:\s+"[^"]*")?\)/g;
+      const markdown = /(!?)\[([^\]]*)\]\((<[^>]+>|[^)\s]+)(?:\s+"[^"]*")?\)/g;
       match = markdown.exec(line);
       while (match !== null) {
-        const cache = new LexiLinkCache();
-        cache.link = match[2].replace(/^</, '').replace(/>$/, '');
-        cache.original = match[0];
-        cache.displayText = match[1];
-        const start = lineStart + match.index;
-        cache.position = index.rangeAt(start, start + match[0].length);
-        links.push(cache);
+        const target = match[3].replace(/^</, '').replace(/>$/, '');
+        const external = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(target) || target.charAt(0) === '#';
+        if (!external) {
+          const cache = new LexiLinkCache();
+          cache.link = target;
+          cache.original = match[0];
+          cache.displayText = match[2];
+          const start = lineStart + match.index;
+          cache.position = index.rangeAt(start, start + match[0].length);
+          if (match[1] === '!') { embeds.push(cache); } else { links.push(cache); }
+        }
         match = markdown.exec(line);
       }
     }
     result.links = links.length > 0 ? links : null;
+    result.embeds = embeds.length > 0 ? embeds : null;
 
     const tags: LexiTagCache[] = [];
     fence = '';
@@ -212,6 +220,16 @@ export class LexiMetadataModel {
       result.frontmatter = record;
       const headerEnd = index.lineEnd(frontmatter.bodyLineOffset - 1, content);
       result.frontmatterPosition = index.rangeAt(0, headerEnd);
+      // Obsidian 把 frontmatter tags 也计入 CachedMetadata.tags(位置落在 frontmatter 内)
+      for (const rawTag of tagList) {
+        const clean = rawTag.trim().replace(/^#/, '');
+        if (clean.length === 0) { continue; }
+        const cache = new LexiTagCache();
+        cache.tag = clean;
+        cache.position = index.rangeAt(0, headerEnd);
+        tags.push(cache);
+      }
+      result.tags = tags.length > 0 ? tags : null;
     }
     return result;
   }

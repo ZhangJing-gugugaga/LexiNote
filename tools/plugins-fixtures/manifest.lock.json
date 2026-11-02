@@ -1,0 +1,319 @@
+{
+  "version": 1,
+  "contractBaseline": "obsidian@1.14.4（tools/contract/symbols.json，334 条）",
+  "updatedAt": "2026-11-01",
+  "outputDir": ".fixtures-out",
+  "notes": [
+    "所有 commit 都是锁定 sha：拉取 URL 用 sha 而不是分支名，保证同一份源码可复现。",
+    "产物 sha256 是本地构建的实测指纹，不是官方 release 资产的指纹——本机 github.com:443 不通，拿不到官方产物。",
+    "构建允许改依赖声明/构建配置，业务源码零改动；每处改动都在 build.patches 里逐条记录。"
+  ],
+  "fixtures": [
+    {
+      "id": "view-calendar",
+      "role": "view",
+      "purpose": "视图型：ItemView + registerView + workspace.getLeaf/setViewState + 视图内 DOM 渲染 + styles.css 注入",
+      "source": {
+        "repo": "liamcain/obsidian-calendar-plugin",
+        "commit": "ef3f2696da11aa1d11a272179caea062d6144640",
+        "archive": "https://codeload.github.com/liamcain/obsidian-calendar-plugin/zip/ef3f2696da11aa1d11a272179caea062d6144640",
+        "raw": null,
+        "fetch": [
+          {
+            "path": "manifest.json",
+            "as": "manifest.json"
+          },
+          {
+            "path": "styles.css",
+            "as": "styles.css"
+          }
+        ]
+      },
+      "license": {
+        "spdx": "MIT",
+        "file": "LICENSE",
+        "holder": "Liam Cain"
+      },
+      "build": {
+        "kind": "npm",
+        "patches": [
+          {
+            "file": "package.json",
+            "find": "\"obsidian\": \"obsidianmd/obsidian-api#master\"",
+            "replace": "\"obsidian\": \"1.14.4\"",
+            "why": "原依赖还是 github 的 git 依赖（obsidianmd/obsidian-api#master），npm 安装它要走 github.com:443，本机不通。改成 npm 上的 obsidian@1.14.4——就是本轨契约基线用的同一份 obsidian.d.ts；rollup 把 obsidian 列为 external，不进产物。"
+          },
+          {
+            "file": "rollup.config.js",
+            "find": "typescript({ sourceMap: env.env === \"DEV\" }),",
+            "replace": "typescript({ sourceMap: env.env === \"DEV\", include: [\"**/*.ts\", \"**/*.tsx\"] }),",
+            "why": "@rollup/plugin-typescript@8.2.1 默认 include 是 ['*.ts+(|x)','**/*.ts+(|x)']，它内部的 @rollup/pluginutils@3.1.0 + picomatch@2.3.2 对 '+(|x)' 这个 extglob 在本机返回 false（实测：同一 id 下 '**/*.ts+(|x)'→false，'**/*.ts'→true），于是 transform 从不执行，rollup 直接把 .ts 当 JS 解析并报 Unexpected token src/main.ts (1:12) import type。显式传 include 只改匹配规则，不改编译选项，业务源码零改动。"
+          }
+        ],
+        "run": "node node_modules/rollup/dist/bin/rollup -c",
+        "runNote": "不复用 package.json 的 build 脚本：它是 `npm run lint && rollup -c`，前置的 svelte-check/eslint 与产物无关。",
+        "artifact": "main.js",
+        "outputFile": "main.js",
+        "recordResolved": [
+          "rollup",
+          "typescript",
+          "svelte",
+          "@rollup/plugin-typescript",
+          "obsidian"
+        ],
+        "resolved": {
+          "rollup": "2.44.0",
+          "typescript": "4.2.3",
+          "svelte": "3.35.0",
+          "@rollup/plugin-typescript": "8.2.1",
+          "obsidian": "1.14.4"
+        }
+      },
+      "artifacts": [
+        {
+          "file": "main.js",
+          "bytes": 142387,
+          "sha256": "2be4abe5cdf8d4a76858bb22b256d92df4574e724fdbb028aeb1257b8cb0be16"
+        },
+        {
+          "file": "manifest.json",
+          "bytes": 306,
+          "sha256": "3ec2e2666d37fdef152b5e04f07588a143ab44befcd9e03e2838f68212587de4"
+        },
+        {
+          "file": "styles.css",
+          "bytes": 194,
+          "sha256": "b52f02b77f723fda3d267b355dc580203e4ef48359c26e82316ba172eda6c6e6"
+        }
+      ]
+    },
+    {
+      "id": "editor-outliner",
+      "role": "editor",
+      "purpose": "编辑器增强型：CodeMirror 6 ViewPlugin/StateField + EditorView.dispatch + 语法树 + 编辑命令重写",
+      "source": {
+        "repo": "vslinko/obsidian-outliner",
+        "commit": "b51918d4eaa75223780a404c40f2d9406df6a3c0",
+        "archive": "https://codeload.github.com/vslinko/obsidian-outliner/zip/b51918d4eaa75223780a404c40f2d9406df6a3c0",
+        "raw": null,
+        "fetch": [
+          {
+            "path": "manifest.json",
+            "as": "manifest.json"
+          },
+          {
+            "path": "styles.css",
+            "as": "styles.css"
+          }
+        ]
+      },
+      "license": {
+        "spdx": "MIT",
+        "file": "LICENSE",
+        "holder": "Viacheslav Slinko"
+      },
+      "build": {
+        "kind": "esbuild",
+        "entry": "src/ObsidianOutlinerPlugin.ts",
+        "artifact": "fixture-build/main.js",
+        "outputFile": "main.js",
+        "format": "cjs",
+        "target": "es2018",
+        "external": [
+          "obsidian",
+          "@codemirror/state",
+          "@codemirror/view",
+          "@codemirror/language"
+        ],
+        "define": {
+          "PLUGIN_VERSION": "package.json:version",
+          "CHANGELOG_MD": "file:CHANGELOG.md"
+        },
+        "patches": [],
+        "buildNote": "复用仓库自带的 tools/workspace-bundle/node_modules/esbuild（0.24.2），不跑该插件的 npm install：它的 devDependencies 里带 husky（prepare 脚本在没有 .git 的解压树里会失败），且 rollup 配置只是把 TS 打成一个 cjs 包。--define 的两个全局量对应它 rollup.config.mjs 里的 @rollup/plugin-replace。产物与官方 release main.js 不是字节相同（官方带 inline sourcemap，这里关掉），但源码零改动、同一入口。",
+        "resolved": {
+          "esbuild": "0.24.2"
+        }
+      },
+      "artifacts": [
+        {
+          "file": "main.js",
+          "bytes": 108865,
+          "sha256": "0c1838c55d44ab23566599f10226362b3f2a715e883cb741867023f120c8e752"
+        },
+        {
+          "file": "manifest.json",
+          "bytes": 286,
+          "sha256": "277a8887eb959cc7a4ae047608421153b359bdf451c2d66caab91c35ca98b93f"
+        },
+        {
+          "file": "styles.css",
+          "bytes": 2169,
+          "sha256": "7922a264883894e69f22c37f549744f7d46d1de926fc802aa4e94c75cd2fbceb"
+        }
+      ]
+    },
+    {
+      "id": "markdown-postprocessor-tasks",
+      "role": "markdown-postprocessor",
+      "purpose": "阅读视图：registerMarkdownPostProcessor + MarkdownRenderChild + ctx.addChild / ctx.getSectionInfo / ctx.sourcePath，把任务行渲染成带交互控件的列表",
+      "source": {
+        "repo": "obsidian-tasks-group/obsidian-tasks",
+        "commit": "83f54fbba0c6b9a89952b8bd64172b51b3567c09",
+        "archive": "https://codeload.github.com/obsidian-tasks-group/obsidian-tasks/zip/83f54fbba0c6b9a89952b8bd64172b51b3567c09",
+        "raw": null,
+        "fetch": [
+          {
+            "path": "manifest.json",
+            "as": "manifest.json"
+          }
+        ]
+      },
+      "license": {
+        "spdx": "MIT",
+        "file": "LICENSE",
+        "holder": "Clare Macrae, Ilyas Landikov and Martin Schenck"
+      },
+      "build": {
+        "kind": "npm",
+        "patches": [
+          {
+            "file": "package.json",
+            "find": "\"obsidian\": \"1.13.1\"",
+            "replace": "\"obsidian\": \"1.14.4\"",
+            "why": "上游 devDependency 声明 obsidian@1.13.1，本轨契约基线是 obsidian@1.14.4（tools/contract/symbols.json 就是从这份 d.ts 生成的）。这是纯 npm 依赖替换，把 typecheck 用的 d.ts 对齐到基线；esbuild 里 obsidian 是 external，不进产物。"
+          }
+        ],
+        "external": [
+          "obsidian",
+          "electron",
+          "codemirror",
+          "@codemirror/autocomplete",
+          "@codemirror/closebrackets",
+          "@codemirror/commands",
+          "@codemirror/fold",
+          "@codemirror/gutter",
+          "@codemirror/history",
+          "@codemirror/language",
+          "@codemirror/rangeset",
+          "@codemirror/rectangular-selection",
+          "@codemirror/search",
+          "@codemirror/state",
+          "@codemirror/stream-parser",
+          "@codemirror/text",
+          "@codemirror/view"
+        ],
+        "externalNote": "抄自上游 esbuild.config.mjs 的 external 数组（构建配置未改）。产物实测只剩 require(\"obsidian\") 与 require(\"@codemirror/view\") 两条——其余 external 只是配置里列着、本插件没实际引用，esbuild 不会为未引用的 external 生成 require。",
+        "hostGlobals": [
+          "window.moment"
+        ],
+        "hostGlobalsNote": "产物里 43 处 moment 调用全部是 window.moment(...)（另有 56 处 .moment 属性访问），没有内联 moment 库、也没有 require(\"moment\")：插件依赖宿主注入的全局 moment。宿主不提供 window.moment 时，任务日期解析与渲染直接抛错。",
+        "installArgs": [
+          "--legacy-peer-deps"
+        ],
+        "installNote": "上游把 typescript 升到 ^6.0.3，而 i18next@24.2.3 与 i18next-parser@9.4.0 的 peerOptional 要求 typescript@^5，npm install 直接 ERESOLVE 失败（peerOptional 冲突，不影响运行时）。加 --legacy-peer-deps 让 npm 按旧解析规则装依赖，不改任何源码与构建配置。",
+        "run": "node esbuild.config.mjs production",
+        "runNote": "直接用插件自带的 esbuild 配置，不另写构建脚本、不改构建配置：entryPoints = main.ts + styles.scss，external 已含 obsidian/electron 与整族 @codemirror/*，production 分支走 minify。styles.scss 由 esbuild-sass-plugin 编译成 styles.css。",
+        "artifact": "main.js",
+        "outputFile": "main.js",
+        "extraArtifacts": [
+          {
+            "from": "styles.css",
+            "as": "styles.css"
+          }
+        ],
+        "recordResolved": [
+          "esbuild",
+          "esbuild-svelte",
+          "esbuild-sass-plugin",
+          "svelte",
+          "obsidian",
+          "rrule",
+          "flatpickr",
+          "chrono-node",
+          "i18next",
+          "mustache",
+          "boon-js",
+          "eventemitter2",
+          "@floating-ui/dom",
+          "safe-regex2"
+        ],
+        "resolved": {
+          "esbuild": "0.28.1",
+          "esbuild-svelte": "0.9.5",
+          "esbuild-sass-plugin": "3.7.0",
+          "svelte": "5.57.3",
+          "obsidian": "1.14.4",
+          "rrule": "2.8.1",
+          "flatpickr": "4.6.13",
+          "chrono-node": "2.3.9",
+          "i18next": "24.2.3",
+          "mustache": "4.2.0",
+          "boon-js": "2.0.5",
+          "eventemitter2": "6.4.9",
+          "@floating-ui/dom": "1.8.0",
+          "safe-regex2": "5.1.2"
+        }
+      },
+      "artifacts": [
+        {
+          "file": "main.js",
+          "bytes": 1053970,
+          "sha256": "cf8039c0a2c759ef595a5d06cd68a1313c6acb337bcc5e13f81c1ec75773d1ad"
+        },
+        {
+          "file": "manifest.json",
+          "bytes": 518,
+          "sha256": "2efc88df9e973247360d486b420791c266c8824516919303b948d0192e159127"
+        },
+        {
+          "file": "styles.css",
+          "bytes": 28060,
+          "sha256": "d70d8ebd41fc23bfd5d59873b1a93ed9554b154546a3e637bd4e042e62d1cf23"
+        }
+      ]
+    },
+    {
+      "id": "theme-minimal",
+      "role": "theme",
+      "purpose": "主题：纯 CSS，验证宿主能否加载一份外部 styles.css 并暴露 Obsidian 主题变量/类名契约",
+      "source": {
+        "repo": "kepano/obsidian-minimal",
+        "commit": "93321bdc23fc879966e1e3aa0cfeda77012f540f",
+        "archive": null,
+        "raw": "https://raw.githubusercontent.com/kepano/obsidian-minimal/93321bdc23fc879966e1e3aa0cfeda77012f540f/",
+        "fetch": [
+          {
+            "path": "manifest.json",
+            "as": "manifest.json"
+          },
+          {
+            "path": "obsidian.css",
+            "as": "styles.css"
+          }
+        ]
+      },
+      "license": {
+        "spdx": "MIT",
+        "file": "LICENSE",
+        "holder": "Steph Ango (@kepano)"
+      },
+      "build": {
+        "kind": "none",
+        "buildNote": "CSS 无需构建：从锁定 commit 直接取 obsidian.css（505KB）作为 styles.css。主题不进 main.js 链路，宿主只需把它注入 WebView。"
+      },
+      "artifacts": [
+        {
+          "file": "manifest.json",
+          "bytes": 200,
+          "sha256": "67a4ff8e848607644a3092bb5b016c934dba0672a3411143e314348ac6d4f7e7"
+        },
+        {
+          "file": "styles.css",
+          "bytes": 505243,
+          "sha256": "19fa8e88f8da24450c67a49d99a3484603c1abf24f40b8ba16f06a4b914cf5b3"
+        }
+      ]
+    }
+  ]
+}

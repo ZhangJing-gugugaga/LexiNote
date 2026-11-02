@@ -1,0 +1,9 @@
+{
+  "id": "md-render-probe",
+  "name": "Markdown 渲染探针",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "author": "LexiNote runtime track",
+  "description": "对着 MarkdownRenderer 真渲染通道写的探针:render/renderMarkdown/后处理器/getSectionInfo/child unload,结果同时留在 window.__mdRenderProbe 与 Notice",
+  "isDesktopOnly": false
+}

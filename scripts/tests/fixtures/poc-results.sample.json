@@ -1,0 +1,28 @@
+{
+  "note": "示例结构，非实测数据。真机跑完 M0 后用真实数字覆盖，字段名保持不变。",
+  "device": "HarmonyOS <版本> / <机型>",
+  "build": "entry 1.1.0 debug",
+  "measuredAt": "YYYY-MM-DD",
+  "ime": {
+    "p95LatencyMs": 38,
+    "compositionErrors": 0,
+    "samples": 200,
+    "method": "中文拼音连续输入 30 字 × 10 轮，抓 keydown→DOM 更新"
+  },
+  "doc": {
+    "docBytes": 204800,
+    "openMs": 620,
+    "typingP95Ms": 45,
+    "samples": 100
+  },
+  "residency": {
+    "pluginCount": 8,
+    "extraMemoryMB": 48,
+    "reloadCount": 0
+  },
+  "rpc": {
+    "p95Ms": 5.2,
+    "callsPerSec": 900,
+    "samples": 500
+  }
+}

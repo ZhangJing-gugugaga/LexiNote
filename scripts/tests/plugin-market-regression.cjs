@@ -4,14 +4,18 @@ const path=require('node:path');
 const vm=require('node:vm');
 const ts=require(process.env.LEXI_TYPESCRIPT || '/Applications/DevEco-Studio.app/Contents/tools/hvigor/hvigor/node_modules/typescript');
 const core=path.resolve(__dirname,'../../entry/src/main/ets/core');
-function load(spec){
- const target=path.resolve(core,spec+'.ets');
+function load(spec,base){
+ const target=path.resolve(base||core,spec+'.ets');
  const js=ts.transpileModule(fs.readFileSync(target,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2021}}).outputText;
  const mod={exports:{}};
- vm.runInThisContext('(function(require,module,exports){'+js+'\n})',{filename:target})((s)=>load(s),mod,mod.exports);
+ vm.runInThisContext('(function(require,module,exports){'+js+'\n})',{filename:target})((s)=>load(s,path.dirname(target)),mod,mod.exports);
  return mod.exports;
 }
 const {parseMarketIndex}=load('plugin/LexiPluginMarketModel');
+
+// 逐字段 assert.equal 会静默接受解析结果里"多出来的字段"——循环照样通过。
+// 键集先钉死:新增字段必须显式改这份期望,不许自动通过。
+const ENTRY_KEYS=['author','capabilities','capabilitiesDeclared','description','id','isDesktopOnly','minApiVersion','name','repo','sha256','updatedAt','version','zipUrl'];
 
 const tests=[
  ['parses the Obsidian-style array form',()=>{
@@ -20,7 +24,10 @@ const tests=[
    {id:'b',name:'B'}
   ]));
   assert.equal(entries.length,2);
-  assert.deepEqual({...entries[0]},{id:'a',name:'A 插件',author:'作者',description:'desc',repo:'u/a',version:'1.0.0',zipUrl:'https://x/a.zip'});
+  assert.deepEqual(Object.keys(entries[0]).sort(),ENTRY_KEYS,'解析结果的键集变了:必须显式更新 ENTRY_KEYS');
+  for(const[field,value]of Object.entries({id:'a',name:'A 插件',author:'作者',description:'desc',repo:'u/a',version:'1.0.0',zipUrl:'https://x/a.zip'})){
+   assert.equal(entries[0][field],value,'field '+field);
+  }
   assert.equal(entries[1].zipUrl,'');
  }],
  ['parses the wrapped {plugins:[...]} form',()=>{

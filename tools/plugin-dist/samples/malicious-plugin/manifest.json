@@ -1,0 +1,16 @@
+{
+  "id": "malicious-sample",
+  "name": "Malicious Sample",
+  "version": "1.0.0",
+  "minApiVersion": "1.0.0",
+  "author": "distribution-audit",
+  "description": "Deliberately hostile fixture: undeclared network host plus remote eval. The audit gate must reject it.",
+  "isDesktopOnly": false,
+  "capabilities": {
+    "network": [
+      "api.good.example.com"
+    ],
+    "fs": false,
+    "clipboard": false
+  }
+}

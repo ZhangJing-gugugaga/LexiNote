@@ -1,0 +1,573 @@
+/* ---------------------------------------------------------------------------
+   LexiNote 工作区宿主基础层（主题之前注入）
+
+   机制（为什么原样装入的 Obsidian 主题能覆盖它）：
+   1. 顺序：本文件由 <link> 在 <head> 里先加载，主题 styles.css 由 lexinote_theme.js
+      在文档后段追加 <style>，后出现的同特异性规则获胜。
+   2. 特异性：本文件只用 :root 与单类/双类选择器（最高 0,2,0），没有任何 ID 选择器
+      ——ID 是 (1,0,0)，会压住主题的 .prompt/.modal/.workspace-leaf 等单类规则，
+      门禁 theme.specificity 用 CSSOM 遍历 selectorText 断言 ID 计数 = 0。
+      主题里的 body.theme-dark / .workspace-leaf .view-content 等天然≥它。
+   3. 变量：颜色/字体/尺寸全部走 Obsidian 同名变量（含 --background-modifier-cover），
+      不硬编码颜色，
+      主题改这些变量即可整页跟随。
+   4. 本文件不含 !important，也不改写主题文件。
+--------------------------------------------------------------------------- */
+
+:root {
+  /* 背景 */
+  --background-primary: #ffffff;
+  --background-primary-alt: #fafafa;
+  --background-secondary: #f7f7f7;
+  --background-secondary-alt: #f0f0f0;
+  --background-tertiary: #ececec;
+  --background-modifier-border: #e3e3e3;
+  --background-modifier-border-hover: #c9c9c9;
+  --background-modifier-border-focus: #ababab;
+  --background-modifier-hover: rgba(0, 0, 0, 0.06);
+  --background-modifier-form-field: #ffffff;
+  --background-modifier-box-shadow: rgba(0, 0, 0, 0.14);
+  --background-modifier-error: #d9534f;
+  /* 浮层遮罩：Obsidian 的 .modal-container/.prompt-container 用它，主题会覆盖 */
+  --background-modifier-cover: rgba(0, 0, 0, 0.35);
+  --background-modifier-accent: #7b6cd9;
+  --background-divider: #e3e3e3;
+  /* 文本 */
+  --text-normal: #1b1b1f;
+  --text-muted: #64646d;
+  --text-faint: #9b9ba4;
+  --text-on-accent: #ffffff;
+  --text-accent: #6a5cc7;
+  --text-accent-hover: #5849b8;
+  --text-selection: rgba(123, 108, 217, 0.22);
+  --text-error: #d9534f;
+  --text-code: #b03a5b;
+  --text-blockquote: #64646d;
+  --text-highlight-bg: rgba(255, 208, 0, 0.4);
+  --text-bold: 600;
+  --text-italic: italic;
+  /* 强调色 */
+  --color-accent: #7b6cd9;
+  --color-accent-hsl: 249, 45%, 55%;
+  --accent-h: 249;
+  --accent-s: 45%;
+  --accent-l: 55%;
+  --interactive-accent: #7b6cd9;
+  --interactive-accent-hover: #6a5cc7;
+  --interactive-normal: #f1f1f3;
+  --interactive-hover: #e6e6e9;
+  --icon-color: #57575f;
+  --icon-color-hover: #1b1b1f;
+  --icon-size: 16px;
+  /* 字体 */
+  --font-text: -apple-system, "HarmonyOS Sans", "Noto Sans CJK SC", "PingFang SC", sans-serif;
+  --font-interface: var(--font-text);
+  --font-monospace: "JetBrains Mono", "Cascadia Mono", "Noto Sans Mono", monospace;
+  --font-text-size: 16px;
+  --font-small: 0.875em;
+  --font-smaller: 0.8em;
+  --font-smallest: 0.72em;
+  --font-adaptive-normal: 16px;
+  --font-adaptive-small: 13px;
+  --font-adaptive-smaller: 12px;
+  --font-adaptive-smallest: 11px;
+  --line-height: 1.6;
+  --line-height-normal: 1.6;
+  --line-height-tight: 1.3;
+  --normal-weight: 400;
+  --bold-weight: 600;
+  /* 标题 */
+  --h1-size: 1.6em;
+  --h2-size: 1.4em;
+  --h3-size: 1.2em;
+  --h4-size: 1.1em;
+  --h5-size: 1em;
+  --h6-size: 0.9em;
+  --h1-weight: 700;
+  --h2-weight: 700;
+  --h3-weight: 600;
+  --h4-weight: 600;
+  --h5-weight: 600;
+  --h6-weight: 600;
+  /* 尺寸 */
+  --radius-s: 4px;
+  --radius-m: 8px;
+  --radius-l: 12px;
+  --radius-xl: 16px;
+  --divider-width: 1px;
+  --border-width: 1px;
+  --header-height: 40px;
+  --titlebar-height: 0px;
+  --input-height: 32px;
+  --max-width: 700px;
+  --line-width: 40rem;
+  --line-width-adaptive: 40rem;
+  --nested-padding: 24px;
+  --list-indent: 1.6em;
+  --folding-offset: 16px;
+  --sp1: 12px;
+  --tag-radius: 4px;
+  --tag-border-width: 1px;
+  --cursor: #6a5cc7;
+  --active-line-bg: rgba(0, 0, 0, 0.04);
+  --shadow-s: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --shadow-m: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --modal-border: #e3e3e3;
+  /* 滚动条 */
+  --scrollbar-bg: transparent;
+  --scrollbar-thumb-bg: rgba(0, 0, 0, 0.18);
+  --scrollbar-active-thumb-bg: rgba(0, 0, 0, 0.34);
+  /* 结构色阶：主题常用三元组，宿主给一组保守默认值 */
+  --bg1: var(--background-primary);
+  --bg2: var(--background-secondary);
+  --bg3: var(--background-tertiary);
+  --tx1: var(--text-normal);
+  --tx2: var(--text-muted);
+  --tx3: var(--text-faint);
+  --tx4: var(--text-faint);
+  --ui1: var(--background-primary-alt);
+  --ui2: var(--background-secondary);
+  --ui3: var(--background-tertiary);
+  --ax1: var(--text-accent);
+  --ax2: var(--text-accent-hover);
+  --ax3: var(--background-modifier-accent);
+  --base-h: 249;
+  --base-s: 45%;
+  --base-l: 55%;
+  --base-d: 0%;
+}
+
+/* 暗态：只换变量，不换选择器结构；与宿主 app.isDarkMode 联动（lexinote_theme.js 设置类名） */
+.theme-dark {
+  --background-primary: #1e1e24;
+  --background-primary-alt: #24242b;
+  --background-secondary: #232329;
+  --background-secondary-alt: #2a2a31;
+  --background-tertiary: #303038;
+  --background-modifier-border: #3a3a44;
+  --background-modifier-border-hover: #4d4d59;
+  --background-modifier-border-focus: #5f5f6d;
+  --background-modifier-hover: rgba(255, 255, 255, 0.07);
+  --background-modifier-form-field: #26262d;
+  --background-modifier-box-shadow: rgba(0, 0, 0, 0.5);
+  --background-modifier-accent: #9c8df0;
+  --background-modifier-cover: rgba(0, 0, 0, 0.6);
+  --background-divider: #3a3a44;
+  --text-normal: #dcdce2;
+  --text-muted: #a0a0ab;
+  --text-faint: #75757f;
+  --text-accent: #9c8df0;
+  --text-accent-hover: #b3a6f5;
+  --text-selection: rgba(156, 141, 240, 0.28);
+  --text-error: #f2777a;
+  --text-code: #f08aa8;
+  --text-blockquote: #a0a0ab;
+  --text-highlight-bg: rgba(255, 208, 0, 0.28);
+  --color-accent: #9c8df0;
+  --interactive-accent: #9c8df0;
+  --interactive-accent-hover: #b3a6f5;
+  --interactive-normal: #2a2a31;
+  --interactive-hover: #333340;
+  --icon-color: #a0a0ab;
+  --icon-color-hover: #dcdce2;
+  --cursor: #9c8df0;
+  --active-line-bg: rgba(255, 255, 255, 0.05);
+  --scrollbar-thumb-bg: rgba(255, 255, 255, 0.16);
+  --scrollbar-active-thumb-bg: rgba(255, 255, 255, 0.3);
+  --modal-border: #3a3a44;
+  --base-d: 100%;
+}
+
+/* 结构：单类选择器，颜色/尺寸全部引变量 */
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--text-normal);
+  background-color: var(--background-primary);
+  font-family: var(--font-text);
+  font-size: var(--font-text-size);
+  line-height: var(--line-height-normal);
+}
+
+.app-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.horizontal-main-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.workspace {
+  display: flex;
+  flex-direction: row;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.workspace-ribbon {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  width: 48px;
+  padding: 6px 0;
+  border-right: var(--divider-width) solid var(--divider-color, var(--background-modifier-border));
+  background-color: var(--background-secondary);
+}
+
+.workspace-ribbon-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+
+.workspace-split.mod-root {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.workspace-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.workspace-tab-header-container {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px 0;
+  border-bottom: var(--divider-width) solid var(--background-modifier-border);
+  background-color: var(--background-secondary);
+}
+
+.workspace-tab-header {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: var(--radius-s) var(--radius-s) 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-adaptive-small);
+}
+
+.workspace-tab-header.is-active {
+  color: var(--text-normal);
+  background-color: var(--background-primary);
+}
+
+.workspace-leaf {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.workspace-leaf-content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.view-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: var(--divider-width) solid var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: var(--font-adaptive-small);
+}
+
+.lexi-toolbar {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.view-content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.view-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.markdown-source-view {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.markdown-source-view > .cm-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.workspace-sidenav {
+  display: flex;
+  flex: 0 0 260px;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border-left: var(--divider-width) solid var(--background-modifier-border);
+  background-color: var(--background-secondary);
+}
+
+.status-bar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+  padding: 3px 10px;
+  border-top: var(--divider-width) solid var(--background-modifier-border);
+  color: var(--text-faint);
+  background-color: var(--background-secondary);
+  font-size: var(--font-adaptive-smaller);
+}
+
+.status-bar-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.lexi-sidebar-title {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-adaptive-small);
+  font-weight: var(--bold-weight);
+}
+
+.lexi-button {
+  padding: 4px 10px;
+  border: var(--border-width) solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+  background-color: var(--background-modifier-form-field);
+  font-family: var(--font-interface);
+  font-size: var(--font-adaptive-small);
+  cursor: pointer;
+}
+
+.lexi-icon {
+  width: 34px;
+  padding: 4px 0;
+  border: 0;
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  background-color: transparent;
+  font-size: var(--font-adaptive-smaller);
+  cursor: pointer;
+}
+
+.theme-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: var(--border-width) solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background-color: var(--background-primary);
+}
+
+.theme-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.theme-input {
+  padding: 4px 8px;
+  border: var(--border-width) solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+  background-color: var(--background-modifier-form-field);
+  font-family: var(--font-monospace);
+  font-size: var(--font-adaptive-smaller);
+}
+
+.theme-state {
+  color: var(--text-faint);
+  font-size: var(--font-adaptive-smaller);
+}
+
+.view-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  margin-bottom: 8px;
+  border: var(--border-width) solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background-color: var(--background-primary);
+}
+
+.view-title {
+  color: var(--text-normal);
+  font-size: var(--font-adaptive-small);
+  font-weight: var(--bold-weight);
+}
+
+.view-body {
+  color: var(--text-muted);
+}
+
+/* 命令面板 / 通知 / 错误面板：Obsidian 的 .prompt-container / .prompt / .modal 层级。
+   这里只能出现单类选择器：ID 选择器是 (1,0,0)，会压住 Minimal 的 .prompt/.modal 规则，
+   于是"主题对整个应用生效"就退化成只对编辑面板生效（第一轮的缺口）。
+   门禁 theme.specificity 断言本文件 ID 选择器数为 0。 */
+.prompt-container {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  background-color: var(--background-modifier-cover);
+  padding-top: 12vh;
+  z-index: 30;
+}
+
+.prompt-container[hidden] {
+  display: none;
+}
+
+.modal-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.prompt,
+.modal {
+  width: min(520px, 88vw);
+  padding: 10px;
+  border: var(--border-width) solid var(--modal-border);
+  border-radius: var(--radius-l);
+  background-color: var(--background-primary);
+  box-shadow: var(--shadow-m);
+}
+
+.prompt-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: var(--border-width) solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+  background-color: var(--background-modifier-form-field);
+  font-family: var(--font-interface);
+  font-size: var(--font-adaptive-normal);
+}
+
+.prompt-results,
+.suggestion-container {
+  margin: 8px 0 0;
+  padding: 0;
+  max-height: 40vh;
+  overflow: auto;
+  list-style: none;
+}
+
+.suggestion-item {
+  padding: 6px 8px;
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+  font-size: var(--font-adaptive-small);
+  cursor: pointer;
+}
+
+.suggestion-item:hover,
+.suggestion-item.is-selected {
+  background-color: var(--background-modifier-hover);
+}
+
+.notice-container {
+  position: fixed;
+  right: 12px;
+  bottom: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 20;
+}
+
+.notice {
+  max-width: 320px;
+  padding: 8px 12px;
+  border: var(--border-width) solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  color: var(--text-normal);
+  background-color: var(--background-secondary);
+  box-shadow: var(--shadow-s);
+  font-size: var(--font-adaptive-small);
+}
+
+.notice-container.boot-error {
+  left: 12px;
+  right: auto;
+  bottom: 12px;
+  padding: 8px;
+  border-radius: var(--radius-s);
+  color: var(--text-on-accent);
+  background-color: var(--background-modifier-error);
+  font-size: var(--font-adaptive-small);
+}
+
+@media (max-width: 560px) {
+  .workspace {
+    flex-direction: column;
+  }
+
+  .workspace-ribbon {
+    width: auto;
+    flex-direction: row;
+    border-right: 0;
+    border-bottom: var(--divider-width) solid var(--background-modifier-border);
+  }
+
+  .workspace-ribbon-inner {
+    flex-direction: row;
+    padding-left: 6px;
+  }
+
+  .workspace-sidenav {
+    flex: 0 0 auto;
+    max-height: 38vh;
+    border-left: 0;
+    border-top: var(--divider-width) solid var(--background-modifier-border);
+  }
+}

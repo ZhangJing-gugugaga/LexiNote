@@ -1,0 +1,2677 @@
+{
+  "generatedFrom": "obsidian@1.14.4",
+  "symbols": [
+    {
+      "symbol": "AbstractInputSuggest",
+      "kind": "abstract class",
+      "status": "stub",
+      "owner": "运行时轨",
+      "note": "别名到空 SuggestModal，未与输入框绑定。证据 W:SuggestModalShim",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "AbstractTextComponent",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "AjaxOptions",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "全局工具函数未导出；可用 Promise/setTimeout/requestUrl 等价替代（ajax 已在官方废弃）。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "App",
+      "kind": "class",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: lexi-sample-plugin（本仓样例）、compat-probe（本仓探针）。vault/metadataCache/workspace/commands/fileManager/isDarkMode 已挂载；loadLocalStorage/saveLocalStorage 已通（app.localStorage.get/set，宿主落 filesDir/local-storage.json，读回自动 JSON.parse）；仍缺 setting/plugins/internalPlugins，keymap 与 scope 为 null 占位。证据 H:app.localStorage.get H:app.localStorage.set W:loadLocalStorage\nmembers: app.localStorage.get, app.localStorage.set, app.isDarkMode, loadLocalStorage, saveLocalStorage\nmembers(excludes): app.setting, app.plugins, app.internalPlugins, app.keymap, app.scope",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Array",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的原型补丁（Object.isEmpty/Array.combine/String.isString/Math.clamp 等）未安装，插件直接调用会抛 TypeError；在 installDomHelpers 里补即可。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "ArrayConstructor",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的原型补丁（Object.isEmpty/Array.combine/String.isString/Math.clamp 等）未安装，插件直接调用会抛 TypeError；在 installDomHelpers 里补即可。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "BaseComponent",
+      "kind": "abstract class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "BasesAllOptions",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesConfigFile",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesConfigFileFilter",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesConfigFileView",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesDropdownOption",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesEntry",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesEntryGroup",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesFileOption",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesFolderOption",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesFormulaOption",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesMultitextOption",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesOption",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesOptionGroup",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesOptions",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesProperty",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesPropertyId",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesPropertyOption",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesPropertyType",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesQueryResult",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesSliderOption",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesSortConfig",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesTextOption",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesToggleOption",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesView",
+      "kind": "abstract class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesViewConfig",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesViewFactory",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BasesViewRegistration",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "spec 第 9 节明确本轮不做 Bases 插件 API。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "BlockCache",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "宿主解析器未产出 blocks/listItems/embeds/footnotes/frontmatterLinks，对应段落会被插件当成空。证据 H:metadata.get",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "BlockSubpathResult",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "链接子路径（#标题 / #^块 / ^脚注）解析未实现，metadata.firstLink 只给目标文件。证据 H:metadata.firstLink",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "BooleanValue",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "ButtonComponent",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "CacheItem",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "部分字段由 metadata.get 回填，但 references 聚合结构不完整、搜索命中位置无来源。证据 H:metadata.get",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "CachedMetadata",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "产出 headings/links/tags/sections/frontmatter/frontmatterPosition；blocks/listItems/embeds/footnotes/references 未产出。证据 H:metadata.get",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "CapacitorAdapter",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "无文件系统直访通道；spec 第 5 节要求一切文件操作走 vault 通道。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "CliData",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "桌面 CLI 参数模型，移动端无 CLI 入口。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "CliFlag",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "桌面 CLI 参数模型，移动端无 CLI 入口。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "CliFlags",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "桌面 CLI 参数模型，移动端无 CLI 入口。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "CliHandler",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "桌面 CLI 参数模型，移动端无 CLI 入口。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "ColorComponent",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Command",
+      "kind": "interface",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "id/name/icon/checkCallback/callback/editorCallback 原样存入 commandTable 并上报宿主。证据 H:commands.add W:PluginShim",
+      "gap": null
+    },
+    {
+      "symbol": "Component",
+      "kind": "class",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "load/unload/register/registerEvent/registerDomEvent/registerInterval/addChild/removeChild 均已实现。证据 W:ComponentShim",
+      "gap": null
+    },
+    {
+      "symbol": "ConfirmationButton",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "ConfirmationModal",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Constructor",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "布局/视图状态/悬浮内部类型；宿主没有 pane 模型与视图状态持久化（spec 第 9 节排除多窗 split）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "DataAdapter",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "类本身是 stub（stubClass，new 出来没有任何方法，也不可构造出可用实例）；但 vault.adapter 实例是真实现：exists/read/write/append/process/list/stat/remove/rename（目录存在性由 vault.files 路径前缀推导，readBinary/copy 仍 reject，stat 无 size/mtime 且如实返回 0）。真实插件（obsidian-text-format 等）依赖的是 vault.adapter，请直接用它而不是构造 DataAdapter。证据 W:adapter",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "DataWriteOptions",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "无文件系统直访通道；spec 第 5 节要求一切文件操作走 vault 通道。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "DateValue",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "Debouncer",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "cancel 可用，run 未实现。证据 W:debounce",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "DisplayValueComponent",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Document",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "宿主轨",
+      "note": "未装 Document.on/off 事件委托，_EVENTS 不存在。证据 W:installDomHelpers",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "DocumentFragment",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "宿主轨",
+      "note": "Node 侧补丁可用，find/findAll 未安装。证据 W:installDomHelpers",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "DomElementInfo",
+      "kind": "interface",
+      "status": "implemented",
+      "owner": "宿主轨",
+      "note": "cls/text/title/placeholder/href/value/attr 均由 applyInfo 落地。证据 W:applyInfo",
+      "gap": null
+    },
+    {
+      "symbol": "DropdownComponent",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "DurationValue",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "EditableFileView",
+      "kind": "abstract class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Editor",
+      "kind": "abstract class",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "读写/选区/替换/transaction 已通；undo/redo/exec/processLines/wordAt/getScrollInfo 为桩，无 CM6 扩展面。证据 W:EditorProxy H:editor.replace H:editor.selection",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "EditorChange",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "只透传 from/to/text，annotated ranges 丢弃。证据 W:EditorProxy",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "EditorCommandName",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "需 CM6 编辑器扩展/编辑器 suggest 面，宿主轨负责；registerEditorSuggest 目前是空实现。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "EditorPosition",
+      "kind": "interface",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "pos↔offset 双向换算已实现。证据 W:EditorProxy",
+      "gap": null
+    },
+    {
+      "symbol": "EditorRange",
+      "kind": "interface",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "from/to 参与 replaceRange/getRange。证据 W:EditorProxy",
+      "gap": null
+    },
+    {
+      "symbol": "EditorRangeOrCaret",
+      "kind": "interface",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "to 缺省时折叠为 from。证据 W:EditorProxy",
+      "gap": null
+    },
+    {
+      "symbol": "EditorScrollInfo",
+      "kind": "interface",
+      "status": "stub",
+      "owner": "运行时轨",
+      "note": "getScrollInfo 恒返回 0，无滚动同步。证据 W:EditorProxy",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "EditorSelection",
+      "kind": "interface",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "anchor/head 映射到宿主选区并经 editor.selection 回写。证据 W:EditorProxy H:editor.selection",
+      "gap": null
+    },
+    {
+      "symbol": "EditorSelectionOrCaret",
+      "kind": "interface",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "按 anchor/head 归一化，缺 head 时折叠为单点。证据 W:EditorProxy",
+      "gap": null
+    },
+    {
+      "symbol": "EditorSuggest",
+      "kind": "abstract class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "需 CM6 编辑器扩展/编辑器 suggest 面，宿主轨负责；registerEditorSuggest 目前是空实现。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "EditorSuggestContext",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "需 CM6 编辑器扩展/编辑器 suggest 面，宿主轨负责；registerEditorSuggest 目前是空实现。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "EditorSuggestTriggerInfo",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "需 CM6 编辑器扩展/编辑器 suggest 面，宿主轨负责；registerEditorSuggest 目前是空实现。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "EditorTransaction",
+      "kind": "interface",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "changes+selections 合成一帧经 editor.applyChanges 提交。证据 W:EditorProxy H:editor.applyChanges",
+      "gap": null
+    },
+    {
+      "symbol": "Element",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "宿主轨",
+      "note": "已装 getText/setText/addClass/addClasses/removeClass/removeClasses/toggleClass/hasClass/setAttr/setAttrs/getAttr；缺 matchParent/getCssPropertyValue/isActiveElement/find/findAll/findAllSelf。find/findAll 不是可选助手：obsidian-tasks 的后处理器第一步就是 fixture:markdown-postprocessor-tasks/src/Obsidian/InlineRenderer.ts:50（`element.findAll`），不装就在阅读视图渲染时直接 TypeError（installDomHelpers 定义在 entry/src/main/resources/rawfile/lexinote_plugin_shim.js:131（`installDomHelpers`））。证据 W:installDomHelpers",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "EmbedCache",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "宿主解析器未产出 blocks/listItems/embeds/footnotes/frontmatterLinks，对应段落会被插件当成空。证据 H:metadata.get",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "EventListenerInfo",
+      "kind": "interface",
+      "status": "implemented",
+      "owner": "宿主轨",
+      "note": "委托监听记录在 __delegated 上。证据 W:delegatedOn",
+      "gap": null
+    },
+    {
+      "symbol": "EventRef",
+      "kind": "interface",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "引用对象带 off()，可直接交给 Component.registerEvent。证据 W:makeHostRef",
+      "gap": null
+    },
+    {
+      "symbol": "Events",
+      "kind": "class",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "on/off/trigger 本地实现，宿主事件经 events.on/events.off 订阅并按 topic 派发。证据 W:LocalEmitter H:events.on H:events.off",
+      "gap": null
+    },
+    {
+      "symbol": "ExtraButtonComponent",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "FileManager",
+      "kind": "class",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "generateMarkdownLink/renameFile 可用；processFrontMatter 直接 reject。证据 W:app",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "FileStats",
+      "kind": "interface",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "ctime/mtime/size 由 vault.* 响应回传并写入 file.stat。证据 H:vault.files",
+      "gap": null
+    },
+    {
+      "symbol": "FileSystemAdapter",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "类本身是 stub（无 getBasePath/getFullPath/读写实现，不可构造）；移动端没有本地文件系统直访，一切文件访问走 vault.adapter 实例（能力见 DataAdapter）。证据 W:adapter",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "FileValue",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "FileView",
+      "kind": "abstract class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "FootnoteCache",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "宿主解析器未产出 blocks/listItems/embeds/footnotes/frontmatterLinks，对应段落会被插件当成空。证据 H:metadata.get",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "FootnoteRefCache",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "宿主解析器未产出 blocks/listItems/embeds/footnotes/frontmatterLinks，对应段落会被插件当成空。证据 H:metadata.get",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "FootnoteSubpathResult",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "链接子路径（#标题 / #^块 / ^脚注）解析未实现，metadata.firstLink 只给目标文件。证据 H:metadata.firstLink",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "FormulaContext",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "FrontMatterCache",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "宿主 metadata.get 已产出 headings/links/tags/sections/frontmatter 字段，字段集未与官方接口逐项对齐。证据 H:metadata.get",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "FrontMatterInfo",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "frontmatter 边界信息（from/to/正文字符串）未导出，宿主只回传 parsed frontmatter 对象。证据 H:metadata.get",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "FrontmatterLinkCache",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "宿主解析器未产出 blocks/listItems/embeds/footnotes/frontmatterLinks，对应段落会被插件当成空。证据 H:metadata.get",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "FrontmatterValue",
+      "kind": "type",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "宿主 metadata.get 已产出 headings/links/tags/sections/frontmatter 字段，字段集未与官方接口逐项对齐。证据 H:metadata.get",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "FuzzyMatch",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "score/matches 字段存在，但与官方打分口径不同。证据 W:prepareFuzzySearch",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "FuzzySuggestModal",
+      "kind": "abstract class",
+      "status": "stub",
+      "owner": "运行时轨",
+      "note": "getSuggestions 恒空数组，模糊匹配与渲染均未实现。证据 W:FuzzySuggestModal",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "HSL",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "几何/颜色/事件补丁类型无运行时实现（UIEvent.targetNode/win/doc、Touch.touchType 未安装）。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "HTMLElement",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "宿主轨",
+      "note": "已装 show/hide/toggle/setCssStyles/setCssProps/onClickEvent/on/off/trigger；缺 toggleVisibility/isShown/onNodeInserted/onWindowMigrated。证据 W:installDomHelpers",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "HTMLValue",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "HeadingCache",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "宿主 metadata.get 已产出 headings/links/tags/sections/frontmatter 字段，字段集未与官方接口逐项对齐。证据 H:metadata.get",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "HeadingSubpathResult",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "链接子路径（#标题 / #^块 / ^脚注）解析未实现，metadata.firstLink 只给目标文件。证据 H:metadata.firstLink",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "HexString",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "几何/颜色/事件补丁类型无运行时实现（UIEvent.targetNode/win/doc、Touch.touchType 未安装）。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "HistoryHandler",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "协议回跳/悬浮预览/版本历史面未实现（registerObsidianProtocolHandler 当前是空实现）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Hotkey",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "键位绑定未建立：commands.add 只透传 hotkeys，宿主无键位注册表。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "HoverLinkSource",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "协议回跳/悬浮预览/版本历史面未实现（registerObsidianProtocolHandler 当前是空实现）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "HoverParent",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "协议回跳/悬浮预览/版本历史面未实现（registerObsidianProtocolHandler 当前是空实现）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "HoverPopover",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "ISuggestOwner",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "渲染后处理与编辑器 suggest 面缺失：registerMarkdownPostProcessor 只 console.warn、registerEditorSuggest 是空实现，源码已记录。证据 W:PluginShim",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "IconName",
+      "kind": "type",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "字符串别名，addIcon 接受任意值并原样上报。证据 H:ui.addIcon",
+      "gap": null
+    },
+    {
+      "symbol": "IconValue",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "ImageValue",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "Instruction",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "协议回跳/悬浮预览/版本历史面未实现（registerObsidianProtocolHandler 当前是空实现）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "ItemView",
+      "kind": "abstract class",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "视图槽内以 ItemViewShim 提供容器与 onOpen/onClose；缺 addAction/getViewType/getDisplayText 完整语义。证据 W:ItemViewShim",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Keymap",
+      "kind": "class",
+      "status": "stub",
+      "owner": "运行时轨",
+      "note": "只导出 isModifier 且恒 false，键位注册表不存在。证据 W:Keymap",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "KeymapContext",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "键位绑定未建立：commands.add 只透传 hotkeys，宿主无键位注册表。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "KeymapEventHandler",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "键位绑定未建立：commands.add 只透传 hotkeys，宿主无键位注册表。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "KeymapEventListener",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "键位绑定未建立：commands.add 只透传 hotkeys，宿主无键位注册表。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "KeymapInfo",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "键位绑定未建立：commands.add 只透传 hotkeys，宿主无键位注册表。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "LinkCache",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "宿主 metadata.get 已产出 headings/links/tags/sections/frontmatter 字段，字段集未与官方接口逐项对齐。证据 H:metadata.get",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "LinkValue",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "ListItemCache",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "宿主解析器未产出 blocks/listItems/embeds/footnotes/frontmatterLinks，对应段落会被插件当成空。证据 H:metadata.get",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "ListValue",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "ListedFiles",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "无文件系统直访通道；spec 第 5 节要求一切文件操作走 vault 通道。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "LivePreviewStateType",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "需 CM6 编辑器扩展/编辑器 suggest 面，宿主轨负责；registerEditorSuggest 目前是空实现。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Loc",
+      "kind": "interface",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "line/col/offset 由 lineOffsets 计算。证据 W:lineOffsets",
+      "gap": null
+    },
+    {
+      "symbol": "MarkdownEditView",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "MarkdownFileInfo",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "渲染后处理与编辑器 suggest 面缺失：registerMarkdownPostProcessor 只 console.warn、registerEditorSuggest 是空实现，源码已记录。证据 W:PluginShim",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "MarkdownPostProcessor",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "渲染后处理与编辑器 suggest 面缺失：registerMarkdownPostProcessor 只 console.warn、registerEditorSuggest 是空实现，源码已记录。证据 W:PluginShim",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "MarkdownPostProcessorContext",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "渲染后处理与编辑器 suggest 面缺失：registerMarkdownPostProcessor 只 console.warn、registerEditorSuggest 是空实现，源码已记录。证据 W:PluginShim",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "MarkdownPreviewEvents",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "渲染后处理与编辑器 suggest 面缺失：registerMarkdownPostProcessor 只 console.warn、registerEditorSuggest 是空实现，源码已记录。证据 W:PluginShim",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "MarkdownPreviewRenderer",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "MarkdownPreviewView",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "MarkdownRenderChild",
+      "kind": "class",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "基于 ComponentShim 的容器子节点，containerEl 为桩对象。证据 W:MarkdownRenderChildStub",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "MarkdownRenderer",
+      "kind": "abstract class",
+      "status": "stub",
+      "owner": "运行时轨",
+      "note": "render/renderMarkdown 直接 reject（entry/src/main/resources/rawfile/lexinote_plugin_shim.js:2125（`MarkdownRenderer`）），嵌入与代码块渲染未实现。obsidian-tasks 有 3 处真实调用点：fixture:markdown-postprocessor-tasks/src/Renderer/QueryRenderer.ts:136（`MarkdownRenderer.render`）、fixture:markdown-postprocessor-tasks/src/Renderer/TaskLineRenderer.ts:85（`MarkdownRenderer.render`）、fixture:markdown-postprocessor-tasks/src/ui/QuickSearchTasksModal.ts:134（`MarkdownRenderer.render`）——查询结果块与每条任务行都走它，stub 等于 tasks 的列表渲染整体抛错，不是可拖项（夹具报告把 TaskLineRenderer 第 94 行也算一个调用点，但那行是 `renderMarkdown()` 的文档注释，不是调用）。证据 W:MarkdownRenderer",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "MarkdownSectionInformation",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "渲染后处理与编辑器 suggest 面缺失：registerMarkdownPostProcessor 只 console.warn、registerEditorSuggest 是空实现，源码已记录。证据 W:PluginShim",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "MarkdownSubView",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "MarkdownView",
+      "kind": "class",
+      "status": "stub",
+      "owner": "运行时轨",
+      "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: 无（本仓无插件依赖该视图；宿主编辑器页承担正文编辑）。空构造（FileViewShim 子类，editor 与 previewMode 恒 null），无编辑/预览双模：打开即空白容器，无 Markdown 渲染管线、无预览滚动同步、无编辑态。证据 W:MarkdownView W:MarkdownViewShim\nmembers: MarkdownView, MarkdownViewShim\nmembers(excludes): editor, previewMode, onMarkdownContextMenu, onInternalDrop",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "MarkdownViewModeType",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "需 CM6 编辑器扩展/编辑器 suggest 面，宿主轨负责；registerEditorSuggest 目前是空实现。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Math",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的原型补丁（Object.isEmpty/Array.combine/String.isString/Math.clamp 等）未安装，插件直接调用会抛 TypeError；在 installDomHelpers 里补即可。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "Menu",
+      "kind": "class",
+      "status": "stub",
+      "owner": "运行时轨",
+      "note": "addItem 只收集 item，showAtMouseEvent 仅打印告警，不渲染菜单。证据 W:Menu",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "MenuItem",
+      "kind": "class",
+      "status": "stub",
+      "owner": "运行时轨",
+      "note": "addItem 回调拿到的 item 是内联空壳，setTitle/setIcon/setChecked 只返回 this。证据 W:Menu",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "MenuPositionDef",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "MenuSeparator",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "MetadataCache",
+      "kind": "class",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。getFileCache/getCache/getFirstLinkpathDest/事件已通；仍缺 getBacklinksForFile/listLinks/unresolvedLinks（宿主只建正向链接索引，无反向链接表），产出无 blocks/listItems/embeds/footnotes、无 heading 层级 patch 信息；缓存只能按需单文件拉取，无全量预热。证据 H:metadata.get H:metadata.firstLink W:getCache\nmembers: metadata.get, metadata.firstLink, metadata.resolved, metadata.graph, getCache, getFileCache, getFirstLinkpathDest\nmembers(excludes): getBacklinksForFile, listLinks, unresolvedLinks, resolvedLinks",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Modal",
+      "kind": "class",
+      "status": "stub",
+      "owner": "运行时轨",
+      "note": "open() 只发 ui.placeholder（该通道当前无宿主处理器），titleEl/contentEl 恒 null，无 DOM 容器。证据 W:Modal",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Modifier",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "键位绑定未建立：commands.add 只透传 hotkeys，宿主无键位注册表。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "MomentFormatComponent",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Node",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "宿主轨",
+      "note": "已装 createEl/createDiv/createSpan/appendText/detach/empty/setChildrenInPlace；缺 createSvg/insertAfter/indexOf/instanceOf。证据 W:installDomHelpers",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "NotNullValue",
+      "kind": "abstract class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "Notice",
+      "kind": "class",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "构造即经 ui.notice 送达宿主；setMessage 不刷新已显示的提示、hide 为空实现。证据 H:ui.notice W:Notice",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "NullValue",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "NumberConstructor",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的原型补丁（Object.isEmpty/Array.combine/String.isString/Math.clamp 等）未安装，插件直接调用会抛 TypeError；在 installDomHelpers 里补即可。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "NumberValue",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "ObjectConstructor",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的原型补丁（Object.isEmpty/Array.combine/String.isString/Math.clamp 等）未安装，插件直接调用会抛 TypeError；在 installDomHelpers 里补即可。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "ObjectValue",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "ObsidianProtocolData",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "协议回跳/悬浮预览/版本历史面未实现（registerObsidianProtocolHandler 当前是空实现）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "ObsidianProtocolHandler",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "协议回跳/悬浮预览/版本历史面未实现（registerObsidianProtocolHandler 当前是空实现）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "OpenViewState",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "布局/视图状态/悬浮内部类型；宿主没有 pane 模型与视图状态持久化（spec 第 9 节排除多窗 split）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "PaneType",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "布局/视图状态/悬浮内部类型；宿主没有 pane 模型与视图状态持久化（spec 第 9 节排除多窗 split）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Platform",
+      "kind": "const",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "移动端常量表（isMobile/isPhone/isAndroidApp=false 等需与真机核对）。证据 W:Platform",
+      "gap": null
+    },
+    {
+      "symbol": "Plugin",
+      "kind": "abstract class",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "生命周期、命令、Ribbon、设置页、视图注册、代码块处理器、数据读写均已接通。证据 H:commands.add H:data.load W:PluginShim",
+      "gap": null
+    },
+    {
+      "symbol": "PluginManifest",
+      "kind": "interface",
+      "status": "stub",
+      "owner": "运行时轨",
+      "note": "仅空构造占位；manifest 由宿主透传，插件侧无运行时校验。证据 W:PluginManifest",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "PluginSettingTab",
+      "kind": "abstract class",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "display/hide 空实现，但 getSettingDefinitions 经 settings.register 下发宿主渲染；宿主仅支持 heading/toggle/text/textarea/dropdown/slider 六类。证据 H:settings.register W:PluginSettingTab",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Point",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "几何/颜色/事件补丁类型无运行时实现（UIEvent.targetNode/win/doc、Touch.touchType 未安装）。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "PopoverState",
+      "kind": "enum",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "布局/视图状态/悬浮内部类型；宿主没有 pane 模型与视图状态持久化（spec 第 9 节排除多窗 split）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "PopoverSuggest",
+      "kind": "abstract class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Pos",
+      "kind": "interface",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "line/ch 由 offsetToPos 产出，与 Editor 共用。证据 W:offsetToPos",
+      "gap": null
+    },
+    {
+      "symbol": "PrimitiveValue",
+      "kind": "abstract class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "ProgressBarComponent",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "QueryController",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "RGB",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "几何/颜色/事件补丁类型无运行时实现（UIEvent.targetNode/win/doc、Touch.touchType 未安装）。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "Reference",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "宿主 metadata.get 已产出 headings/links/tags/sections/frontmatter 字段，字段集未与官方接口逐项对齐。证据 H:metadata.get",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "ReferenceCache",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "部分字段由 metadata.get 回填，但 references 聚合结构不完整、搜索命中位置无来源。证据 H:metadata.get",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "ReferenceLinkCache",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "宿主解析器未产出 blocks/listItems/embeds/footnotes/frontmatterLinks，对应段落会被插件当成空。证据 H:metadata.get",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "RegExpValue",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "RelativeDateValue",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "RenderContext",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "RequestUrlParam",
+      "kind": "interface",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "url/method/headers/body 透传宿主。证据 H:net.requestUrl",
+      "gap": null
+    },
+    {
+      "symbol": "RequestUrlResponse",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "status/headers/text/json 可用；arrayBuffer 缺失。证据 W:requestUrl H:net.requestUrl",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "RequestUrlResponsePromise",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "text/json 属性可用，arrayBuffer 恒 reject。证据 W:requestUrl",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "SVGElement",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "宿主轨",
+      "note": "只继承 Element 侧补丁，无 SvgElementInfo 的 setCssStyles/setCssProps。证据 W:installDomHelpers",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "Scope",
+      "kind": "class",
+      "status": "stub",
+      "owner": "运行时轨",
+      "note": "空构造，按键作用域与 register 未实现。证据 W:Scope",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SearchComponent",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SearchMatchPart",
+      "kind": "type",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "部分字段由 metadata.get 回填，但 references 聚合结构不完整、搜索命中位置无来源。证据 H:metadata.get",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SearchMatches",
+      "kind": "type",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "部分字段由 metadata.get 回填，但 references 聚合结构不完整、搜索命中位置无来源。证据 H:metadata.get",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SearchResult",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "搜索结果 UI 与排序工具未移植（仅 prepareFuzzySearch 的 matcher 面已实现）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SearchResultContainer",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "搜索结果 UI 与排序工具未移植（仅 prepareFuzzySearch 的 matcher 面已实现）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SecretComponent",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SecretStorage",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "无凭据存储；manifest capabilities 也未定义 secret 能力。证据 W:PluginShim",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SectionCache",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "宿主 metadata.get 已产出 headings/links/tags/sections/frontmatter 字段，字段集未与官方接口逐项对齐。证据 H:metadata.get",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Setting",
+      "kind": "class",
+      "status": "stub",
+      "owner": "运行时轨",
+      "note": "setName/setDesc/addText 等全部空壳（回调收到空桩组件）；设置 UI 实际由 settings.register 声明式渲染。证据 W:Setting H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingColorControl",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingControl",
+      "kind": "type",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingControlBase",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingDefinition",
+      "kind": "type",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingDefinitionAction",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingDefinitionAddItem",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingDefinitionBase",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingDefinitionControl",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingDefinitionEmpty",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingDefinitionGroup",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingDefinitionItem",
+      "kind": "type",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingDefinitionList",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingDefinitionPage",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingDefinitionRender",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingDropdownControl",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingFileControl",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingFolderControl",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingGroup",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "设置 2.0 的分组/分页容器未实现，宿主设置页仍是单页列表。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingGroupItem",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "设置 2.0 的分组/分页容器未实现，宿主设置页仍是单页列表。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingNumberControl",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingPage",
+      "kind": "abstract class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "设置 2.0 的分组/分页容器未实现，宿主设置页仍是单页列表。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingSecretControl",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingSliderControl",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingTab",
+      "kind": "abstract class",
+      "status": "stub",
+      "owner": "运行时轨",
+      "note": "空构造占位，未接设置页。证据 W:SettingTab",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingTextAreaControl",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingTextControl",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SettingToggleControl",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "定义经 settings.register 下发并由宿主 parseSettingDefinitions 解析；宿主只认 heading/toggle/text/textarea/dropdown/slider 六类，其余丢弃。证据 H:settings.register",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Side",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "布局/视图状态/悬浮内部类型；宿主没有 pane 模型与视图状态持久化（spec 第 9 节排除多窗 split）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SliderComponent",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SplitDirection",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "布局/视图状态/悬浮内部类型；宿主没有 pane 模型与视图状态持久化（spec 第 9 节排除多窗 split）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Stat",
+      "kind": "interface",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "与 FileStats 同源，宿主回传 ctime/mtime/size。证据 H:vault.files",
+      "gap": null
+    },
+    {
+      "symbol": "String",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的原型补丁（Object.isEmpty/Array.combine/String.isString/Math.clamp 等）未安装，插件直接调用会抛 TypeError；在 installDomHelpers 里补即可。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "StringConstructor",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的原型补丁（Object.isEmpty/Array.combine/String.isString/Math.clamp 等）未安装，插件直接调用会抛 TypeError；在 installDomHelpers 里补即可。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "StringValue",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "SubpathResult",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "链接子路径（#标题 / #^块 / ^脚注）解析未实现，metadata.firstLink 只给目标文件。证据 H:metadata.firstLink",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SuggestModal",
+      "kind": "abstract class",
+      "status": "stub",
+      "owner": "运行时轨",
+      "note": "继承空 Modal，无输入框、无候选列表、无键盘导航。证据 W:SuggestModalShim",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "SvgElementInfo",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "宿主轨",
+      "note": "属性映射已有，但 createSvg 未安装，SVG 元素仍建不出来。证据 W:applyInfo",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "TAbstractFile",
+      "kind": "abstract class",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "基类 LexiFileData 提供 path/name/vault，缺官方抽象语义（isRoot 等）。证据 W:LexiFileData",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "TExternalFile",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "布局/视图状态/悬浮内部类型；宿主没有 pane 模型与视图状态持久化（spec 第 9 节排除多窗 split）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "TFile",
+      "kind": "class",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "path/name/basename/extension/stat/noteId 由宿主回传填充并缓存为单例。证据 W:TFile H:vault.getByPath",
+      "gap": null
+    },
+    {
+      "symbol": "TFolder",
+      "kind": "class",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "字段齐全但 children 恒空，目录树未回填。证据 W:TFolder",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "TagCache",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "宿主 metadata.get 已产出 headings/links/tags/sections/frontmatter 字段，字段集未与官方接口逐项对齐。证据 H:metadata.get",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "TagValue",
+      "kind": "class",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "frontmatter 值原样透传，未见对多值标签归一化的处理。证据 H:metadata.get",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "Tasks",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Obsidian 内部任务队列，未导出；插件无并发调度入口。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "TextAreaComponent",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "TextComponent",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "TextFileView",
+      "kind": "abstract class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "ToggleComponent",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "TooltipOptions",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "tooltip 机制未接入，元素 setAttribute(title) 可用但无 Obsidian 样式 tooltip。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "TooltipPlacement",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "tooltip 机制未接入，元素 setAttribute(title) 可用但无 Obsidian 样式 tooltip。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Touch",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "几何/颜色/事件补丁类型无运行时实现（UIEvent.targetNode/win/doc、Touch.touchType 未安装）。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "UIEvent",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "几何/颜色/事件补丁类型无运行时实现（UIEvent.targetNode/win/doc、Touch.touchType 未安装）。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "UrlValue",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "UserEvent",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "键位绑定未建立：commands.add 只透传 hotkeys，宿主无键位注册表。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Value",
+      "kind": "abstract class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "Bases 公式值系统，随 Bases 一并排期（spec 第 9 节）。",
+      "gap": "out-of-scope"
+    },
+    {
+      "symbol": "ValueComponent",
+      "kind": "abstract class",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Vault",
+      "kind": "class",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。read/modify/create/append/delete/rename/files/getByPath 已通；getFileByPath 也已通：shim 在 entry/src/main/resources/rawfile/lexinote_plugin_shim.js:872（`getFileByPath`） 基于宿主回传的文件索引缓存同步返回 TFile，宿主处理器用 entry/src/main/ets/core/plugin/LexiPluginRuntime.ets:1289（`manager.vault.getFileByPath`） 解析（obsidian-tasks 有 3 处依赖：fixture:markdown-postprocessor-tasks/src/Obsidian/File.ts:202（`getFileByPath`）、fixture:markdown-postprocessor-tasks/src/Obsidian/InlineRenderer.ts:83（`getFileByPath`）、fixture:markdown-postprocessor-tasks/src/Renderer/QueryRenderer.ts:76（`getFileByPath`））；adapter 已实现（exists/read/write/append/process/list/stat/remove/rename，目录存在性由 vault.files 路径前缀推导，stat 无 size/mtime 时如实返回 0）；仍缺 getName/configDir，createBinary/readBinary 直接 reject，getAbstractFileByPath 已改成同步（entry/src/main/resources/rawfile/lexinote_plugin_shim.js:871（`getAbstractFileByPath`），内部走 entry/src/main/resources/rawfile/lexinote_plugin_shim.js:845（`knownAbstractFile`），目录按「有笔记落在该前缀下」合成 TFolder，传空串得 vault 根）。证据 H:vault.read H:vault.files W:adapter\nmembers: vault.read, vault.files, vault.create, vault.modify, vault.append, vault.delete, vault.rename, vault.getByPath, adapter, getFileByPath, getFolderByPath, getAbstractFileByPath, knownAbstractFile, getMarkdownFiles\nmembers(excludes): getName, configDir, createBinary, readBinary, copy",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "View",
+      "kind": "abstract class",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "视图槽映射到 ItemViewShim，内核上下文映射到 ComponentShim，无 containerEl/leaf 语义。证据 W:ItemViewShim",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "ViewCreator",
+      "kind": "type",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "布局/视图状态/悬浮内部类型；宿主没有 pane 模型与视图状态持久化（spec 第 9 节排除多窗 split）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "ViewState",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "布局/视图状态/悬浮内部类型；宿主没有 pane 模型与视图状态持久化（spec 第 9 节排除多窗 split）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "ViewStateResult",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "布局/视图状态/悬浮内部类型；宿主没有 pane 模型与视图状态持久化（spec 第 9 节排除多窗 split）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "Window",
+      "kind": "interface",
+      "status": "partial",
+      "owner": "宿主轨",
+      "note": "已装 activeDocument/activeWindow/createEl/createDiv/createSpan/createFragment/fish/fishAll；缺 window.sleep/window.nextFrame。证据 W:installDomHelpers",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "Workspace",
+      "kind": "class",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。openView/closeView/事件、getActiveFile/getActiveViewOfType/getLeavesOfType、iterateAllLeaves/iterateRootLeaves/getMostRecentLeaf、openLinkText（宿主经 metadata.getFirstLinkpathDest 解析后触发 file-open）均已通；onLayoutReady 也已实现，宿主在 entry/src/main/ets/core/plugin/LexiPluginRuntime.ets:1101（`workspace.onLayoutReady`） 注册处理器、旧宿主路径直接放行——夹具报告把它算成「矩阵未收录」是符号级 vs 成员级的口径差（它没有独立顶层符号），不是缺实现；obsidian-tasks 拿它当首屏闸门（3 处）：fixture:markdown-postprocessor-tasks/src/Obsidian/InlineRenderer.ts:32（`onLayoutReady`）、fixture:markdown-postprocessor-tasks/src/Renderer/QueryRenderer.ts:45（`onLayoutReady`）、fixture:markdown-postprocessor-tasks/src/Obsidian/Cache.ts:101（`onLayoutReady`）；仍缺 splitLeaf/createLeafBySplit/getLayout 布局树，revealLeaf 只 resolve 不切页，getLeaf/getRightLeaf 返回新建子叶而非宿主真实 pane。证据 H:workspace.openLinkText H:workspace.onLayoutReady W:iterateAllLeaves W:getMostRecentLeaf\nmembers: workspace.openLinkText, workspace.openView, workspace.closeView, workspace.onLayoutReady, workspace.layoutReady, workspace.loadLayout, workspace.saveLayout, openLinkText, iterateAllLeaves, iterateRootLeaves, getMostRecentLeaf, getLeavesOfType, getActiveFile, getActiveViewOfType, revealLeaf\nmembers(excludes): splitLeaf, createLeafBySplit, getLayout, getLeaf, getRightLeaf, activeLeaf",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "WorkspaceContainer",
+      "kind": "abstract class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "多 pane/页签布局模型未建立，spec 第 9 节排除多窗 split。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "WorkspaceFloating",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "多 pane/页签布局模型未建立，spec 第 9 节排除多窗 split。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "WorkspaceItem",
+      "kind": "abstract class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "多 pane/页签布局模型未建立，spec 第 9 节排除多窗 split。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "WorkspaceLeaf",
+      "kind": "class",
+      "status": "stub",
+      "owner": "运行时轨",
+      "note": "空构造；插件视图拿到的 leaf 是 makePluginLeaf 的假对象。证据 W:WorkspaceLeaf",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "WorkspaceMobileDrawer",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "多 pane/页签布局模型未建立，spec 第 9 节排除多窗 split。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "WorkspaceParent",
+      "kind": "abstract class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "多 pane/页签布局模型未建立，spec 第 9 节排除多窗 split。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "WorkspaceRibbon",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "多 pane/页签布局模型未建立，spec 第 9 节排除多窗 split。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "WorkspaceRoot",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "多 pane/页签布局模型未建立，spec 第 9 节排除多窗 split。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "WorkspaceSidedock",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "多 pane/页签布局模型未建立，spec 第 9 节排除多窗 split。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "WorkspaceSplit",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "多 pane/页签布局模型未建立，spec 第 9 节排除多窗 split。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "WorkspaceTabs",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "多 pane/页签布局模型未建立，spec 第 9 节排除多窗 split。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "WorkspaceWindow",
+      "kind": "class",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "多 pane/页签布局模型未建立，spec 第 9 节排除多窗 split。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "WorkspaceWindowInitData",
+      "kind": "interface",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "多 pane/页签布局模型未建立，spec 第 9 节排除多窗 split。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "addIcon",
+      "kind": "function",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "转发宿主图标注册。证据 H:ui.addIcon",
+      "gap": null
+    },
+    {
+      "symbol": "ajax",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "全局工具函数未导出；可用 Promise/setTimeout/requestUrl 等价替代（ajax 已在官方废弃）。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "ajaxPromise",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "全局工具函数未导出；可用 Promise/setTimeout/requestUrl 等价替代（ajax 已在官方废弃）。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "apiVersion",
+      "kind": "let",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "值为 1.0.0，而契约基线是 1.14.4，requireApiVersion 会误判低版本并让插件走降级分支。证据 W:apiVersion",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "arrayBufferToBase64",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "二进制编解码工具未导出；宿主已有等价实现，补导出即可，属低风险缺口。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "arrayBufferToHex",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "二进制编解码工具未导出；宿主已有等价实现，补导出即可，属低风险缺口。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "base64ToArrayBuffer",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "二进制编解码工具未导出；宿主已有等价实现，补导出即可，属低风险缺口。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "createDiv",
+      "kind": "function",
+      "status": "implemented",
+      "owner": "宿主轨",
+      "note": "继承 createEl 的 div 快捷方式。证据 W:createDiv",
+      "gap": null
+    },
+    {
+      "symbol": "createEl",
+      "kind": "function",
+      "status": "implemented",
+      "owner": "宿主轨",
+      "note": "视图页以 installDomHelpers 安装 Node.createEl 并挂 window.createEl。证据 W:createEl",
+      "gap": null
+    },
+    {
+      "symbol": "createFragment",
+      "kind": "function",
+      "status": "implemented",
+      "owner": "宿主轨",
+      "note": "DocumentFragment + 回调。证据 W:createFragment",
+      "gap": null
+    },
+    {
+      "symbol": "createSpan",
+      "kind": "function",
+      "status": "implemented",
+      "owner": "宿主轨",
+      "note": "继承 createEl 的 span 快捷方式。证据 W:createSpan",
+      "gap": null
+    },
+    {
+      "symbol": "createSvg",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "Node.createSvg 未安装（installDomHelpers 只装了 HTML 侧），SVG 图标渲染会抛错。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "debounce",
+      "kind": "function",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "含 cancel，run 为空实现。证据 W:debounce",
+      "gap": null
+    },
+    {
+      "symbol": "displayTooltip",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "tooltip 机制未接入，元素 setAttribute(title) 可用但无 Obsidian 样式 tooltip。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "editorEditorField",
+      "kind": "const",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "需 CM6 编辑器扩展/编辑器 suggest 面，宿主轨负责；registerEditorSuggest 目前是空实现。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "editorInfoField",
+      "kind": "const",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "需 CM6 编辑器扩展/编辑器 suggest 面，宿主轨负责；registerEditorSuggest 目前是空实现。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "editorLivePreviewField",
+      "kind": "const",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "需 CM6 编辑器扩展/编辑器 suggest 面，宿主轨负责；registerEditorSuggest 目前是空实现。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "editorViewField",
+      "kind": "const",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "需 CM6 编辑器扩展/编辑器 suggest 面，宿主轨负责；registerEditorSuggest 目前是空实现。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "finishRenderMath",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "数学/图表/PDF/语法高亮渲染管线未接入。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "fish",
+      "kind": "function",
+      "status": "implemented",
+      "owner": "宿主轨",
+      "note": "querySelector 包装。证据 W:fish",
+      "gap": null
+    },
+    {
+      "symbol": "fishAll",
+      "kind": "function",
+      "status": "implemented",
+      "owner": "宿主轨",
+      "note": "querySelectorAll 转数组。证据 W:fishAll",
+      "gap": null
+    },
+    {
+      "symbol": "getAllTags",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "纯字符串/YAML 工具未导出；宿主已有等价解析（LexiFrontmatter/MarkdownEngine），补导出即可，属低风险缺口。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "getBlobArrayBuffer",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "二进制编解码工具未导出；宿主已有等价实现，补导出即可，属低风险缺口。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "getFrontMatterInfo",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "纯字符串/YAML 工具未导出；宿主已有等价解析（LexiFrontmatter/MarkdownEngine），补导出即可，属低风险缺口。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "getIcon",
+      "kind": "function",
+      "status": "stub",
+      "owner": "运行时轨",
+      "note": "恒返回 null。证据 W:getIcon",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "getIconIds",
+      "kind": "function",
+      "status": "stub",
+      "owner": "运行时轨",
+      "note": "恒返回空数组。证据 W:getIconIds",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "getLanguage",
+      "kind": "function",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "视图侧恒返回 zh，未读系统语言。证据 W:getLanguage",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "getLinkpath",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "纯字符串/YAML 工具未导出；宿主已有等价解析（LexiFrontmatter/MarkdownEngine），补导出即可，属低风险缺口。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "hexToArrayBuffer",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "二进制编解码工具未导出；宿主已有等价实现，补导出即可，属低风险缺口。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "htmlToMarkdown",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "数学/图表/PDF/语法高亮渲染管线未接入。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "isBoolean",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "全局工具函数未导出；可用 Promise/setTimeout/requestUrl 等价替代（ajax 已在官方废弃）。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "iterateCacheRefs",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "纯字符串/YAML 工具未导出；宿主已有等价解析（LexiFrontmatter/MarkdownEngine），补导出即可，属低风险缺口。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "iterateRefs",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "纯字符串/YAML 工具未导出；宿主已有等价解析（LexiFrontmatter/MarkdownEngine），补导出即可，属低风险缺口。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "livePreviewState",
+      "kind": "const",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "需 CM6 编辑器扩展/编辑器 suggest 面，宿主轨负责；registerEditorSuggest 目前是空实现。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "loadMathJax",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "数学/图表/PDF/语法高亮渲染管线未接入。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "loadMermaid",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "数学/图表/PDF/语法高亮渲染管线未接入。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "loadPdfJs",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "数学/图表/PDF/语法高亮渲染管线未接入。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "loadPrism",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "数学/图表/PDF/语法高亮渲染管线未接入。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "moment",
+      "kind": "const",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）。本项目 moment 是 MiniMoment 子集，不是完整 moment：实例侧已通 format/add/subtract/startOf/endOf/diff/unix/valueOf/toDate/toISOString/clone/isValid/isBefore/isAfter/isSame/isSameOrBefore/isSameOrAfter/calendar/locale/localeData/utc/local 与七个取值设值字段、day/weekday/isoWeekday/week/dayOfYear/daysInMonth；静态侧已通 moment(input)/isMoment/utc/unix/now/locale/localeData/updateLocale/defineLocale/locales/months/monthsShort/weekdays/weekdaysShort/weekdaysMin。这些是按 calendar 的真实调用逐条补齐的，不是按 moment 文档铺开：format 只认 YYYY/YY/MMMM/MMM/MM/M/DD/D/Do/dddd/ddd/dd/HH/H/hh/mm/ss/SSS/A/a，diff 只能按毫秒/秒/分/时/天，calendar 恒返回 YYYY-MM-DD 而非今天/昨天文案，locale 与 localeData 恒报 zh-cn。换一个用到未覆盖 API 的插件会在使用处直接抛 TypeError（xxx is not a function），装载期不会提示。宿主必须提供全局 window.moment：obsidian-tasks 产物里 43 处 moment( 调用点（夹具 API 面报告口径；我直接数其 main.js 得 51 处 window.moment 字面量、TS 源 49 处），既不内联 moment 也不 require(\"moment\")，tools/workspace-bundle/node_modules 里也没有 moment——现在靠 entry/src/main/resources/rawfile/lexinote_plugin_shim.js:1502（`window.moment`） 把 MiniMoment 挂成全局兜住，所以那 43 处调用实际落在 MiniMoment 子集上，MiniMoment 没覆盖的写法同样会在使用处 TypeError。证据 W:MiniMoment W:moment\nmembers: format, add, subtract, startOf, endOf, diff, unix, calendar, localeData, isoWeekday, daysInMonth, updateLocale, defineLocale, locales, monthsShort, weekdaysMin, clone, toDate, toObject, isValid\nmembers(excludes): tz, duration, fromNow, toNow, toJSON, utcOffset, isDST, parseZone",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "nextFrame",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "全局工具函数未导出；可用 Promise/setTimeout/requestUrl 等价替代（ajax 已在官方废弃）。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "normalizePath",
+      "kind": "function",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "统一分隔符并去掉重复/首尾斜杠。证据 W:normalizePath",
+      "gap": null
+    },
+    {
+      "symbol": "parseFrontMatterAliases",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "纯字符串/YAML 工具未导出；宿主已有等价解析（LexiFrontmatter/MarkdownEngine），补导出即可，属低风险缺口。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "parseFrontMatterEntry",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "纯字符串/YAML 工具未导出；宿主已有等价解析（LexiFrontmatter/MarkdownEngine），补导出即可，属低风险缺口。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "parseFrontMatterStringArray",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "纯字符串/YAML 工具未导出；宿主已有等价解析（LexiFrontmatter/MarkdownEngine），补导出即可，属低风险缺口。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "parseFrontMatterTags",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "纯字符串/YAML 工具未导出；宿主已有等价解析（LexiFrontmatter/MarkdownEngine），补导出即可，属低风险缺口。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "parseLinktext",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "纯字符串/YAML 工具未导出；宿主已有等价解析（LexiFrontmatter/MarkdownEngine），补导出即可，属低风险缺口。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "parsePropertyId",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "纯字符串/YAML 工具未导出；宿主已有等价解析（LexiFrontmatter/MarkdownEngine），补导出即可，属低风险缺口。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "parseYaml",
+      "kind": "function",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "视图侧自实现 YAML 子集解析（标量/行内数组/嵌套键）。证据 W:parseYaml",
+      "gap": null
+    },
+    {
+      "symbol": "prepareFuzzySearch",
+      "kind": "function",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "仅做小写包含匹配，score 为命中下标，与官方打分/分词不同。证据 W:prepareFuzzySearch",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "prepareSimpleSearch",
+      "kind": "function",
+      "status": "partial",
+      "owner": "运行时轨",
+      "note": "直接复用 fuzzy 实现，非官方 SimpleSearch 语义。证据 W:prepareSimpleSearch",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "ready",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "全局工具函数未导出；可用 Promise/setTimeout/requestUrl 等价替代（ajax 已在官方废弃）。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "removeIcon",
+      "kind": "function",
+      "status": "stub",
+      "owner": "运行时轨",
+      "note": "空函数。证据 W:removeIcon",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "renderMatches",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "搜索结果 UI 与排序工具未移植（仅 prepareFuzzySearch 的 matcher 面已实现）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "renderMath",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "数学/图表/PDF/语法高亮渲染管线未接入。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "renderResults",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "搜索结果 UI 与排序工具未移植（仅 prepareFuzzySearch 的 matcher 面已实现）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "request",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "官方已废弃的 requestUrl 前身，未导出；迁移到 requestUrl 即可。证据 W:requestUrl",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "requestUrl",
+      "kind": "function",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "身份与能力双门禁：宿主按插件令牌反查身份（无令牌/令牌归属不符一律 fail-closed 且不触网），并要求清单声明 capability.net 且 host 在列；放行后 GET/POST + headers/body 透传，2xx 与非 2xx 都原样回包，超时报 net_timeout。arrayBuffer 仍恒 reject（占位 promise）。证据 W:requestUrl H:net.requestUrl",
+      "gap": null
+    },
+    {
+      "symbol": "requireApiVersion",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "未导出，插件调用即 TypeError；且 apiVersion 恒 1.0.0，即便补上也会把 1.14.x 插件误判为高版本要求。证据 W:apiVersion",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "resolveSubpath",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "纯字符串/YAML 工具未导出；宿主已有等价解析（LexiFrontmatter/MarkdownEngine），补导出即可，属低风险缺口。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "sanitizeHTMLToDom",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "数学/图表/PDF/语法高亮渲染管线未接入。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "setIcon",
+      "kind": "function",
+      "status": "stub",
+      "owner": "运行时轨",
+      "note": "空函数，元素上不渲染图标。证据 W:setIcon",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "setTooltip",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "宿主轨",
+      "note": "tooltip 机制未接入，元素 setAttribute(title) 可用但无 Obsidian 样式 tooltip。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "sleep",
+      "kind": "function",
+      "status": "implemented",
+      "owner": "运行时轨",
+      "note": "setTimeout Promise。证据 W:sleep",
+      "gap": null
+    },
+    {
+      "symbol": "sortSearchResults",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "未排期",
+      "note": "搜索结果 UI 与排序工具未移植（仅 prepareFuzzySearch 的 matcher 面已实现）。",
+      "gap": "needs-architecture"
+    },
+    {
+      "symbol": "stringifyYaml",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "纯字符串/YAML 工具未导出；宿主已有等价解析（LexiFrontmatter/MarkdownEngine），补导出即可，属低风险缺口。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "stripHeading",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "纯字符串/YAML 工具未导出；宿主已有等价解析（LexiFrontmatter/MarkdownEngine），补导出即可，属低风险缺口。",
+      "gap": "low-risk"
+    },
+    {
+      "symbol": "stripHeadingForLink",
+      "kind": "function",
+      "status": "unsupported",
+      "owner": "运行时轨",
+      "note": "纯字符串/YAML 工具未导出；宿主已有等价解析（LexiFrontmatter/MarkdownEngine），补导出即可，属低风险缺口。",
+      "gap": "low-risk"
+    }
+  ]
+}

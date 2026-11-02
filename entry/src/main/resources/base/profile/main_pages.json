@@ -2,6 +2,7 @@
   "src": [
     "pages/Index",
     "pages/DocumentWindow",
-    "pages/ShareCapturePage"
+    "pages/ShareCapturePage",
+    "workspace/LexiWorkspacePage"
   ]
 }

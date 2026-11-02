@@ -3,7 +3,12 @@ import { picker } from '@kit.CoreFileKit';
 import { LexiAppearancePicker } from './LexiAppearancePicker';
 import { LexiHeroHeading } from './LexiNoteCard';
 import { LexiPluginManager } from '../core/plugin/LexiPluginRuntime';
-import { LexiPluginMarketSheet } from './plugin/LexiPluginMarketSheet';
+import {
+  LexiPluginMarketSheet,
+  pluginFailureKind,
+  pluginFailureLabel,
+  pluginFailureSummary
+} from './plugin/LexiPluginMarketSheet';
 import { LexiPluginSettingsSheet } from './plugin/LexiPluginSettingsSheet';
 
 @Observed
@@ -126,7 +131,11 @@ export struct LexiSettingsTab {
       row.enabled = plugin.enabled;
       row.canToggle = !this.pluginBusy && !this.pluginSafeMode;
       row.hasSettings = manager.hasPluginSettings(plugin.manifest.id);
-      row.detail = plugin.errorState.length > 0 ? plugin.errorState : (plugin.enabled ? `已启用 · v${plugin.manifest.version}` : '已停用');
+      // 失败态复用插件市场的同一套纯函数:标签 + 单行摘要,不在设置页另写判
+      const failureText: string = pluginFailureKind(plugin.errorState) !== 'normal'
+        ? `${pluginFailureLabel(plugin.errorState)} · ${pluginFailureSummary(plugin.errorState)}`
+        : '';
+      row.detail = failureText.length > 0 ? failureText : (plugin.enabled ? `已启用 · v${plugin.manifest.version}` : '已停用');
       rows.push(row);
     }
     this.pluginRows = rows;

@@ -61,7 +61,15 @@ export class LexiVaultFacade {
         if (file) {
           const eventPayload = new LexiFileEventPayload();
           eventPayload.file = file;
-          eventPayload.oldPath = '';
+          // 宿主只给 oldTitle(没有旧路径),按新路径的目录 + 旧标题近似还原 oldPath:
+          // 重命名不改目录,所以目录部分一定是旧的正确值。
+          if (change.kind === 'rename' && change.oldTitle.length > 0 && file.path.length > 0) {
+            const slash: number = file.path.lastIndexOf('/');
+            const dir: string = slash >= 0 ? file.path.substring(0, slash + 1) : '';
+            eventPayload.oldPath = dir + change.oldTitle + '.md';
+          } else {
+            eventPayload.oldPath = '';
+          }
           this.events.trigger(change.kind, eventPayload);
         } else if (change.kind === 'delete') {
           const sparse = new LexiTFile();
@@ -230,9 +238,9 @@ export class LexiVaultFacade {
     if (!this.context) { throw new Error('Vault 尚未初始化'); }
     const normalized = normalizePath(newPath);
     if (!normalized.toLowerCase().endsWith('.md')) { throw new Error('重命名目标必须是 Markdown 文件'); }
-    const newTitle = fileBaseName(normalized);
-    if (newTitle.endsWith('.md')) { throw new Error('无效的文件名'); }
-    const title = newTitle.substring(0, newTitle.length - 3);
+    const fileName = fileBaseName(normalized);
+    const title = fileName.toLowerCase().endsWith('.md') ? fileName.substring(0, fileName.length - 3) : fileName;
+    if (title.length === 0) { throw new Error('无效的文件名'); }
     await LexiStorageService.renameNote(this.context, file.noteId, title);
     await this.refresh();
   }

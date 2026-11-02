@@ -1,0 +1,9 @@
+{
+  "id": "compat-probe",
+  "name": "兼容层探针",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "author": "LexiNote runtime track",
+  "description": "对着官方 obsidian.d.ts 写的兼容层探针:生命周期/addCommand/addRibbonIcon/registerView/addSettingTab/vault/metadataCache/workspace.on",
+  "isDesktopOnly": false
+}
