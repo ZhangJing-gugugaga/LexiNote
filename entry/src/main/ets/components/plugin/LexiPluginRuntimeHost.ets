@@ -35,7 +35,7 @@ export struct LexiPluginRuntimeHost {
     if (!this.manager) { return; }
     try {
       const ports: Array<webview.WebMessagePort> = this.webController.createWebMessagePorts();
-      if (ports.length < 2) { return; }
+      if (ports.length < 2) { console.log('[lexinote] openContextPort ports=' + ports.length); return; }
       const pageEnd: webview.WebMessagePort = ports[0];
       const hostEnd: webview.WebMessagePort = ports[1];
       hostEnd.onMessageEvent((result: webview.WebMessage): void => {
@@ -45,7 +45,7 @@ export struct LexiPluginRuntimeHost {
       });
       this.manager.attachContextPort(hostEnd);
       this.webController.postMessage(LexiPluginRuntimeHost.CONTEXT_PORT_TAG, [pageEnd], '*');
-    } catch (err) { /* 页面未就绪等 transient:下个 onPageEnd 重试 */ }
+    } catch (err) { console.log('[lexinote] openContextPort threw: ' + String(err)); }
   }
 
   build() {

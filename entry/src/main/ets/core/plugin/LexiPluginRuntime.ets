@@ -69,7 +69,9 @@ const BUNDLED_PLUGIN_DIRS: Array<string> = [
   'plugins/editor-outliner',
   // 身份判定的活体探针:前者不声明任何 capabilities(攻击方),后者只声明 network 127.0.0.1(被冒名方)。
   'plugins/cap-probe-unauth',
-  'plugins/cap-probe-open'
+  'plugins/cap-probe-open',
+  // P1-003b:沙箱装载探针(entrypoints.service='sandbox:' 声明式 opt-in 的最小面)。
+  'plugins/sandbox-probe'
 ];
 const HI_DOMAIN: number = 0x1051;
 const HI_TAG: string = 'LexiPlugin';
@@ -325,6 +327,17 @@ export class LexiWebRuntime {
   async dispatchWithTimeout(method: string, payloadJson: string, timeoutMs: number): Promise<void> {
     const work = this.dispatch(method, payloadJson);
     await LexiWebRuntime.withTimeout(work, timeoutMs, method);
+  }
+
+  /**
+   * P1-003b:沙箱轨装载直传(payload 为 JSON 对象,可直接作为 JS 字面量注入)。
+   * 目标 = runtime 页容器 window.lexiContainerBoot;大码分片随 P1-003b 后续轮
+   * (样本级源码直传当前可行,见 dispatch 注释的体积经验)。
+   */
+  async dispatchSandboxBoot(payloadJson: string): Promise<void> {
+    if (!this.controller) { throw new Error('runtime controller 未就绪'); }
+    await this.controller.runJavaScript('window.lexiContainerBoot(' + payloadJson + ');');
+    pluginLog('sandbox.boot dispatched');
   }
 
   static async withTimeout<T>(work: Promise<T>, timeoutMs: number, label: string): Promise<T> {
@@ -789,6 +802,8 @@ export class LexiPluginManager {
     const bundledInit = await LexiStorageService.getSetting('lexiPluginBundledInit', 'false');
     if (bundledInit !== 'true' && !this.safeMode && this.plugins.has('lexi-sample-plugin')) {
       this.enabledIds.add('lexi-sample-plugin');
+      // sandbox-probe 不自动启用:其最小面依赖沙箱轨(ADR-R21-02,默认关),旧轨装载会失败。
+      // 设备验证经由设置页手动启用或 flows 批次。
       await LexiStorageService.setSetting('lexiPluginBundledInit', 'true');
       pluginLog('首次运行:自动启用官方示范插件');
     }
@@ -1740,6 +1755,7 @@ export class LexiPluginManager {
 
   /** P1-003a:端口帧 → contextId 反查 → 既有 broker/能力门 → 既有 handler → §3.4 响应帧。 */
   handleContextPortFrame(data: string): void {
+    pluginLog('port frame in bytes=' + data.length);
     // Round 20 定位:插件仍在共享 realm,contextId 可被同页代码伪造——本通道的完整安全
     // 语义在 P1-003b iframe 隔离后成立(ADR-R18-01);门禁覆盖 registry 层行为。
     let frame: Record<string, Object> = {};
@@ -1776,6 +1792,7 @@ export class LexiPluginManager {
   }
 
   private postContextFrame(frameJson: string): void {
+    pluginLog('port frame out ' + frameJson.slice(0, 60));
     if (this.contextPort === null) { return; }
     try {
       this.contextPort.postMessageEvent(frameJson);
@@ -2080,6 +2097,30 @@ export class LexiPluginManager {
       // 装载令牌由本运行时铸造:页面侧后续每一次宿主调用(含源码分片)都靠它证明"我是哪个插件"。
       const token: string = this.runtime.mintPluginToken(pluginId);
       if (token.length === 0) { throw new Error('插件令牌铸造失败: ' + pluginId); }
+      // P1-003b 沙箱轨:声明式 opt-in(entrypoints.service='sandbox:')的插件经 per-plugin
+      // iframe(opaque origin)以端口身份装载,不进共享 realm `new Function`(ADR-R18-01)。
+      // Round 21 发现:runtime 宿主页上 iframe→parent 与容器页 MessageChannel 两条跨帧
+      // 回路均静默丢帧(真机证据链 r21h/r21i2/r21j;PoC 独立页同代码双向通)——沙箱容器迁往
+      // 独立 Web 组件(方案 B,ADR-R21-02)前,此轨由运行开关显式启用,默认回落旧轨。
+      const sandboxTrackOn = (await LexiStorageService.getSetting('lexiPluginSandboxTrack', 'false')) === 'true';
+      if (record.manifest.sandboxService && sandboxTrackOn) {
+        const contextRecord = this.contextRegistry.ensureService(pluginId, activationId);
+        const sandboxBoot: Record<string, Object> = {
+          'contextId': contextRecord.contextId as Object,
+          'code': code as Object,
+          'manifestJson': JSON.stringify(record.manifest) as Object
+        };
+        pluginLog('沙箱轨装载: ' + pluginId + ' context=' + contextRecord.contextId);
+        await this.runtime.waitReady();
+        await this.runtime.dispatchSandboxBoot(JSON.stringify(sandboxBoot));
+        record.enabled = true;
+        record.activationId = activationId;
+        this.enabledIds.add(pluginId);
+        await this.persistEnabled();
+        pluginLog('插件已启用(沙箱轨): ' + pluginId + ' activation=' + activationId);
+        this.bumpPluginRevision();
+        return true;
+      }
       // 大源码经 runJavaScript 直传会静默挂起,改为分片拉取
       const payloadBody: Record<string, Object> = {
         'id': pluginId as Object,
@@ -2105,8 +2146,9 @@ export class LexiPluginManager {
       // 主执行上下文(service):插件后台 RPC/命令/事件的宿主侧记账点。
       if (activationId.length > 0) {
         this.lifecycle.createContext(activationId, 'service');
-        // P1-003a:contextRegistry 注册端口身份(iframe 沙箱接入后成为 RPC 身份真源)。
-        this.contextRegistry.create(pluginId, activationId, 'service');
+        // P1-003a:contextRegistry 注册端口身份(iframe 沙箱接入后成为 RPC 身份真源);
+        // 沙箱轨已在 dispatch 前经 ensureService 注册,此处幂等兜底。
+        this.contextRegistry.ensureService(pluginId, activationId);
       }
       this.enabledIds.add(pluginId);
       await this.persistEnabled();

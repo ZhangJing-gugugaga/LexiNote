@@ -38,6 +38,7 @@
     // 缺标记的 boot/request 会被静默丢弃(Round 8 真机 reports=0 的直接原因)。
     message.__lexiSandbox = true;
     message.protocolVersion = protocolVersion;
+    slog('req -> ' + String(message.type || message.method || '?'));
     try { port.postMessage(message); }
     catch (err) { slog('port post THREW: ' + String((err && err.message) || err)); }
   }
@@ -112,8 +113,90 @@
     }
   }
 
-  function onPortMessage(event) {
-    var data = event.data || {};
+  // P1-003b:插件装载(PoC 通道之外的第二用例)。
+  // parentRequest:bootPlugin 面的宿主请求走 window 通道(Round 21:容器页 MessageChannel
+  // 回路不投递;window.postMessage 双向有真机证据)——响应经下方 listener 的 response 分支。
+  var pendingWindow = new Map();
+  function parentRequest(method, params) {
+    return new Promise(function (resolve, reject) {
+      var requestId = 'w' + (++requestSeq);
+      pendingWindow.set(requestId, { resolve: resolve, reject: reject });
+      try {
+        window.parent.postMessage({ __lexiSandbox: true, type: 'sandbox.request',
+          requestId: requestId, method: method, params: params || {} }, '*');
+      } catch (err) {
+        pendingWindow.delete(requestId);
+        reject(err);
+      }
+    });
+  }
+  // 最小 obsidian 面:Plugin 基类(onload/onunload 生命周期)+ this.app.request 直通宿主 RPC。
+  // 完整 namespace 随 P1-003b 后续轮逐步扩面(EXECUTION_PLAN);本切片验证
+  // "业务代码在 iframe 内以端口身份完成 onload + data 往返"。
+  function bootPlugin(plugin) {
+    var manifest = {};
+    try { manifest = JSON.parse(plugin.manifestJson || '{}'); } catch (err) { manifest = {}; }
+    slog('bootPlugin: ' + String(manifest.id || '?'));
+    var request = window.lexiSandbox.request;
+    function SandboxPlugin(appRef) {
+      this.app = appRef;
+      this.manifest = manifest;
+      this._cleanups = [];
+    }
+    SandboxPlugin.prototype.load = function () {
+      if (typeof this.onload === 'function') { return this.onload(); }
+      return null;
+    };
+    SandboxPlugin.prototype.unload = function () {
+      for (var i = 0; i < this._cleanups.length; i++) { try { this._cleanups[i](); } catch (err) { /* noop */ } }
+      if (typeof this.onunload === 'function') { this.onunload(); }
+      return null;
+    };
+    SandboxPlugin.prototype.register = function (fn) { this._cleanups.push(fn); };
+    var obsidian = { Plugin: SandboxPlugin };
+    var moduleObj = { exports: {} };
+    var factory = new Function('require', 'module', 'exports',
+      plugin.code + '\n//# sourceURL=lexi-sandbox-plugin.js');
+    try {
+      factory(function (name) {
+        if (name === 'obsidian' || name === 'lexinote') { return obsidian; }
+        throw new Error('沙箱模块未提供: ' + name + '(依赖请随 main.js 打包)');
+      }, moduleObj, moduleObj.exports);
+    } catch (err) {
+      slog('factory threw: ' + String(err));
+      postToHost({ type: 'sandbox.evalError', message: String(err) });
+      return;
+    }
+    var exported = moduleObj.exports;
+    var Ctor = typeof exported === 'function' ? exported :
+      (exported && typeof exported.default === 'function' ? exported.default : null);
+    if (!Ctor) {
+      slog('bootPlugin: 缺少导出类');
+      postToHost({ type: 'sandbox.evalError', message: 'main.js 必须导出插件类(default)' });
+      return;
+    }
+    var instance = new Ctor({ request: parentRequest }, manifest);
+    try {
+      var result = instance.load();
+      if (result && typeof result.then === 'function') {
+        result.then(function () {
+          slog('plugin onload done');
+          parentRequest('plugin.onload.done', { id: manifest.id }).catch(function (err) { slog('onload.done 上报失败: ' + String(err)); });
+        }, function (err) {
+          slog('plugin onload error: ' + String(err));
+          postToHost({ type: 'sandbox.evalError', message: String(err) });
+        });
+      } else {
+        slog('plugin onload done(sync)');
+        parentRequest('plugin.onload.done', { id: manifest.id }).catch(function (err) { slog('onload.done 上报失败: ' + String(err)); });
+      }
+    } catch (err) {
+      slog('plugin onload threw: ' + String(err));
+      postToHost({ type: 'sandbox.evalError', message: String(err) });
+    }
+  }
+
+  function onPortMessage(event) {    var data = event.data || {};
     if (data.type === 'sandbox.ping') { postToHost({ type: 'sandbox.pong', contextId: contextId }); return; }
     if (data.type === 'sandbox.response') { finish(data.requestId, data); return; }
     if (data.type === 'sandbox.run' && typeof data.source === 'string') {
@@ -135,6 +218,14 @@
     if (event.source !== window.parent) { return; }
     var data = event.data || {};
     if (data.__lexiSandbox !== true) { return; }
+    if (data.type === 'sandbox.response') {
+      var entry = pendingWindow.get(String(data.requestId || ''));
+      if (!entry) { return; }
+      pendingWindow.delete(String(data.requestId));
+      if (data.ok === true) { entry.resolve(data.result); }
+      else { entry.reject(new Error((data.error && data.error.message) || 'sandbox request failed')); }
+      return;
+    }
     if (data.type === 'sandbox.init' && !inited) {
       inited = true;
       contextId = typeof data.contextId === 'string' ? data.contextId : '';
@@ -147,13 +238,20 @@
       }
       postToHost({ type: 'sandbox.boot', contextId: contextId, selfCheck: window.__lexiSandboxSelfCheck() });
       slog('sandbox.boot posted (port ' + (port ? 'up' : 'absent') + ')');
+      // P1-003b:容器通道的插件装载载荷(PoC 通道无此字段,向后兼容)。
+      if (data.plugin && typeof data.plugin.code === 'string') {
+        bootPlugin(data.plugin);
+      }
     }
   });
 
   // 通知宿主：沙箱文档已就绪，可以接收 init + port。
   try {
     window.parent.postMessage({ __lexiSandbox: true, type: 'sandbox.ready' }, '*');
-  } catch (err) { /* 宿主不可达时 PoC 会超时报告 */ }
+    slog('ready posted to parent');
+  } catch (err) {
+    slog('ready post THREW: ' + String(err));
+  }
 })();
 </script>
 </body>

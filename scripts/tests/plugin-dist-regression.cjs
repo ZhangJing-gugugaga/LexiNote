@@ -578,7 +578,7 @@ test('runtime 接线：能力门禁在处理器前面，卸载/回滚/严格索�
     'manager 必须持有 contextRegistry(P1-003a)');
   assert.match(text, /attachContextPort\(port: webview\.WebMessagePort\): void/ && /handleContextPortFrame\(data: string\): void/,
     '端口挂载与帧裁决入口必须存在');
-  assert.match(text, /contextRegistry\.create\(pluginId, activationId, 'service'\)/, '启用必须注册端口身份');
+  assert.match(text, /contextRegistry\.ensureService\(pluginId, activationId\)/, '启用必须注册端口身份(幂等;沙箱轨在 dispatch 前置)');
   assert.match(text, /const revokedContexts = this\.contextRegistry\.revokePlugin\(pluginId\);/,
     '停用必须吊销端口身份(P2-010 联动)');
   assert.match(text, /tokenForPlugin\(gateway\.identity\)/, '端口身份必须经既有 credential 链进 call()');

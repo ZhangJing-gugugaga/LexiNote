@@ -4,22 +4,14 @@
   <meta charset="utf-8">
   <!-- RFC §3.9 插件运行页 CSP：脚本只来自随 HAP 内置的 rawfile('self') + shim 求值插件代码
        所需的 eval；一切网络(connect-src 'none')与远程资源全禁，宿主交互只走 lexiHost 桥。 -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-eval'; child-src 'self'; frame-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>lexinote-plugin-runtime</title>
   <script src="lexinote_plugin_render.js"></script>
   <script src="lexinote_plugin_shim.js"></script>
+  <script src="lexinote_sandbox_container.js"></script>
 </head>
 <body>
-<script>
-// P1-003a(ADR-R18-01):宿主端口接收。ports[0] 转移进页面后存 window.lexiContextPort,
-// 供沙箱化阶段的插件上下文(P1-003b)收发 RFC §3.4 帧。Round 20 只挂载不接管——
-// 现有 javaScriptProxy 'lexiHost' 调用路径不变,双通道并存直至迁移完成。
-window.addEventListener('message', function (event) {
-  if (event.data === 'lexi-context-port' && event.ports && event.ports[0]) {
-    window.lexiContextPort = event.ports[0];
-    try { console.log('[lexinote] context port attached (page side)'); } catch (err) { /* console 缺失不影响 */ }
-  }
-});
-</script>
+<!-- P1-003b:宿主端口接收与帧路由全部在 lexinote_sandbox_container.js(外置,
+     独占 'lexi-context-port' tag——ArkWeb tag 事件只投递给单个 listener,双注册会互相抢)。 -->
 </body>
 </html>

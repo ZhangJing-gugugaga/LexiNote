@@ -97,6 +97,21 @@ export class LexiContextRegistry {
   }
 
   /**
+   * 幂等取/建 service 上下文(P1-003b):沙箱轨在 dispatch 前就需要 contextId,
+   * 而旧轨在 onload 成功后才建——统一走本方法避免同一 activation 重复注册。
+   */
+  ensureService(pluginId: string, activationId: string): HostContextRecord {
+    let found: HostContextRecord | null = null;
+    this.records.forEach((record: HostContextRecord): void => {
+      if (record.pluginId === pluginId && record.activationId === activationId && !record.revoked) {
+        found = record;
+      }
+    });
+    if (found !== null) { return found; }
+    return this.create(pluginId, activationId, 'service');
+  }
+
+  /**
    * 端口帧裁决：RFC §3.4 请求帧 { v, type:'request', id, method, payload }。
    * 返回网关结论——ok=true 时 identity 来自记录反查，调用方据此调 handler 并用
    * buildResponseFrame() 组响应；ok=false 时 error 已可直接入帧。

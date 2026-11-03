@@ -106,6 +106,9 @@ if (fs.existsSync(SANDBOX_HTML)) {
   const runtimeCsp = cspOf(runtimeHtml);
   ok('S16 运行时页补 CSP', runtimeCsp.length > 0 && /connect-src\s+'none'/.test(runtimeCsp),
     'lexinote_plugin_runtime.html 此前无任何 CSP（RFC P0-03）');
+  ok('S16b 运行时页 CSP 放行沙箱 iframe(真机 Round 21 教训)',
+    /child-src[^;]*'self'/.test(runtimeCsp) || /frame-src[^;]*'self'/.test(runtimeCsp),
+    'default-src none 下无 child-src/frame-src 则 per-plugin iframe 文档被 CSP 拦杀(P1-003b)');
 }
 {
   for (const host of HOSTS) {

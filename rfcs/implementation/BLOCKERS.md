@@ -10,6 +10,7 @@
 | B-006 | `generate.cjs` 解析器与对账器对 shim 锚点口径不一致（重生成引入 7 处假脱节） | 契约快照再生流程 | OPEN（Round 7 发现） | 修 generator（P0-005） | 本轮手工只修自己造成的 2 个锚点 | 否 |
 | B-007 | `docs/` 被 gitignore,八篇公开文档与历史 round 记录不在版本库 | 外部开发者拿不到文档（P1-03）;门禁 docs-contract 依赖本地 docs | OPEN | 最小范围 ignore 调整方案（P0-004） | 工程记录已迁 `rfcs/`（进 Git） | 否 |
 | B-008 | ~~沙箱 PoC 在 ArkWeb API 26 静默~~ **RESOLVED(Round 9)**:三层根因——①宿主页内联脚本被自家 CSP script-src 'self' 拦杀(引导逻辑外置 poc.js,门禁 S20/S21 固化);②子→宿主 postToHost 缺 __lexiSandbox 协议标记被宿主过滤静默丢(修复,S22 固化);③探针 frames[0] 对首上下文即自身,致假阳性 LEAKED(改全量枚举+排除自身)。终验:真机 verdict PASS contexts=2/2,20/20 vectors blocked,credentialHits=0;origin=null(opaque origin)+ports=1 转移+双向投递=平台可行性坐结(ADR-R9-01) | — | **RESOLVED** | — | 真机巡检信号保留:ping/pong+里程碑打点 | 否 |
+| B-009 | **新(Round 21)**:runtime 宿主页跨 frame 事件投递缺陷——①iframe→parent window.postMessage 不抛错但不达;②容器页 MessageChannel port1 不投递;**同份沙箱子文档在 PoC 独立页双向全通**(对照复测)。证据链 /tmp/r21{h,i2,j}.log 摘录已入 PROGRESS Round 21 | **P1-003b 沙箱轨在 runtime 页不可用**;P1-003 整体延后于方案 B | OPEN | 独立容器 Web 组件(方案 B,ADR-R21-02)——复用已验证形态;或华为侧 ArkWeb 定位 | 沙箱轨运行开关默认关(探针回落旧轨);旧轨/现有功能零影响 | **是——P1-003b/c/d 阻塞至方案 B 贯通** |
 
 ## 历史真机问题（tools/plugin-dist/known-issues.md 台账,未闭环即不得遗忘）
 

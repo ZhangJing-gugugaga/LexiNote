@@ -40,6 +40,12 @@ export class LexiPluginManifest {
    * 在执行面永远不可见(审计 Round 7 确认的 P0-03 机械根因)。v1 清单保持默认全关:
    * 旧权限不自动继承为 Native 细粒度权限(§8.2 legacyProfile 语义)。
    */
+  /**
+   * P1-003b:沙箱轨声明(entrypoints.service === 'sandbox:')。
+   * 声明式 opt-in:该插件的代码在 per-plugin iframe(opaque origin)内以端口身份执行,
+   * 不再进入共享 realm `new Function` 路径(ADR-R18-01)。v1/未声明 = 旧轨。
+   */
+  sandboxService: boolean = false;
   v2: LexiManifestV2Caps = new LexiManifestV2Caps();
 }
 
@@ -146,6 +152,8 @@ function manifestFromV2(v2: LexiManifestV2Normalized): LexiPluginManifest {
   manifest.capabilities.clipboard = v2.capabilities.clipboard;
   // P2-001:细粒度视图穿透到执行面(paths/methods/quota/notifications 不再止步于解析器)。
   manifest.v2 = v2.v2;
+  // P1-003b:沙箱轨声明式 opt-in(插件作者在 entrypoints.service 声明 'sandbox:')。
+  manifest.sandboxService = v2.entrypoints.service === 'sandbox:';
   return manifest;
 }
 

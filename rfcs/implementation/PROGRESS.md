@@ -440,3 +440,35 @@ Phase 2 收尾复核（exit criteria 对照）→ **P1-002/P1-003 沙箱主改�
 **P1-003b 沙箱页 API 面开工**（runtime 页 iframe 化：per-plugin iframe + 沙箱内 shim API 面以端口身份重建）。
 
 最近更新时间：2026-11-04（Round 20）。
+
+---
+
+## Round 21 — 2026-11-04（P1-003b 切片：沙箱轨贯通至 bootPlugin + 跨帧通道缺陷立案）
+
+**当前 Phase：** Phase 1。**重大平台发现（B-009/ADR-R21-02）**。
+
+### 本轮完成
+
+1. **沙箱轨全链实现（代码就绪）**：声明式 opt-in（`entrypoints.service='sandbox:'` → `manifest.sandboxService`）；`LexiContextRegistry.ensureService`（幂等，沙箱轨 dispatch 前置）；`LexiWebRuntime.dispatchSandboxBoot`（runJavaScript 直传容器）；**容器脚本 `lexinote_sandbox_container.js`**（per-plugin iframe 创建/端口接收/帧路由/身份覆写——iframe 永不自报身份）；**沙箱内最小 API 面**（`bootPlugin`：Plugin 基类 + app.request）；探针夹具 sandbox-probe（v2，storage 声明）。
+2. **真机贯通证据**：`sandbox context created: ctx-2-sandbox-probe` → `context wired` → **`bootPlugin: sandbox-probe`**（iframe 内插件代码执行）——宿主 dispatch → 容器 → iframe 的装载链全通；CSP frame-src 教训二次验证（runtime 页同款拦截，S16b 断言固化）。
+3. **平台缺陷立案（B-009，ADR-R21-02）**：runtime 宿主页上**两条跨帧回路均静默丢帧**——①iframe→parent 的 window.postMessage（不抛错不达）；②容器页 MessageChannel port1.onmessage 不投递；**同一份沙箱子文档在 PoC 独立页双向全通**（对照复测）。排除协议/标记因素（Round 9 三根因已修复+PoC 对照）。判定指向 ArkWeb 对 runtime 页形态（1x1+javaScriptProxy+高频 runJavaScript）的跨 frame 投递缺陷。
+4. **决策（ADR-R21-02）**：沙箱容器迁往**独立 Web 组件**（PoC 同构=已验证形态），contextRegistry/broker 复用；过渡期沙箱轨加运行开关 `lexiPluginSandboxTrack`（默认关→探针回落旧轨，系统零影响）；P1-003b 的 API 面工作不返工。
+5. 过程修正：sandbox-probe manifest 的 v2 兼容（minApiVersion→compatibility.min，v2 严格解析拒 v1 字段）；探针从首启自动启用移除（其最小面依赖沙箱轨）；.gitignore 登记 sandbox-probe 夹具；contract 锚点 +15 位移修复；dist-regression 断言更新（ensureService）。
+
+### 实际执行的测试
+
+| 命令 | 结果 |
+|---|---|
+| `plugin-context-isolation.cjs` | **PASS**（+S16b） |
+| `plugin-dist-regression.cjs` | **PASS 19/19** |
+| `plugin-manifest-v2.cjs` | **PASS 39/39** |
+| `release-gate --ci` | **PASS 29/29**（锚点/断言修正后） |
+| `hvigorw assembleHap` ×多轮 | **PASS** |
+| 真机沙箱链 | **贯通至 bootPlugin**；跨帧回路缺陷立案 B-009 |
+| 真机回归（开关关） | 探针回落旧轨失败（预期，最小面不兼容）+其余基线保持；最终轮抓取窗口被 PoC verdict 输出截断，sample 链以 Round 16 证据为准 |
+
+### 下一轮
+
+**Round 22：方案 B——独立沙箱容器 Web 组件**（LexiSandboxHost 同构形态新建容器页/组件，迁移容器脚本与网关对接，探针真机 onload 闭环）。**P1-003b 整体 BLOCKED 于 B-009**（随方案 B 解除）。
+
+最近更新时间：2026-11-04（Round 21）。

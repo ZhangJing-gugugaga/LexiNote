@@ -62,6 +62,14 @@
 - 兼容性：过渡期双轨并存（沙箱插件与共享 realm 插件可共存），旧插件无感；Track1 迁移完成前不删除任何现有路径。
 - 复审条件：P1-003a/b 落地后若发现 broker 身份来源需二次抽象（端口表 vs 凭据表），回本 ADR 增补。
 
+## ADR-R21-02 沙箱容器迁移至独立 Web 组件（方案 B）——runtime 页跨帧通道缺陷的平台事实
+
+- 背景：P1-003b 切片在 runtime 宿主页挂 per-plugin iframe 时遭遇真机异常（证据链 r21h/r21i2/r21j）：①iframe→parent 的 window.postMessage（ready 与 request 帧）**发出不抛错但不达容器**；②容器页侧 MessageChannel port1.onmessage **不投递**；③**同一份沙箱子文档在 PoC 独立页（LexiSandboxHost）双向全通**（Round 9 verdict + 本轮对照复测）。
+- 判定：非协议/标记问题（Round 9 三根因均已修复且 PoC 对照排除）；指向 ArkWeb 对**特定宿主页面形态**（1x1 headless + javaScriptProxy + 高频 runJavaScript 的 runtime 页）的跨 frame 事件投递缺陷或约束——**平台事实，需华为侧或专门 PoC 进一步定位**（B-009）。
+- 决策：沙箱容器迁往**独立 Web 组件**（与 LexiSandboxHost 同构的形态——该形态下 iframe+MessageChannel+window 双向已真机验证）：新建沙箱容器 Web（承载容器页+全部插件 iframe），与宿主经自身 javaScriptProxy+runJavaScript 通信，contextRegistry/broker 复用不变。过渡期沙箱轨加运行开关（`lexiPluginSandboxTrack`，默认关），未启用时声明沙箱的插件回落旧轨（探针无害）。
+- 影响面：P1-003b 的 API 面重建工作不返工（sandbox html 的 bootPlugin/最小面已就绪）；容器脚本与宿主网关（LexiContextRegistry）原样迁移。P1-004（workspace 轨收敛）不受影响。
+- 复审条件：方案 B 容器组件真机贯通（帧往返+onload）即解除 B-009。
+
 ## 历史决策登记（迁移自既有代码语义,防遗失）
 
 - Manifest v1 无 capabilities → `capabilitiesDeclared=false` → 跳过 T2.2 授权门且 legacy 分支放行 fs。此为兼容策略,但等于"旧插件默认高权"——P2 权限闭环须将其收敛为显式兼容权限集（RFC §18.1）。
