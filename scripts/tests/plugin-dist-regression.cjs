@@ -573,6 +573,15 @@ test('runtime 接线：能力门禁在处理器前面，卸载/回滚/严格索�
   // P2-010:撤销语义覆盖所有清单版本——revoked 检查必须在 capabilitiesDeclared 版本门之前。
   assert.match(text, /const storedGrant = this\.permissionStore\.grantOf\(pluginId\);[\s\S]{0,200}state === 'revoked'[\s\S]{0,400}if \(record\.manifest\.capabilitiesDeclared\)/,
     '撤销必须先于版本门短路启用(否则 v1 插件撤销后仍可重新启用,P2-010 缺口)');
+  // P1-003a:contextRegistry 接线(enable 创建/disable 吊销/端口帧裁决链)。
+  assert.match(text, /readonly contextRegistry: LexiContextRegistry = new LexiContextRegistry\(\)/,
+    'manager 必须持有 contextRegistry(P1-003a)');
+  assert.match(text, /attachContextPort\(port: webview\.WebMessagePort\): void/ && /handleContextPortFrame\(data: string\): void/,
+    '端口挂载与帧裁决入口必须存在');
+  assert.match(text, /contextRegistry\.create\(pluginId, activationId, 'service'\)/, '启用必须注册端口身份');
+  assert.match(text, /const revokedContexts = this\.contextRegistry\.revokePlugin\(pluginId\);/,
+    '停用必须吊销端口身份(P2-010 联动)');
+  assert.match(text, /tokenForPlugin\(gateway\.identity\)/, '端口身份必须经既有 credential 链进 call()');
   // 真机 KI-4:运行时安装的插件在 enablePlugin 前必须经 scanPluginDir 落 installed,
   // 否则生命周期表判 discovered→starting 非法迁移,"装得上却永不 onload"。
   const scan = text.slice(text.indexOf('private async scanPluginDir('), text.indexOf('private readTextFile('));

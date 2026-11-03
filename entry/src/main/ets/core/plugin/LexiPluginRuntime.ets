@@ -6,6 +6,7 @@ import { fileIo as fs } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
 import { util } from '@kit.ArkTS';
 import { webview } from '@kit.ArkWeb';
+import { LexiContextRegistry, HostContextRecord } from './LexiContextRegistry';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { LexiStorageService } from '../LexiStorageService';
 import { LexiPluginBus } from './LexiPluginBus';
@@ -423,6 +424,9 @@ export class LexiPluginManager {
   readonly extensionRegistry: LexiExtensionRegistry = new LexiExtensionRegistry();
   /** 权限存储(T2.2):版本权限变化必须重新授权(§9.5),用户可撤销(§16.2)。 */
   readonly permissionStore: LexiPermissionStore = new LexiPermissionStore();
+  /** P1-003a(ADR-R18-01):沙箱执行上下文注册表——端口 RPC 的身份真源。 */
+  readonly contextRegistry: LexiContextRegistry = new LexiContextRegistry();
+  private contextPort: webview.WebMessagePort | null = null;
   /** 视图会话表(T2.4):open/close/reopen 记账,重开状态恢复正常。 */
   readonly viewSessions: LexiViewSessionTable = new LexiViewSessionTable();
 
@@ -1724,8 +1728,63 @@ export class LexiPluginManager {
     }
   }
 
-  /** 用户重新授权(设置页/启用确认):按当前清单能力落账,返回是否成功。 */
-  grantPluginPermissions(pluginId: string): boolean {
+  /** P1-003a:宿主侧端口挂载(RuntimeHost onPageEnd 建立;幂等)。 */
+  attachContextPort(port: webview.WebMessagePort): void {
+    if (this.contextPort !== null) {
+      pluginLog('context port 已挂载,跳过重复 attach');
+      return;
+    }
+    this.contextPort = port;
+    pluginLog('context port attached(页面侧 window.lexiContextPort);帧裁决走 contextRegistry+broker');
+  }
+
+  /** P1-003a:端口帧 → contextId 反查 → 既有 broker/能力门 → 既有 handler → §3.4 响应帧。 */
+  handleContextPortFrame(data: string): void {
+    // Round 20 定位:插件仍在共享 realm,contextId 可被同页代码伪造——本通道的完整安全
+    // 语义在 P1-003b iframe 隔离后成立(ADR-R18-01);门禁覆盖 registry 层行为。
+    let frame: Record<string, Object> = {};
+    try { frame = JSON.parse(data) as Record<string, Object>; } catch (error) { return; }
+    const contextId: string = typeof frame['contextId'] === 'string' ? frame['contextId'] as string : '';
+    if (contextId.length === 0) { return; }
+    const gateway = this.contextRegistry.adjudicate(contextId, data);
+    if (!gateway.ok) {
+      pluginError('context.rpc contextId=' + contextId + ' allowed=false code=' + gateway.code +
+        ' detail=' + gateway.error);
+      this.postContextFrame(this.contextRegistry.buildErrorFrame(gateway.code, gateway.error));
+      return;
+    }
+    const record: HostContextRecord | null = this.contextRegistry.recordOf(contextId);
+    if (record === null) { return; }
+    const ctx = this.contextRegistry.contextOf(record);
+    const authz = this.runtime.broker.authorize(ctx, gateway.method, null);
+    if (!authz.allowed) {
+      pluginError('context.rpc identity=' + gateway.identity + ' method=' + gateway.method +
+        ' allowed=false code=' + authz.code + ' detail=' + authz.reason);
+      this.postContextFrame(this.contextRegistry.buildErrorFrame(authz.code, authz.reason));
+      return;
+    }
+    // 身份进入既有调用链:credential = tokenForPlugin(记录身份) → call() 内部
+    // roleOfCredential/stripClaimedIdentity/authorize 与 javaScriptProxy 路径完全一致。
+    const credential = this.runtime.tokenForPlugin(gateway.identity);
+    this.runtime.call('ctxport-' + gateway.requestId, gateway.method, gateway.payloadJson, credential)
+      .then((responseJson: string): void => {
+        this.postContextFrame(this.contextRegistry.buildResponseFrame(gateway.requestId, true, responseJson, '', ''));
+      })
+      .catch((error: Object): void => {
+        this.postContextFrame(this.contextRegistry.buildErrorFrame('context_handler_failed', String(error)));
+      });
+  }
+
+  private postContextFrame(frameJson: string): void {
+    if (this.contextPort === null) { return; }
+    try {
+      this.contextPort.postMessageEvent(frameJson);
+    } catch (error) {
+      pluginError('context.port 发送失败: ' + String(error));
+    }
+  }
+
+  /** 用户重新授权(设置页/启用确认):按当前清单能力落账,返回是否成功。 */  grantPluginPermissions(pluginId: string): boolean {
     const record = this.plugins.get(pluginId);
     if (!record) { return false; }
     const ok = this.permissionStore.grant(pluginId, record.manifest.version,
@@ -2046,6 +2105,8 @@ export class LexiPluginManager {
       // 主执行上下文(service):插件后台 RPC/命令/事件的宿主侧记账点。
       if (activationId.length > 0) {
         this.lifecycle.createContext(activationId, 'service');
+        // P1-003a:contextRegistry 注册端口身份(iframe 沙箱接入后成为 RPC 身份真源)。
+        this.contextRegistry.create(pluginId, activationId, 'service');
       }
       this.enabledIds.add(pluginId);
       await this.persistEnabled();
@@ -2099,6 +2160,9 @@ export class LexiPluginManager {
     this.settingDefs.delete(pluginId);
     this.pluginSources.delete(pluginId);
     this.runtime.revokePluginTokens(pluginId);
+    // P1-003a:同步吊销端口身份(撤销/停用立即生效的载体级形态,P2-010 联动)。
+    const revokedContexts = this.contextRegistry.revokePlugin(pluginId);
+    if (revokedContexts > 0) { pluginLog('context registry 吊销 ' + revokedContexts + ' 个上下文: ' + pluginId); }
     const doomedRibbons: string[] = [];
     this.ribbonItems.forEach((row: LexiRibbonRow, key: string): void => {
       if (row.pluginId === pluginId) { doomedRibbons.push(key); }

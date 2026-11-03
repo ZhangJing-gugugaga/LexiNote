@@ -9,5 +9,17 @@
   <script src="lexinote_plugin_render.js"></script>
   <script src="lexinote_plugin_shim.js"></script>
 </head>
-<body></body>
+<body>
+<script>
+// P1-003a(ADR-R18-01):宿主端口接收。ports[0] 转移进页面后存 window.lexiContextPort,
+// 供沙箱化阶段的插件上下文(P1-003b)收发 RFC §3.4 帧。Round 20 只挂载不接管——
+// 现有 javaScriptProxy 'lexiHost' 调用路径不变,双通道并存直至迁移完成。
+window.addEventListener('message', function (event) {
+  if (event.data === 'lexi-context-port' && event.ports && event.ports[0]) {
+    window.lexiContextPort = event.ports[0];
+    try { console.log('[lexinote] context port attached (page side)'); } catch (err) { /* console 缺失不影响 */ }
+  }
+});
+</script>
+</body>
 </html>

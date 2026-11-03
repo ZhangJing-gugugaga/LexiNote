@@ -410,3 +410,33 @@ Phase 2 收尾复核（exit criteria 对照）→ **P1-002/P1-003 沙箱主改�
 **P1-003a 收尾（ArkWeb 组件端口转移实装）+ P1-003b 沙箱页 API 面开工**。
 
 最近更新时间：2026-11-04（Round 19）。
+
+---
+
+## Round 20 — 2026-11-04（P1-003a 收尾：ArkWeb 端口转移实装 + registry 生命周期接线）
+
+**当前 Phase：** Phase 1。**P1-003a 完成**。
+
+### 本轮完成
+
+1. **`LexiPluginRuntimeHost` 端口对实装**：`onPageEnd` → `createWebMessagePorts()` → ports[0] 经 `postMessage('lexi-context-port')` 转移给 runtime 页、ports[1] 宿主 `onMessageEvent` → `manager.handleContextPortFrame`（workspace 轨道同款形态，真机已证可行）。
+2. **runtime 侧集成**：manager 持有 `contextRegistry`；`attachContextPort`（幂等）/`handleContextPortFrame`（帧→contextId 反查→adjudicate→既有 broker→**经 `tokenForPlugin` credential 复用 `call()` 全链**——身份/strip/authorize 与 javaScriptProxy 路径一致）/`postContextFrame`；`enablePlugin` 成功即 `contextRegistry.create(pluginId, activationId, 'service')`；`disablePlugin` 的回收序在 `revokePluginTokens` 旁同步 `revokePlugin(pluginId)`（P2-010 联动，卸载经 disable 覆盖）。
+3. **页面侧**：runtime html 增端口接收脚本（`window.lexiContextPort`），现有 javaScriptProxy 路径不变——**双通道并存**直至 P1-003b 迁移完成（旧插件无感）。
+4. **安全定位（诚实声明，代码注释同步）**：插件仍在共享 realm 时 contextId 可被同页代码伪造——通道的完整安全语义在 P1-003b iframe 隔离后成立；门禁覆盖 registry 层行为。
+5. **ArkTS 修正**：`Object=null` 禁用（改为 try-parse 省略 data）、`WebMessagePort` 发送 API 为 `postMessageEvent`；contract-matrix 锚点 +4/+4 再修。
+
+### 实际执行的测试
+
+| 命令 | 结果 |
+|---|---|
+| `plugin-dist-regression.cjs` | **PASS 19/19**（+6 接线断言） |
+| `plugin-context-registry.cjs` | **PASS 15/15** |
+| `release-gate --ci` | **PASS 29/29**（锚点修正后） |
+| `hvigorw assembleHap` | **PASS**（首轮 3 个 ArkTS 编译错误当场修复） |
+| 真机冷启 | **PASS**：`context port attached(页面侧)` + onload 3/3 注册 + denied=1 基线 |
+
+### 下一轮
+
+**P1-003b 沙箱页 API 面开工**（runtime 页 iframe 化：per-plugin iframe + 沙箱内 shim API 面以端口身份重建）。
+
+最近更新时间：2026-11-04（Round 20）。

@@ -7,6 +7,7 @@ import { LexiPluginManager } from '../../core/plugin/LexiPluginRuntime';
 
 @Component
 export struct LexiPluginRuntimeHost {
+  private static readonly CONTEXT_PORT_TAG: string = 'lexi-context-port';
   private webController: webview.WebviewController = new webview.WebviewController();
   @State private manager: LexiPluginManager | null = null;
 
@@ -25,6 +26,28 @@ export struct LexiPluginRuntimeHost {
     this.manager = manager;
   }
 
+  /**
+   * P1-003a(ADR-R18-01):端口对建立——ports[0] 转移给 runtime 页(页面侧存
+   * window.lexiContextPort),ports[1] 留宿主 → manager.handleContextPortFrame。
+   * 帧→contextId 反查→既有 broker 的裁决在 manager 侧;本组件只搬运字节。
+   */
+  private openContextPort(): void {
+    if (!this.manager) { return; }
+    try {
+      const ports: Array<webview.WebMessagePort> = this.webController.createWebMessagePorts();
+      if (ports.length < 2) { return; }
+      const pageEnd: webview.WebMessagePort = ports[0];
+      const hostEnd: webview.WebMessagePort = ports[1];
+      hostEnd.onMessageEvent((result: webview.WebMessage): void => {
+        if (typeof result === 'string' && this.manager) {
+          this.manager.handleContextPortFrame(result);
+        }
+      });
+      this.manager.attachContextPort(hostEnd);
+      this.webController.postMessage(LexiPluginRuntimeHost.CONTEXT_PORT_TAG, [pageEnd], '*');
+    } catch (err) { /* 页面未就绪等 transient:下个 onPageEnd 重试 */ }
+  }
+
   build() {
     if (this.manager) {
       Web({ src: $rawfile('lexinote_plugin_runtime.html'), controller: this.webController })
@@ -39,6 +62,7 @@ export struct LexiPluginRuntimeHost {
           methodList: ['call'],
           controller: this.webController
         })
+        .onPageEnd((): void => { this.openContextPort(); })
         .width(1).height(1)
         .hitTestBehavior(HitTestMode.None)
     }

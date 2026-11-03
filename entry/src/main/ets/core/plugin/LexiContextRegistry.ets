@@ -160,7 +160,7 @@ export class LexiContextRegistry {
     return decision;
   }
 
-  /** 响应帧组装（RFC §3.4）；错误帧带 code/retryable。 */
+  /** 响应帧组装（RFC §3.4）；错误帧带 code/retryable。data 解析失败按缺省省略（fail-safe）。 */
   buildResponseFrame(requestId: string, ok: boolean, dataJson: string, errorCode: string, errorMessage: string): string {
     const frame: Record<string, Object> = {
       'v': CONTEXT_PROTOCOL_VERSION as Object,
@@ -168,10 +168,10 @@ export class LexiContextRegistry {
       'id': requestId as Object,
       'ok': ok as Object
     };
-    if (ok) {
-      let data: Object = null;
-      try { data = JSON.parse(dataJson) as Object; } catch (error) { data = null; }
-      frame['data'] = data;
+    if (ok && dataJson.length > 0) {
+      try {
+        frame['data'] = JSON.parse(dataJson) as Object;
+      } catch (error) { /* 非 JSON 结果按缺省 data 省略 */ }
     } else {
       const errorBody: Record<string, Object> = {
         'code': errorCode as Object,
