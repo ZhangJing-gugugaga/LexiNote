@@ -1,6 +1,6 @@
 # EXECUTION_PLAN — 插件生态工程任务树
 
-基线：`main @ c1863ff`（= RFC 审查基线）。最后更新：2026-11-03（Round 7）。
+基线：`main @ c1863ff`（= RFC 审查基线）。最后更新：2026-11-03（Round 8）。
 
 状态词汇见 `../README.md`。优先级 P0（安全缺陷）→ P4（上层功能）。
 依赖顺序不得颠倒（RFC §16）；安全缺陷允许提前于所属 Phase 执行（Goal §5 Step 3）。
@@ -23,7 +23,8 @@
 
 | ID | 任务 | 状态 | 优先级 | 依赖 | 涉及模块 | 验收标准 |
 |---|---|---|---|---|---|---|
-| P1-001 | ArkWeb 沙箱能力真机验证（iframe sandbox=allow-scripts opaque origin、MessageChannel、postMessage 转移端口、CSP 'unsafe-eval' 移除可行性） | BLOCKED | P0 | — | LexiSandboxHost, lexinote_sandbox_poc.html | 真机 hilog 证据：逃逸探针全拒 + 端口通道往返成功；见 B-001（模拟器 00801005） |
+| P1-001 | ArkWeb 沙箱能力真机验证（iframe sandbox=allow-scripts opaque origin、MessageChannel、postMessage 转移端口、CSP 'unsafe-eval' 移除可行性） | IN_PROGRESS | P0 | P1-001a | LexiSandboxHost, lexinote_sandbox_poc.html | 真机 hilog 证据：逃逸探针全拒 + 端口通道往返成功。**Round 8 首条证据为负面:API 26 上 PoC iframe 零加载、探针零输出(B-008)——设备已可用(B-001 解除)** |
+| P1-001a | 沙箱 PoC 静默根因插桩定位（假说序:CSP 缺 frame-src → ArkWeb sandboxed iframe 限制 → 早期 JS 异常）；产出隔离载体 ADR 复审（iframe vs 其他 ArkWeb 原语） | TODO | **P0** | — | lexinote_sandbox_poc.html(+CSP/onConsole), LexiSandboxHost | 真机定位结论 + ADR 定案;修复后探针 verdict 行在 hilog 可见 |
 | P1-002 | 正式执行上下文模型定案（contextId×kind、port↔身份绑定落点）+ ADR | TODO | P0 | P1-001 | LexiPluginExecutionContext, LexiPluginLifecycleManager | ADR 评审通过，字段与绑定职责明确 |
 | P1-003 | Runtime 轨道沙箱接入：每插件独立 iframe 取代共享 realm `new Function`；构建期 IIFE 优先 | TODO | P0 | P1-002 | lexinote_plugin_runtime.html, lexinote_plugin_shim.js, LexiPluginRuntime.ets | 业务插件在无 'unsafe-eval' 的独立上下文中加载运行；SEC 探针全过 |
 | P1-004 | Workspace 轨道收敛：插件执行面从编辑器页面剥离/同构接入 | TODO | P0 | P1-002, P1-003 | LexiWorkspacePage, WorkspaceBridge, lexinote_workspace_shim.js | 编辑器页不再直接求值第三方代码，或该面进入 Trusted 策略 |
@@ -53,6 +54,7 @@ clipboard/notifications/editor 分级未接线；授权 UI 缺失（`grant/revok
 | P2-009 | 生命周期状态机补全（verified/permission-pending/degraded/quarantined/revoked 可达且有转出原因） | TODO | P2 | P2-008 | LexiPluginLifecycleManager | 状态转换表+测试；quarantine 由安全事件触发 |
 | P2-010 | 撤销立即生效：权限撤销/插件撤销后既有通道与注册资源失效 | TODO | P1 | P2-008, P1-008 | Broker, Registry | SEC 用例：撤销后 RPC 全拒 |
 | P2-011 | RPC↔权限矩阵 100% 对账测试进门禁（RFC §17.1） | TODO | P1 | P2-003 | plugin-authz-matrix.cjs | 每个公开方法有正/负授权用例 |
+| P2-012 | KI-4：运行时安装插件生命周期记账（scanPluginDir 补 discovered→installed，接线断言钉死） | VERIFIED | P0 | — | LexiPluginRuntime.ets, dist-regression §6, known-issues.md | 真机 install 四流程全绿(2026-11-03 213058) ✔(Round 8) |
 
 ## Phase 3 — SDK 与开发者基础设施（RFC P1-02，总目标 3.4）
 
@@ -82,8 +84,8 @@ clipboard/notifications/editor 分级未接线；授权 UI 缺失（`grant/revok
 
 | ID | 任务 | 状态 | 优先级 | 依赖 | 涉及模块 | 验收标准 |
 |---|---|---|---|---|---|---|
-| **P5-001** | **远程安装 fail-closed 信任闸门**：installFromUrl 下载前强制受信任 sha256；UI 同判定；warnings 上屏 | **IMPLEMENTED**（Round 7；真机 UI 待验） | **P0** | — | LexiPluginMarketModel/Runtime/MarketSheet + dist/market-regression | 空/非法哈希远程安装必拒；本地侧载语义不变；28/28 绿 ✔ |
-| P5-006 | 发布仓库索引升级到 schemaVersion=1 + sha256（**P5-001 的上线前提**：现 `community-plugins.json` 为裸数组无哈希，闸门生效后市场条目全部"缺哈希"） | TODO | P0 | P5-001 | tools/lexinote-releases/ | 索引过 Node 校验器；真机安装成功；发布需外部仓库授权（B-002） |
+| **P5-001** | **远程安装 fail-closed 信任闸门**：installFromUrl 下载前强制受信任 sha256；UI 同判定；warnings 上屏 | **VERIFIED**（Round 8：真机四流程 install/upgrade/rollback/uninstall 全绿；篡改包→integrity_mismatch 零残留；合法哈希安装成功） | **P0** | — | LexiPluginMarketModel/Runtime/MarketSheet + dist/market-regression | 空/非法哈希远程安装必拒；本地侧载语义不变；28/28 绿 ✔（UI"缺哈希"分支仍为离线断言，设备索引无此类条目——待首个真实条目补验） |
+| P5-006 | 发布仓库索引升级到 schemaVersion=1 + sha256 | **IMPLEMENTED**（本地镜像+校验器+三方一致门禁，`83be122`）；发布动作未执行 | P0 | P5-001 | tools/lexinote-releases/ | **Round 8 事实修正:GitHub 上 lexinote-releases 仓库不存在,默认市场 URL 一直是死链——"上线前提"改判为"发布决策"(B-003):新建公开仓+推索引属 ADR-015 门槛,待用户明确授权** |
 | P5-004 | 安装不再自动 enable：授权清单展示→用户同意→启用（含 P2-008 通道） | TODO | P0 | P2-008 | Runtime.installZip 链, MarketSheet | 未授权插件不能运行；降级运行路径可用 |
 | P5-002 | LexiRegistryTrust 接入 fetchMarketIndex/installFromUrl（签名验证实现 + root key 常量） | TODO | P1 | P5-009(密钥), B-002 | LexiRegistryTrust, Runtime, Installer | verifyChain/verifyPackageTarget 在生产路径被真实调用；registry-trust 门禁加接线断言 |
 | P5-003 | 撤销数据源接线（revocations 注入 installer，撤销插件拒绝启用/更新） | TODO | P1 | P5-002 | LexiPluginRuntime.ets:627, Installer, UpdatePolicy | 撤销条目安装/更新被拒（SEC-017） |
@@ -103,10 +105,12 @@ clipboard/notifications/editor 分级未接线；授权 UI 缺失（`grant/revok
 | P6-004 | 社区贡献指南与维护者机制 | TODO | P4 | P3-008 | CONTRIBUTING |
 | P6-005 | 市场运营能力（搜索/分类/统计/举报） | DEFERRED | P4 | P5-* | Phase5 闭环后评估 |
 
-## 执行顺序裁定（当前）
+## 执行顺序裁定（当前, Round 8 后）
 
-1. ~~P5-001~~（Round 7 完成）→ 立即跟进 **P5-006**（否则真实市场不可装，属用户可感破坏面）。
-2. **P1-006**（本地可做的身份暴露面安全缺陷，优先级 P0）。
-3. **P2-001+P2-002**（权限闭环的先决两步，本地可验证）。
-4. P1-001/真机批次待设备恢复（B-001）。
-5. 快速赢面：P0-003（CI）、P0-005（generator 缺陷）。
+1. ~~P5-001~~（Round 8 真机 VERIFIED）、~~P5-006 本地准备~~、~~KI-4/P2-012~~（VERIFIED）。设备可用，真机批次已重新排程为常规验收手段。
+2. **P1-001a**（沙箱 PoC 静默根因——Phase 1 的第一块基石，优先级 P0；假说 CSP frame-src 可在设备 10 分钟内证伪/证实）。
+3. **P1-006**（本地身份暴露面安全缺陷）。
+4. **P2-001+P2-002**（权限闭环先决两步）。
+5. **P5-004**（安装后不自动启用+授权 UI——真机回归链已可用，验收即可闭环）。
+6. 快速赢面：P0-005（generator 缺陷——Round 8 再次因锚点位移手工修 2 处，成本重复发生）、P0-003（CI，需把真机批次标注为可选 job）。
+7. 用户决策点：公开 `lexinote-releases` 仓库（建议维持不公开至 P5-002/P5-004 闭环）。

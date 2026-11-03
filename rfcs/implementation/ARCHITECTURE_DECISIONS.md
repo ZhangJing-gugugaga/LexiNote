@@ -32,6 +32,14 @@
 - 状态：Proposed——ArkWeb 对 opaque-origin iframe 的 MessageChannel/port 转移、runJavaScriptAlternatives 的实际语义**必须**真机验证（B-001），不得以 Chromium 行为推定 HarmonyOS。
 - 边界提醒：删除/替换现有运行运行时属需人工确认事项（Goal §10）——届时携真机证据另行评审。
 
+## ADR-R8-01 ArkWeb 隔离载体：iframe 模型真机首验失败，载体选型待 P1-001a 定位后复审（Proposed→Verify）
+
+- 背景：Round 8 首次在可用设备上验证沙箱 PoC——`lexinote_sandbox_poc.html` 加载成功，但其 `sandbox="allow-scripts"` iframe 的目标文档**无任何加载请求**、探针**无任何输出**（phone/2in1、30-35s 窗口一致）。
+- 意义：RFC §3.2 的 iframe+MessageChannel 模型在 ArkWeb(API 26) 上**不可按 Chromium 语义假设**——这正是 Goal §2 预警的情形。不改变 RFC 的安全目标（独立上下文+受控通道），只把**载体选型**退回待验证状态。
+- 假说（按验证成本排序）：①PoC 宿主页 CSP 缺 `frame-src`（改动最小,先证伪）；②ArkWeb 对 sandboxed iframe 的 src 解析限制（opaque origin 的 rawfile scheme 解析差异）；③页面早期 JS 异常（探针源注入 `window.LEXI_SANDBOX_PROBE_SOURCE` 若失败,建 iframe 代码是否整体跳过——PoC 的 `runtime.ready 被 fail-closed 拒绝` 真机日志提示初始化握手顺序可能相关）。
+- 决策规则：①③属实现缺陷,修后继续 iframe 路线；②属平台限制,则出 ADR 评估替代载体（多 Web 组件实例 + createWebMessagePorts 已有 workspace 轨道真机先例），并同步修订 RFC §3.2 与 ADR-002/003 的实施描述（RFC 更新规则 §19.3:插件执行模型变更须记录）。
+- 复审条件：P1-001a 完成即定案。
+
 ## 历史决策登记（迁移自既有代码语义,防遗失）
 
 - Manifest v1 无 capabilities → `capabilitiesDeclared=false` → 跳过 T2.2 授权门且 legacy 分支放行 fs。此为兼容策略,但等于"旧插件默认高权"——P2 权限闭环须将其收敛为显式兼容权限集（RFC §18.1）。

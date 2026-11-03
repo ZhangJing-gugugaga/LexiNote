@@ -5,13 +5,15 @@
 
 | 能力 | 测试 | 层级 | 最近结果(Round 7) | 真机 | 缺口/备注 |
 |---|---|---|---|---|---|
-| 远程安装完整性闸门 (P5-001) | plugin-dist-regression §3 两条新用例 | 契约+接线 | PASS 18/18 | ✘ | 真机市场 UI 全流程归 plugin-dist-flows（B-001）；authenticity 归 P5-002 |
+| 远程安装完整性闸门 (P5-001) | plugin-dist-regression §3（19/19）+ **真机 dist-flows 四流程** | 契约+接线+**集成(设备)** | PASS；**真机 PASS(Round 8,2in1)** | ✔ | 篡改包→UI integrity_mismatch 零残留、合法哈希安装/升级/回滚/卸载全绿(证据 20261103-213058..213656)；UI"缺哈希"分支仍离线断言(设备索引无此类条目)；authenticity 归 P5-002 |
+| 发布镜像=客户端=共享校验器 三方一致 (P5-006) | plugin-dist-regression 新用例 + 镜像仓 validate.mjs | 契约 | PASS 19/19 | ✘ | --remote 实测哈希待真实 zip 资产(发布决策 B-003) |
+| 生命周期安装记账 (KI-4/P2-012) | dist-regression §6 接线断言 + 真机 flows install | 接线+**设备** | **真机 PASS(Round 8)**：onload/命令注册/data.json 全达成 | ✔ | 教训:离线 28 步测不出该缺陷——设备批次纳入常规 |
 | 索引 schema 裁决 (ArkTS=Node 双实现一致) | plugin-dist-regression §3 + plugin-market-regression | 单元/契约 | PASS 4/4, parity ok | ✘ | 新增"旧版可展示但不可信"用例 |
 | 授权矩阵 (方法→kind) | plugin-authz-matrix | 契约 | PASS | ✘ | fsAuthorizer 为 stub——capability 真实注入未测(P2-011) |
 | 权限存储/指纹 | plugin-permission-store | 单元 | PASS | ✘ | 指纹输入是字面量非真实 tagsOf(P2-002 连带) |
 | Manifest v2 解析 | plugin-manifest-v2 | 契约 | PASS | ✘ | 证明解析,不证明执行面(P2-003..007) |
-| 沙箱隔离 | plugin-context-isolation | 安全(PoC 面) | PASS | ✘ | **只测 PoC 面**;业务轨道共享 realm 未覆盖(P1-003/009) |
-| 身份面 | plugin-bridge-security | 安全(真实宿主) | PASS | ✘ | R5 未覆盖 currentToken 回落/__lexiToken 暴露(P1-006) |
+| 沙箱隔离 | plugin-context-isolation | 安全(PoC 面) | PASS(离线) / **真机 FAIL：PoC 静默(B-008)** | ✘(证据为负面) | Round 8 双实例取证:API 26 上 PoC iframe 零加载零输出——隔离载体平台验证未通过,插桩归 P1-001a；业务轨道共享 realm 未覆盖(P1-003/009) |
+| 身份面 | plugin-bridge-security | 安全(真实宿主) | PASS；**真机 hilog 佐证 fail-closed(Round 8)**：`identity.anonymous … fail_closed=true`、`authz.denied vault.files role=anonymous code=ERR_UNAUTHORIZED` 实测出现 | ✔(负面路径) | R5 未覆盖 currentToken 回落/__lexiToken 暴露(P1-006) |
 | 令牌下发一致性 | plugin-identity-delivery --strict | 静态审计 | PASS | ✘ | KNOWN_GAPS 台账 |
 | Registry 信任链 | plugin-registry-trust | 单元 | PASS | ✘ | 模块宿主零引用→需加接线断言(P5-002) |
 | 更新/回滚/降级策略 | plugin-update-policy, plugin-dist-regression §5 | 单元+真FS | PASS | ✘ | 同版本异哈希不对称未修(P5-010) |
@@ -19,7 +21,7 @@
 | 生命周期/所有权 | plugin-lifecycle-once, plugin-extension-ownership | 契约 | PASS | ✘ | quarantine 等状态不可达(P2-009) |
 | 契约三脚架/矩阵 | plugin-contract-tripod, plugin-contract-matrix | 契约 | PASS(锚点修正后) | ✘ | generate.cjs 缺陷 P0-005 |
 | SDK/CLI/Inspector/Docs | sdk-contract, lexi-cli-contract, inspector, docs-contract | 契约 | PASS | ✘ | SDK"类型检查"实为语法检查(P3-003) |
-| 市场 UI 全流程(KI-1/2/3, 安装升级回滚卸载) | plugin-dist-flows --run | 集成(设备) | **BLOCKED** | ✘ | 模拟器 00801005/OOM(B-001) |
+| 市场 UI 全流程(KI-1/2/3, 安装升级回滚卸载) | plugin-dist-flows --run | 集成(设备) | **PASS ×4(Round 8, lexi_2in1)** | ✔ | KI-1 规模档位 `--market-repro N=3..8` 仍 NOT RUN；KI-2 幽灵条目仍需真机定位(设备已可用,排 P5-008) |
 | 沙箱性能与驻留(PoC 判据) | plugin-poc-verdict | 真机判据 | NOT RUN | ✘ | 需真机 JSON 输入(B-001) |
 | HAP 构建 | hvigorw assembleHap | 构建 | **PASS**(本轮 BUILD SUCCESSFUL) | ✘ | 签名缺省(仅 unsigned) |
 | 全量门禁 | release-gate --ci | CI | **PASS 28/28** | ✘ | 无根仓库 CI 自动触发(P0-003) |
