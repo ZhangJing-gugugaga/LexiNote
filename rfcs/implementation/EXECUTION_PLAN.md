@@ -48,8 +48,8 @@ clipboard/notifications/editor 分级未接线；授权 UI 缺失（`grant/revok
 |---|---|---|---|---|---|---|
 | P2-001 | `LexiPluginManifest` 携带 v2 细粒度视图（prerequisite） | VERIFIED | P0 | — | LexiPluginManifest.ets | V4.4/V5.1 断言+真机冷启无回归 ✔(Round 11) |
 | P2-002 | 能力标签唯一正典 `capabilityTagsOfV2Caps`（两份重复实现归一）+ 指纹 SCHEMA_VERSION 升级与已授权插件迁移 | VERIFIED | P0 | P2-001 | LexiPluginRuntime.ets, LexiPluginInstaller.ets, LexiPermissionStore | **Round 11 结案**:正典函数落 V2 文件,双副本归一;指纹变化天然触发 regrant(无需迁移代码,v1 插件零打扰,真机证实);V5/P5 行为门禁 39+28 全绿 ✔ |
-| P2-003 | Broker 授权泛化：role-only 的 kind 增加 capability 维度（vault-read/editor-*/notify/storage-write） | TODO | P0 | P2-001,002 | LexiPermissionBroker | 每个 RPC 绑定授权规则；authz-matrix 覆盖未声明→拒绝 |
-| P2-004 | Vault 路径级授权（read/write paths 前缀+glob 宿主端执行） | TODO | P1 | P2-003 | fsGate/handler 层 | 越路径读写被拒并有错误码（SEC-008/009） |
+| P2-003 | Broker 授权泛化：role-only 的 kind 增加 capability 维度（vault-read/editor-*/notify/storage-write） | VERIFIED | P0 | P2-001,002 | LexiPermissionBroker.ets, LexiPluginRuntime.ets | **Round 12 结案**:capabilityGate 可选 seam(未注入=旧行为)+runtime 域映射;M2b 9 条+双 seam 独立性断言;data.* 解绑;delete 独立键 ✔ |
+| P2-004 | Vault 路径级授权（read/write paths 前缀+glob 宿主端执行） | VERIFIED | P1 | P2-003 | LexiPluginManifest.ets(vaultPathAllowed), fsGate/vaultReadGate | **Round 12 结案**:写 6 handler+rename 双端+读 2 handler 接线;V5b glob 语义 4 条;真机 v1 基线零扰动 ✔ |
 | P2-005 | Editor 分级授权（readActive/writeSelection/writeDocument） | TODO | P1 | P2-003 | editor.* handlers | 未声明 editor.write* 不能改文档 |
 | P2-006 | Network methods/请求响应字节上限执行 | TODO | P1 | P2-001 | LexiNetProbe | GET/POST 之外与超限请求拒绝 |
 | P2-007 | Storage 配额、notifications、clipboard 面接线（含反向绑定修复：只声明 storage 的 v2 插件应可用 data.json） | TODO | P1 | P2-003 | data.save, ui.notice | 配额宿主端强制；未声明即拒 |

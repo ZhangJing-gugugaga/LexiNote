@@ -550,6 +550,14 @@ test('runtime 接线：能力门禁在处理器前面，卸载/回滚/严格索�
   // 单一正典形态：fsGate(identity)。两种形态都认会让"半途回退"（一部分改回 request）蒙混过关。
   assert.ok((text.match(/\.fsGate\(identity,/g) || []).length >= 6, 'fs 门禁必须覆盖 data.save 与 vault.* 五个写入口（fsGate(identity, …) 至少 6 处）');
   assert.equal((text.match(/\.fsGate\(request\)/g) || []).length, 0, '禁止回退成 fsGate(request)：正典形态是 fsGate(identity)');
+  // P2-003/004:capability gate 注入 + 路径白名单 + data.* 解绑 + rename 双端检查。
+  assert.match(text, /new LexiPermissionBroker\(\(pluginId: string, method: string\): boolean =>[\s\S]{0,160}fsAllowedByManifest\(pluginId, method\), \(pluginId: string, method: string\): boolean =>[\s\S]{0,80}capabilityAllowedFor\(pluginId, method\)\)/,
+    'P2-003: broker 必须同时注入 fs 判定与 capability gate(两个 seam)');
+  assert.match(text, /private vaultReadGate\(/, 'P2-004: 读路径白名单 gate 必须存在');
+  assert.match(text, /fsGate\(identity, 'vault\.rename', rpcString\(request, 'newPath'\)\)/,
+    'rename 的目标路径必须同样过白名单(防借改名把内容移出范围)');
+  assert.match(text, /method === 'data\.load' \|\| method === 'data\.save'/,
+    'data.* 必须与 vault.write 解绑(storage 归属,反向绑定修复 P2-003)');
   // 真机 KI-4:运行时安装的插件在 enablePlugin 前必须经 scanPluginDir 落 installed,
   // 否则生命周期表判 discovered→starting 非法迁移,"装得上却永不 onload"。
   const scan = text.slice(text.indexOf('private async scanPluginDir('), text.indexOf('private readTextFile('));

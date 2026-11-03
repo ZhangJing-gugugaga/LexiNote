@@ -211,3 +211,39 @@
 - 下一轮：**P2-003 + P2-004**（broker capability 授权面扩展 + vault 路径级授权——首个真正消费 `manifest.v2.paths` 的执行面）。
 
 最近更新时间：2026-11-04（Round 11）。
+
+---
+
+## Round 12 — 2026-11-04（P2-003 + P2-004：capability 授权面 + vault 路径级授权）
+
+**当前 Phase：** Phase 2。`manifest.v2` 首批真实消费点上线，未声明=拒绝开始生效（仅 v2 清单；存量 v1 零扰动）。
+
+### 本轮完成
+
+1. **P2-003 broker capability seam**：`LexiPermissionBroker` 新增第二可选注入 `LexiCapabilityGate`（未注入=既有纯角色行为，旧门禁/调用方零破坏）；runtime 注入 `capabilityAllowedFor`（方法→能力域→manifest.v2：vault.read/metadata→vault.read.enabled、editor.state→readActive、editor.replace/applyChanges→writeDocument、editor.selection→writeSelection、commands.add→workspace.commands、views.add→workspace.views、codeblocks.register→editor.extensions、ui.notice→notifications）；**fs-write 与 capabilityGate 是两个独立 seam**（M2.48 断言互不干扰）；`fsAllowedByManifest` 升级为 delete 独立键（v2 只声明 write 不能删除——P0-03 收口）；**data.load/save 与 vault.write 解绑**（审计确认的反向绑定修复：只声明 storage 的 v2 插件可用自己的 data.json，v1 保持旧门）。
+2. **P2-004 路径级授权**：`LexiPluginManifest.vaultPathAllowed()` 单一正典（前缀/单段通配/跨段通配/精确；enabled=false 一律拒；空 patterns=全库）；写路径在 `fsGate(identity, method, path)`（6 handler 全接线；**rename 源与目标双检查**——防借改名把内容移出白名单）；读路径在 `vaultReadGate`（vault.read/vault.getByPath）；broker gate 判域声明 + handler 判路径——两层纵深。
+3. **门禁**：authz-matrix 新增 M2b 组 9 条（gate 放行/拒绝/按方法区分/session 豁免/未注入兼容/双 seam 独立）；manifest-v2 新增 V5b 组 4 条（glob 语义真跑，含 SEC-009 相关的"单段不跨段"）；dist-regression §6 新增 4 条接线断言（双 seam 注入、vaultReadGate、rename 双端、data.* 解绑）。
+4. **过程教训（记录）**：ArkTS doc 注释内写 `'**/*.md'` 示例——`*/` 序列把块注释提前闭合导致转译崩（已改写措辞）；gate 类测试的模块导出层是 `mod.exports` 不是外壳。
+
+### 修改文件
+
+`LexiPermissionBroker.ets`、`LexiPluginRuntime.ets`、`LexiPluginManifest.ets`、`plugin-authz-matrix.cjs`（+9）、`plugin-manifest-v2.cjs`（+4）、`plugin-dist-regression.cjs`（+4）、`tools/contract/symbols.json`（2 锚点）。
+
+### 实际执行的测试
+
+| 命令 | 结果 |
+|---|---|
+| `plugin-authz-matrix.cjs` | **PASS**（+M2b 9 条） |
+| `plugin-manifest-v2.cjs` | **PASS**（+V5b 4 条） |
+| `plugin-dist-regression.cjs` | **PASS 19/19**（+4 接线断言） |
+| `release-gate --ci` | **PASS 28/28**（锚点修正后） |
+| `hvigorw assembleHap` | **PASS** |
+| 真机冷启冒烟 | **PASS**：onload 2/2、denied=1 与基线一致、capability.path 触发 0（v1 零扰动）、无新装载失败 |
+
+### 尚存风险 / 下一轮
+
+- v2 收紧面尚无真实 v2 插件消费（设备存量全 v1）——P4-005 夹具梯需造 v2 夹具验证收紧路径的正/负例。
+- 管理面方法（ui.addRibbon/app.localStorage/settings.*）暂无 v2 键→放行（EXECUTION_PLAN 已登记待 manifest 键补齐收口）。
+- 下一轮：**P2-005（storage 配额执行）+ P2-008（权限 UI：授权清单/grant/revoke/regrant 通道）**。
+
+最近更新时间：2026-11-04（Round 12）。

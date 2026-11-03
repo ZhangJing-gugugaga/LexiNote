@@ -269,6 +269,22 @@ if (!tsPath5) { throw new Error('需要 LEXI_TYPESCRIPT'); }
   const noneAll = tagsOf(v2mod.LexiManifestV2Caps ? new v2mod.LexiManifestV2Caps() : (() => { throw new Error('x'); })());
   ok('V5.5 全默认视图只产出恒定上限标签', noneAll.length < shrink && noneAll.indexOf('editor.writeDocument') < 0 &&
     noneAll.indexOf('netreq:65536') >= 0, '未声明能力=没有能力;默认上限标签恒定(基线指纹稳定)');
+
+  // --- V5b P2-004 路径级白名单(真跑) -------------------------------------
+  const pathAllowed = manifestMod.vaultPathAllowed;
+  ok('V5.6 前缀与精确命中', pathAllowed('notes/draft/a.md', true, ['notes/draft/']) &&
+    pathAllowed('notes/a.md', true, ['notes/a.md']) && !pathAllowed('notes/other.md', true, ['notes/draft/']),
+    '目录前缀(尾 /)与精确路径两种形态');
+  ok('V5.7 单段通配不跨段', pathAllowed('notes/2024.md', true, ['notes/' + String.fromCharCode(42) + '.md']) &&
+    !pathAllowed('notes/sub/2024.md', true, ['notes/' + String.fromCharCode(42) + '.md']),
+    '星号不跨 / (SEC-009 路径穿越防线的一部分)');
+  ok('V5.8 跨段通配含零段', pathAllowed('notes/2024.md', true, ['notes/' + String.fromCharCode(42, 42) + '.md']) &&
+    pathAllowed('notes/sub/deep/2024.md', true, ['notes/' + String.fromCharCode(42, 42) + '.md']) &&
+    !pathAllowed('vault/other.md', true, ['notes/' + String.fromCharCode(42, 42) + '.md']),
+    '双星匹配任意深度含零段');
+  ok('V5.9 disabled 一律拒绝 / 空 patterns 全库', !pathAllowed('any.md', false, ['**']) &&
+    pathAllowed('any/deep/file.md', true, []),
+    'enabled=false 优先;空白名单=全库(与旧 fs 布尔语义一致)');
 }
 
 console.log('\n[summary] 通过 ' + passed + ' 项 / 失败 ' + failures.length + ' 项');

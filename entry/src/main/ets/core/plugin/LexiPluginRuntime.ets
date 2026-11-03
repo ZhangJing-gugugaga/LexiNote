@@ -17,6 +17,7 @@ import {
   manifestCompatMessage,
   parsePluginManifest,
   checkFsCapability,
+  vaultPathAllowed,
   ERROR_CAPABILITY_DENIED
 } from './LexiPluginManifest';
 import { capabilityTagsOfV2Caps } from './LexiPluginManifestV2';
@@ -746,9 +747,10 @@ export class LexiPluginManager {
     this.vault = new LexiVaultFacade();
     await this.vault.init(context);
     this.metadata = new LexiMetadataCache(this.vault);
-    // 授权矩阵的 fs 写能力注入:语义与 fsGate 同源(manifest 单一真源,归属失败 fail-closed)。
-    this.runtime.broker = new LexiPermissionBroker((pluginId: string, _method: string): boolean =>
-      this.fsAllowedByManifest(pluginId));
+    // 授权矩阵的能力注入(P2-003):fs 写判定 + 细粒度 capability gate,单一真源 manifest。
+    this.runtime.broker = new LexiPermissionBroker((pluginId: string, method: string): boolean =>
+      this.fsAllowedByManifest(pluginId, method), (pluginId: string, method: string): boolean =>
+      this.capabilityAllowedFor(pluginId, method));
     // 权限授予持久化(T2.2):重启后授权与撤销状态保留。
     this.loadPermissionStore();
     this.safeMode = (await LexiStorageService.getSetting(KEY_SAFE_MODE, 'false')) === 'true';
@@ -1461,21 +1463,25 @@ export class LexiPluginManager {
       const files = await manager.vault.getMarkdownFiles();
       return okResponse(files.map((file: LexiTFile): Record<string, Object> => fileToJson(file)) as Object);
     });
-    runtime.registerHandler('vault.getByPath', async (payload: string): Promise<string> => {
+    runtime.registerHandler('vault.getByPath', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
+      const readGate = manager.vaultReadGate(identity, rpcString(request, 'path'));
+      if (readGate) { return readGate; }
       const node = manager.vault.getAbstractFileByPath(rpcString(request, 'path'));
       if (!node) { return okResponse(null); }
       return okResponse(node.kind === 'file' ? fileToJson(node as LexiTFile) : folderToJson(node as LexiTFolder));
     });
-    runtime.registerHandler('vault.read', async (payload: string): Promise<string> => {
+    runtime.registerHandler('vault.read', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
+      const readGate = manager.vaultReadGate(identity, rpcString(request, 'path'));
+      if (readGate) { return readGate; }
       const file = manager.vault.getFileByPath(rpcString(request, 'path'));
       if (!file) { return failResponse('文件不存在'); }
       return okResponse(await manager.vault.read(file));
     });
     runtime.registerHandler('vault.modify', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
-      const gate = manager.fsGate(identity, 'vault.modify');
+      const gate = manager.fsGate(identity, 'vault.modify', rpcString(request, 'path'));
       if (gate) { return gate; }
       const file = manager.vault.getFileByPath(rpcString(request, 'path'));
       if (!file) { return failResponse('文件不存在'); }
@@ -1495,14 +1501,14 @@ export class LexiPluginManager {
     });
     runtime.registerHandler('vault.create', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
-      const gate = manager.fsGate(identity, 'vault.create');
+      const gate = manager.fsGate(identity, 'vault.create', rpcString(request, 'path'));
       if (gate) { return gate; }
       const file = await manager.vault.create(rpcString(request, 'path'), rpcString(request, 'data'));
       return okResponse(fileToJson(file));
     });
     runtime.registerHandler('vault.delete', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
-      const gate = manager.fsGate(identity, 'vault.delete');
+      const gate = manager.fsGate(identity, 'vault.delete', rpcString(request, 'path'));
       if (gate) { return gate; }
       const file = manager.vault.getFileByPath(rpcString(request, 'path'));
       if (!file) { return failResponse('文件不存在'); }
@@ -1511,8 +1517,11 @@ export class LexiPluginManager {
     });
     runtime.registerHandler('vault.rename', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
-      const gate = manager.fsGate(identity, 'vault.rename');
+      // P2-004:rename 的源与目标路径都必须落在白名单内(否则可借改名把内容移出范围)。
+      const gate = manager.fsGate(identity, 'vault.rename', rpcString(request, 'path'));
       if (gate) { return gate; }
+      const gateNew = manager.fsGate(identity, 'vault.rename', rpcString(request, 'newPath'));
+      if (gateNew) { return gateNew; }
       const file = manager.vault.getFileByPath(rpcString(request, 'path'));
       if (!file) { return failResponse('文件不存在'); }
       await manager.vault.rename(file, rpcString(request, 'newPath'));
@@ -1520,7 +1529,7 @@ export class LexiPluginManager {
     });
     runtime.registerHandler('vault.append', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
-      const gate = manager.fsGate(identity, 'vault.append');
+      const gate = manager.fsGate(identity, 'vault.append', rpcString(request, 'path'));
       if (gate) { return gate; }
       const file = manager.vault.getFileByPath(rpcString(request, 'path'));
       if (!file) { return failResponse('文件不存在'); }
@@ -1717,12 +1726,38 @@ export class LexiPluginManager {
     return ok;
   }
 
-  /** broker 的 fs 写能力判定核心:归属失败 fail-closed,v1 清单沿用 legacy 语义。 */
-  private fsAllowedByManifest(pluginId: string): boolean {
+  /** broker 的 fs 写能力判定核心(P2-003):归属失败 fail-closed;v1 legacy;v2 细粒度(delete 独立键)。 */
+  private fsAllowedByManifest(pluginId: string, method: string): boolean {
     const manifest: LexiPluginManifest | null = this.manifestFor(pluginId);
     if (manifest === null) { return false; }
+    if (manifest.manifestVersion === 2) {
+      // RFC §4.4:vault.delete 是独立声明键——只声明 write 不等于可删除(P0-03 收口)。
+      return method === 'vault.delete' ? manifest.v2.vault.delete : manifest.v2.vault.write.enabled;
+    }
     const decision: LexiCapabilityDecision = checkFsCapability(manifest);
     return decision.allowed;
+  }
+
+  /**
+   * P2-003:细粒度 capability 判定(方法→能力域→manifest.v2),注入 broker。
+   * v1/legacy 清单恒 true(旧权限不自动细粒度化,§8.2);无 v2 键的管理面方法暂放行
+   * (缺口登记:P2-008 权限 UI 轮补 manifest 键后收口);data.* 归 storage 域由 fsGate 处理。
+   */
+  private capabilityAllowedFor(pluginId: string, method: string): boolean {
+    const manifest: LexiPluginManifest | null = this.manifestFor(pluginId);
+    if (manifest === null) { return false; }
+    if (manifest.manifestVersion !== 2) { return true; }
+    const caps = manifest.v2;
+    if (method === 'vault.files' || method === 'vault.getByPath' || method === 'vault.read' ||
+      method.indexOf('metadata.') === 0) { return caps.vault.read.enabled; }
+    if (method === 'editor.state') { return caps.editor.readActive; }
+    if (method === 'editor.replace' || method === 'editor.applyChanges') { return caps.editor.writeDocument; }
+    if (method === 'editor.selection') { return caps.editor.writeSelection; }
+    if (method === 'commands.add') { return caps.workspace.commands; }
+    if (method === 'views.add') { return caps.workspace.views; }
+    if (method === 'codeblocks.register') { return caps.editor.extensions !== 'none'; }
+    if (method === 'ui.notice') { return caps.notifications; }
+    return true;
   }
 
   /**
@@ -1741,17 +1776,52 @@ export class LexiPluginManager {
    * 身份只认令牌解析结果:归属不到已安装插件时一律 fail-closed(不再套用 v1 清单默认值),
    * 否则"认不出是谁"就成了最省事的越权通道。
    */
-  private fsGate(identity: string, method: string): string {
+  private fsGate(identity: string, method: string, path: string = ''): string {
     const manifest: LexiPluginManifest | null = this.manifestFor(identity);
     if (manifest === null) {
       pluginError('capability.fs method=' + method + ' identity=' + (identity.length > 0 ? identity : '(none)') +
         ' allowed=false fail_closed=true detail=调用方无法归属到已安装插件');
       return failResponseCode(ERROR_CAPABILITY_DENIED, 'fs: 调用方无法归属到已安装插件（fail-closed）');
     }
+    // P2-003:插件数据存储不再误绑 vault.write(审计确认的反向绑定——只声明 storage 的
+    // v2 插件曾无法读写自己的 data.json)。data.* 归 storage 域,配额执行在 P2-005;
+    // v1 清单保持旧门(有 fs 声明才可写,存量语义不变)。
+    if (method === 'data.load' || method === 'data.save') {
+      if (manifest.manifestVersion === 2) { return ''; }
+      const legacyStorage: LexiCapabilityDecision = checkFsCapability(manifest);
+      if (legacyStorage.allowed) { return ''; }
+      pluginError('capability.storage method=' + method + ' identity=' + identity +
+        ' allowed=false detail=' + legacyStorage.detail);
+      return failResponseCode(legacyStorage.code, legacyStorage.kind + ': ' + legacyStorage.detail);
+    }
+    // P2-004(RFC §4.4):v2 清单的写路径白名单(vault.write.paths;空=全库,与旧 fs 布尔一致)。
+    if (manifest.manifestVersion === 2 && path.length > 0 &&
+      !vaultPathAllowed(path, manifest.v2.vault.write.enabled, manifest.v2.vault.write.paths)) {
+      pluginError('capability.path method=' + method + ' identity=' + identity + ' path=' + path +
+        ' allowed=false detail=路径不在 vault.write.paths 白名单');
+      return failResponseCode(ERROR_CAPABILITY_DENIED, 'fs: 路径不在 vault.write.paths 白名单: ' + path);
+    }
     const decision: LexiCapabilityDecision = checkFsCapability(manifest);
     if (decision.allowed) { return ''; }
     pluginError('capability.fs method=' + method + ' identity=' + identity + ' allowed=false detail=' + decision.detail);
     return failResponseCode(decision.code, decision.kind + ': ' + decision.detail);
+  }
+
+  /** P2-004:v2 读路径白名单(vault.read.paths);v1/legacy 无此维度放行(域声明由 broker gate 判定)。 */
+  private vaultReadGate(identity: string, path: string): string {
+    const manifest: LexiPluginManifest | null = this.manifestFor(identity);
+    if (manifest === null || manifest.manifestVersion !== 2) { return ''; }
+    if (!manifest.v2.vault.read.enabled) {
+      pluginError('capability.read method=vault.read identity=' + identity +
+        ' allowed=false detail=清单未声明 vault.read');
+      return failResponseCode(ERROR_CAPABILITY_DENIED, 'fs: 清单未声明 vault.read');
+    }
+    if (!vaultPathAllowed(path, true, manifest.v2.vault.read.paths)) {
+      pluginError('capability.path method=vault.read identity=' + identity + ' path=' + path +
+        ' allowed=false detail=路径不在 vault.read.paths 白名单');
+      return failResponseCode(ERROR_CAPABILITY_DENIED, 'fs: 路径不在 vault.read.paths 白名单: ' + path);
+    }
+    return '';
   }
 
   /**

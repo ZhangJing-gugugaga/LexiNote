@@ -1,8 +1,25 @@
 # RELEASE_READINESS — 发布就绪清单
 
-结论（2026-11-03, Round 8）：**公开插件市场不得开放**（ADR-015/RFC §16）。开发/侧载链路可用。
-事实修正:发布仓 `lexinote-releases` 在 GitHub 上并不存在(历史默认市场 URL 一直 404),"开放市场"=新建公开仓库,决策门槛见 B-003。
-分发链真机状态(2026-11-03 21:30+):fail-closed 哈希闸门、安装/升级/回滚/卸载四流程**真机 VERIFIED**;阻断项 1 关闭。
+## RFC 基线对照校验(用户要求的"基于最开始的文档校验",第一遍 2026-11-04 Round 12)
+
+对照 `rfcs/third-party-plugin-ecosystem-rfc.md` §1.2 已确认架构问题逐条复核:
+
+| RFC 条目 | Round 7 审计判定 | Round 8-12 后现状 | 证据 |
+|---|---|---|---|
+| P0-01 业务插件未进沙箱(共享 realm `new Function`) | 证实(且低估:两条轨道) | **未修**(Phase 1 主体 P1-003 待做);但载体可行性已真机定案(ADR-R9-01),身份面先行收口 | B-008 关闭记录;MODULE_MAP |
+| P0-02 身份令牌暴露面 | 部分证实 | **已收口**(ADR-R10-01):回落 fail-closed/WeakMap/手工入口删除/restore 修复;残余 `__receive` 面登记 P1-006b | bridge-security 34/34;真机四流程链 |
+| P0-03 Manifest v2 能力未进授权链 | 证实(且更糟) | **主体已修**:P2-001 透传+P2-002 标签正典+P2-003 broker capability+P2-004 路径级+delete 独立键+data 解绑;**残余**:storage 配额执行(P2-005)、notifications/clipboard 执行面已有 gate(data)、管理面方法缺 v2 键(已登记) | manifest-v2 39、authz-matrix M2b、dist-regression |
+| P0-04 Registry Trust 未进市场主流程 | 证实(现行) | **部分修**:fail-closed 哈希闸门真机 VERIFIED(P5-001)、发布镜像严格 v1(P5-006);**TUF/签名 authenticity 未接(P5-002,依赖 B-002 密钥决策)** | dist-flows 四流程;发布仓 |
+| P1-01 Obsidian 兼容不足 | 证实 | 未动(P4 阶段任务) | EXECUTION_PLAN P4-* |
+| P1-02 SDK 未独立发行 | 证实 | 未动(P3 阶段任务) | 同上 |
+| P1-03 文档不在 Git | 证实 | **部分修**:RFC+工程记录已入 Git;八篇开发者文档仍在 docs/(P0-004) | rfcs/ |
+| P1-04 市场 UI 真机问题 KI-1/2/3 | 证实 | 未修;新增 KI-4 已修;真机批次恢复 | known-issues.md |
+
+RFC §17.1 安全量化 DoD 现状:RPC 进权限矩阵 ✔(M1.2/1.3 对账+capability 域);敏感 RPC 正负用例 ✔(authz-matrix+V5b);插件可读会话凭据 **0**(P1-006 后);跨插件资源操作 **0**(plugin-owned 原有+M2 组);指纹 Schema 一致 ✔;卸载上下文销毁 **部分**(P1-008 待做);撤销立即生效 **部分**(store 层 ✔,通道失效 P2-010 待做)。
+
+结论(同前):公开市场不得开放;开发/侧载链路可用且已大幅收紧。
+
+## 门禁状态
 
 ## 门禁状态
 

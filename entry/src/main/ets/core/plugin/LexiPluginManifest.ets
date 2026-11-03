@@ -325,3 +325,58 @@ export function checkClipboardCapability(manifest: LexiPluginManifest | null): L
   if (manifest.capabilities.clipboard) { return allowed('clipboard', 'capabilities.clipboard=true'); }
   return denied('clipboard', '插件未声明 capabilities.clipboard');
 }
+
+/**
+ * P2-004(RFC §4.4)·vault 路径级授权匹配(宿主端执行,插件 SDK 侧的检查只是提示)。
+ * 语义:enabled=false → 一律拒绝;patterns 为空 → 全库(与旧 fs 布尔语义一致);
+ * 任一规则命中即放行。规则形态(示例中"星"代指星号字符,注释内不写字面星号斜杠序列):
+ *   'notes/draft/'    目录前缀;
+ *   'notes'(星).md    单段通配——星号不跨 '/';
+ *   'notes'(双星).md  跨段通配——双星匹配任意深度含零段;
+ *   'notes/a.md'      精确。
+ * 入参 path 由调用方按 normalizePath 语义给定(相对、'/' 分隔);本函数容忍前导 '/'。
+ * P2-003 落点:写路径在 fsGate、读路径在 vaultReadGate,broker gate 只判域声明——两层纵深。
+ */
+export function vaultPathAllowed(path: string, enabled: boolean, patterns: string[]): boolean {
+  if (!enabled) { return false; }
+  if (patterns.length === 0) { return true; }
+  const target = path.replace(/^\//, '');
+  for (const raw of patterns) {
+    const rule = raw.replace(/^\//, '');
+    if (rule.length === 0) { continue; }
+    if (rule.indexOf('*') < 0) {
+      if (target === rule) { return true; }
+      if (rule.charAt(rule.length - 1) === '/' && target.indexOf(rule) === 0) { return true; }
+      continue;
+    }
+    if (vaultPathMatchesGlob(target, rule)) { return true; }
+  }
+  return false;
+}
+
+/** glob → RegExp:'**' 跨段(可带尾 '/' 一起吃),'*'/'?' 单段,其余字符按字面量转义。 */
+function vaultPathMatchesGlob(target: string, rule: string): boolean {
+  let source = '^';
+  for (let i = 0; i < rule.length; i++) {
+    const ch = rule.charAt(i);
+    if (ch === '*') {
+      if (rule.charAt(i + 1) === '*') {
+        if (rule.charAt(i + 2) === '/') {
+          source += '(?:.*/)?';
+          i += 2;
+        } else {
+          source += '.*';
+          i += 1;
+        }
+      } else {
+        source += '[^/]*';
+      }
+    } else if (ch === '?') {
+      source += '[^/]';
+    } else {
+      source += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    }
+  }
+  const pattern = new RegExp(source + '$');
+  return pattern.test(target);
+}

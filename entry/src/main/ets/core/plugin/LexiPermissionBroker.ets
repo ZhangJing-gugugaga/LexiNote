@@ -55,12 +55,22 @@ export class LexiAuthzDecision {
 /** fs 写能力判定器：由宿主注入（fsGate 语义），返回 true=放行。 */
 export type LexiFsAuthorizer = (pluginId: string, method: string) => boolean;
 
+/**
+ * P2-003(RFC §4.3):细粒度 capability 判定器,由宿主注入。
+ * 语义:返回 true=该插件对此方法的 capability 域已声明。宿主实现读 manifest.v2
+ * (v1/legacy 清单恒 true——旧权限不自动细粒度化);未注入时 broker 保持既有行为
+ * (纯角色判定),旧调用方与门禁场景零破坏。
+ */
+export type LexiCapabilityGate = (pluginId: string, method: string) => boolean;
+
 export class LexiPermissionBroker {
   private readonly matrix: Map<string, string> = new Map<string, string>();
   private readonly fsAuthorizer: LexiFsAuthorizer;
+  private readonly capabilityGate: LexiCapabilityGate | null = null;
 
-  constructor(fsAuthorizer: LexiFsAuthorizer) {
+  constructor(fsAuthorizer: LexiFsAuthorizer, capabilityGate?: LexiCapabilityGate) {
     this.fsAuthorizer = fsAuthorizer;
+    this.capabilityGate = capabilityGate === undefined ? null : capabilityGate;
     const matrix = this.matrix;
     // --- public：握手与生命周期回报（匿名可信度 = 零，但流程必须能走通） ---
     const publicMethods: string[] = [
@@ -146,6 +156,14 @@ export class LexiPermissionBroker {
     return decision;
   }
 
+  /** P2-003:capability 域校验(仅约束插件身份;会话=容器全权不受 gate 影响)。 */
+  private capabilityDenied(decision: LexiAuthzDecision, ctx: LexiCallerContext, method: string): LexiAuthzDecision | null {
+    if (ctx.role !== 'plugin') { return null; }
+    if (this.capabilityGate === null) { return null; }
+    if (this.capabilityGate(ctx.pluginId, method)) { return null; }
+    return this.deny(decision, 'ERR_PERMISSION_DENIED', 'capability: 清单未声明该能力域: ' + method);
+  }
+
   /**
    * 唯一授权入口。resource 在所有权敏感的方法上必须携带当前归属；
    * 归属为空时插件一律拒绝（会话可代管），即"不能删除看不清主人的东西"。
@@ -169,6 +187,8 @@ export class LexiPermissionBroker {
     }
     if (kind === 'ui-domain' || kind === 'fs-read') {
       if (ctx.role === 'session' || this.isPlugin(ctx)) {
+        const gateDenial = this.capabilityDenied(decision, ctx, method);
+        if (gateDenial !== null) { return gateDenial; }
         return this.allow(decision, kind + ' 对已认证调用方放行');
       }
       return this.deny(decision, 'ERR_UNAUTHORIZED', '匿名调用无权访问 ' + kind + ' 方法: ' + method);
@@ -186,6 +206,12 @@ export class LexiPermissionBroker {
     if (kind === 'editor-write' || kind === 'register' || kind === 'plugin-storage' ||
       kind === 'plugin-source' || kind === 'net' || kind === 'demo-plugin') {
       if (this.isPlugin(ctx)) {
+        // P2-003:plugin-source/net/demo 的域判定在别处(LexiNetProbe 白名单等),
+        // capability gate 只约束 editor-write/register/plugin-storage 三类可声明域。
+        if (kind === 'editor-write' || kind === 'register' || kind === 'plugin-storage') {
+          const gateDenial = this.capabilityDenied(decision, ctx, method);
+          if (gateDenial !== null) { return gateDenial; }
+        }
         return this.allow(decision, kind + ' 对插件身份放行');
       }
       return this.deny(decision, 'ERR_UNAUTHORIZED',

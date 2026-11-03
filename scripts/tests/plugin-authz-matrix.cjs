@@ -162,6 +162,32 @@ if (broker) {
   ok('M2.32 插件+data.load 放行', verdict('plugin', 'plug-a', 'data.load').allowed);
   ok('M2.33 会话+data.save 拒绝', !verdict('session', '', 'data.save').allowed);
   ok('M2.34 会话+plugin.sourceChunk 拒绝', !verdict('session', '', 'plugin.sourceChunk').allowed);
+
+  // --- M2b P2-003 capability gate seam(第二 broker 实例,注入 gate) ----------------
+  // 主 broker 未注入 gate(M2.25 等)→ 既有行为保持;注入后插件角色按 manifest.v2 域判定。
+  section('M2b capability gate(P2-003 seam)');
+  const gatedBroker = new brokerMod.LexiPermissionBroker(
+    (pluginId, method) => pluginId === 'fs-plugin',
+    (pluginId, method) => pluginId === 'cap-ok' ||
+      (pluginId === 'cap-partial' && (method === 'vault.read' || method === 'editor.replace')));
+  const gverdict = (pluginId, method) => gatedBroker.authorize(ctxOf('plugin', pluginId), method);
+  ok('M2.40 gate 放行 → fs-read 通过', gverdict('cap-ok', 'vault.read').allowed);
+  ok('M2.41 gate 拒绝 → ERR_PERMISSION_DENIED 且原因点明 capability',
+    !gverdict('cap-no', 'vault.read').allowed &&
+    gverdict('cap-no', 'vault.read').code === 'ERR_PERMISSION_DENIED' &&
+    gverdict('cap-no', 'vault.read').reason.indexOf('capability:') === 0,
+    gverdict('cap-no', 'vault.read').reason);
+  ok('M2.42 gate 按方法区分(vault.read 过,editor.state 拒)',
+    gverdict('cap-partial', 'vault.read').allowed && !gverdict('cap-partial', 'editor.state').allowed);
+  ok('M2.43 gate 拒绝 ui.notice(notifications 域)', !gverdict('cap-no', 'ui.notice').allowed);
+  ok('M2.44 gate 拒绝 register(commands.add)', !gverdict('cap-no', 'commands.add').allowed);
+  ok('M2.45 gate 拒绝 plugin-storage(data.save)', !gverdict('cap-no', 'data.save').allowed);
+  ok('M2.46 会话不受 gate 影响(容器全权)',
+    gatedBroker.authorize(ctxOf('session', ''), 'vault.read').allowed &&
+    gatedBroker.authorize(ctxOf('session', ''), 'ui.notice').allowed);
+  ok('M2.47 gate 未注入 → 既有纯角色行为保持(M2.25 同例)', verdict('plugin', 'plug-a', 'editor.replace').allowed);
+  ok('M2.48 fs-write 仍走 fsAuthorizer(与 capabilityGate 两个 seam 互不干扰)',
+    gverdict('fs-plugin', 'vault.modify').allowed && !gverdict('cap-ok', 'vault.modify').allowed);
   // 注册域：仅插件
   ok('M2.35 插件+commands.add 放行', verdict('plugin', 'plug-a', 'commands.add').allowed);
   ok('M2.36 会话+commands.add 拒绝', !verdict('session', '', 'commands.add').allowed);
