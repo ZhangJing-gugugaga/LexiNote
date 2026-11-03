@@ -158,6 +158,8 @@ function failResponseCode(code: string, error: string): string {
 /** ArkWeb transport. The Web component exposes `call` as `lexiHost` inside the runtime page. */
 export class LexiWebRuntime {
   private controller: webview.WebviewController | null = null;
+  /** P1-003b 方案 B:沙箱容器页 controller(manager 登记后 sandbox.boot 走本页)。 */
+  sandboxController: webview.WebviewController | null = null;
   private handlers: Map<string, (payloadJson: string, identity: string, token: string) => Promise<string>> = new Map();
   private ready: boolean = false;
   private readyWaiters: Array<() => void> = [];
@@ -335,8 +337,8 @@ export class LexiWebRuntime {
    * (样本级源码直传当前可行,见 dispatch 注释的体积经验)。
    */
   async dispatchSandboxBoot(payloadJson: string): Promise<void> {
-    if (!this.controller) { throw new Error('runtime controller 未就绪'); }
-    await this.controller.runJavaScript('window.lexiContainerBoot(' + payloadJson + ');');
+    if (!this.sandboxController) { throw new Error('沙箱容器未就绪(方案 B 组件未挂载)'); }
+    await this.sandboxController.runJavaScript('window.lexiContainerBoot(' + payloadJson + ');');
     pluginLog('sandbox.boot dispatched');
   }
 
@@ -422,6 +424,19 @@ class LexiHttpTransport implements LexiNetTransport {
   }
 }
 
+/** P1-003b 方案 B:沙箱容器页 javaScriptProxy 面——call(frameJson) 转交网关。 */
+export class LexiSandboxProxyFace {
+  private ownerRef: LexiPluginManager | null = null;
+
+  bind(owner: LexiPluginManager): void {
+    this.ownerRef = owner;
+  }
+
+  call(frameJson: string): void {
+    if (this.ownerRef) { this.ownerRef.handleSandboxProxyCall(frameJson); }
+  }
+}
+
 export class LexiPluginManager {
   private static instanceRef: LexiPluginManager | null = null;
 
@@ -440,6 +455,10 @@ export class LexiPluginManager {
   /** P1-003a(ADR-R18-01):沙箱执行上下文注册表——端口 RPC 的身份真源。 */
   readonly contextRegistry: LexiContextRegistry = new LexiContextRegistry();
   private contextPort: webview.WebMessagePort | null = null;
+  /** P1-003b 方案 B:沙箱容器页 controller(attachSandboxController 登记后沙箱轨可用)。 */
+  private sandboxController: webview.WebviewController | null = null;
+  /** P1-003b 方案 B:容器页 javaScriptProxy 面(组件注册用)。 */
+  readonly sandboxProxy: LexiSandboxProxyFace = new LexiSandboxProxyFace();
   /** 视图会话表(T2.4):open/close/reopen 记账,重开状态恢复正常。 */
   readonly viewSessions: LexiViewSessionTable = new LexiViewSessionTable();
 
@@ -782,6 +801,8 @@ export class LexiPluginManager {
     this.runtime.broker = new LexiPermissionBroker((pluginId: string, method: string): boolean =>
       this.fsAllowedByManifest(pluginId, method), (pluginId: string, method: string): boolean =>
       this.capabilityAllowedFor(pluginId, method));
+    // P1-003b 方案 B:沙箱容器页 proxy 绑定(容器组件经 javaScriptProxy.sandboxHost.call 进网关)。
+    this.sandboxProxy.bind(this);
     // 权限授予持久化(T2.2):重启后授权与撤销状态保留。
     this.loadPermissionStore();
     this.safeMode = (await LexiStorageService.getSetting(KEY_SAFE_MODE, 'false')) === 'true';
@@ -802,8 +823,8 @@ export class LexiPluginManager {
     const bundledInit = await LexiStorageService.getSetting('lexiPluginBundledInit', 'false');
     if (bundledInit !== 'true' && !this.safeMode && this.plugins.has('lexi-sample-plugin')) {
       this.enabledIds.add('lexi-sample-plugin');
-      // sandbox-probe 不自动启用:其最小面依赖沙箱轨(ADR-R21-02,默认关),旧轨装载会失败。
-      // 设备验证经由设置页手动启用或 flows 批次。
+      // P1-003b 方案 B:沙箱探针随首启启用(容器页就绪即走沙箱轨;失败仅 errorState 无系统影响)。
+      if (this.plugins.has('sandbox-probe')) { this.enabledIds.add('sandbox-probe'); }
       await LexiStorageService.setSetting('lexiPluginBundledInit', 'true');
       pluginLog('首次运行:自动启用官方示范插件');
     }
@@ -1753,6 +1774,79 @@ export class LexiPluginManager {
     pluginLog('context port attached(页面侧 window.lexiContextPort);帧裁决走 contextRegistry+broker');
   }
 
+  // ------------------------------------------------------------- 沙箱容器(方案 B, ADR-R21-02)
+
+  /** 方案 B:等待容器页 controller 登记(onPageEnd 竞态兜底);100ms 步长轮询。 */
+  private async waitForSandboxContainer(timeoutMs: number): Promise<boolean> {
+    const deadline = new Date().getTime() + timeoutMs;
+    while (new Date().getTime() < deadline) {
+      if (this.sandboxController !== null) { return true; }
+      await new Promise<string>((resolve: (value: string) => void): void => {
+        setTimeout((): void => { resolve('tick'); }, 100);
+      });
+    }
+    return this.sandboxController !== null;
+  }
+
+  /** P1-003b 方案 B:沙箱容器页 javaScriptProxy 面(call(frameJson) → 网关)。 */
+  attachSandboxController(controller: webview.WebviewController): void {
+    this.sandboxController = controller;
+    this.runtime.sandboxController = controller;
+    pluginLog('sandbox container controller attached(方案 B 容器页就绪)');
+  }
+
+  /** 方案 B 入口:容器页 proxy 的同步递交(adjudicate → broker → 异步 handler → 回推 inbox)。 */
+  handleSandboxProxyCall(frameJson: string): void {
+    let wrapped: Record<string, Object> = {};
+    try { wrapped = JSON.parse(frameJson) as Record<string, Object>; } catch (error) { return; }
+    const contextId: string = typeof wrapped['contextId'] === 'string' ? wrapped['contextId'] as string : '';
+    const innerFrame: Object | undefined = wrapped['frame'];
+    if (contextId.length === 0 || typeof innerFrame !== 'string') { return; }
+    const gateway = this.contextRegistry.adjudicate(contextId, innerFrame);
+    if (!gateway.ok) {
+      pluginError('context.rpc contextId=' + contextId + ' allowed=false code=' + gateway.code +
+        ' detail=' + gateway.error);
+      this.dispatchSandboxResponse(contextId, this.contextRegistry.buildErrorFrame(gateway.code, gateway.error));
+      return;
+    }
+    const record: HostContextRecord | null = this.contextRegistry.recordOf(contextId);
+    if (record === null) { return; }
+    const authz = this.runtime.broker.authorize(this.contextRegistry.contextOf(record), gateway.method, null);
+    if (!authz.allowed) {
+      pluginError('context.rpc identity=' + gateway.identity + ' method=' + gateway.method +
+        ' allowed=false code=' + authz.code + ' detail=' + authz.reason);
+      this.dispatchSandboxResponse(contextId, this.contextRegistry.buildErrorFrame(authz.code, authz.reason));
+      return;
+    }
+    // 身份进入既有调用链:credential = tokenForPlugin(记录身份),与 javaScriptProxy 路径一致。
+    const credential = this.runtime.tokenForPlugin(gateway.identity);
+    this.runtime.call('sbx-' + gateway.requestId, gateway.method, gateway.payloadJson, credential)
+      .then((responseJson: string): void => {
+        this.dispatchSandboxResponse(contextId,
+          this.contextRegistry.buildResponseFrame(gateway.requestId, true, responseJson, '', ''));
+      })
+      .catch((error: Object): void => {
+        this.dispatchSandboxResponse(contextId,
+          this.contextRegistry.buildErrorFrame('context_handler_failed', String(error)));
+      });
+  }
+
+  /** 响应帧回推容器页 inbox(runJavaScript;宿主→页方向,久经验证通道)。 */
+  private dispatchSandboxResponse(contextId: string, frameJson: string): void {
+    if (!this.sandboxController) { return; }
+    try {
+      const frame = JSON.parse(frameJson) as Record<string, Object>;
+      const wrapped: Record<string, Object> = {
+        'contextId': contextId as Object,
+        'frame': frame as Object
+      };
+      // 页函数期望字符串参数:二次 JSON 编码得到合法 JS 字符串字面量(对象字面量会被页侧当成 object)。
+      this.sandboxController.runJavaScript('window.sandboxHostInbox(' + JSON.stringify(JSON.stringify(wrapped)) + ');');
+    } catch (error) {
+      pluginError('sandbox response 回推失败: ' + String(error));
+    }
+  }
+
   /** P1-003a:端口帧 → contextId 反查 → 既有 broker/能力门 → 既有 handler → §3.4 响应帧。 */
   handleContextPortFrame(data: string): void {
     pluginLog('port frame in bytes=' + data.length);
@@ -2102,8 +2196,13 @@ export class LexiPluginManager {
       // Round 21 发现:runtime 宿主页上 iframe→parent 与容器页 MessageChannel 两条跨帧
       // 回路均静默丢帧(真机证据链 r21h/r21i2/r21j;PoC 独立页同代码双向通)——沙箱容器迁往
       // 独立 Web 组件(方案 B,ADR-R21-02)前,此轨由运行开关显式启用,默认回落旧轨。
-      const sandboxTrackOn = (await LexiStorageService.getSetting('lexiPluginSandboxTrack', 'false')) === 'true';
+      const sandboxTrackOn = this.sandboxController !== null ||
+        (await LexiStorageService.getSetting('lexiPluginSandboxTrack', 'false')) === 'true';
       if (record.manifest.sandboxService && sandboxTrackOn) {
+        // 容器页 onPageEnd 的 attach 可能晚于 runtime.ready(竞态,Round 22 真机实测):
+        // 短等待直至控制器登记;超时按 fail-closed 拒装(声明沙箱的插件不悄悄跑旧轨)。
+        const containerReady = await this.waitForSandboxContainer(5000);
+        if (!containerReady) { throw new Error('沙箱容器未就绪(等待超时)'); }
         const contextRecord = this.contextRegistry.ensureService(pluginId, activationId);
         const sandboxBoot: Record<string, Object> = {
           'contextId': contextRecord.contextId as Object,

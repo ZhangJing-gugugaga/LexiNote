@@ -29,7 +29,7 @@
 | P1-001a | 沙箱 PoC 静默根因插桩定位 | **VERIFIED** | P0 | — | poc.html/js, sandbox.html, probe.js, context-isolation 门禁 | **Round 9 结案**：三根因(内联 CSP 拦杀/标记缺失/探针 frames[0] 假阳性)修复,真机 `verdict PASS contexts=2/2 vectors=20/20 blocked credentialHits=0` ✔ |
 | P1-002 | 正式执行上下文模型定案（contextId×kind、port↔身份绑定落点）+ ADR | VERIFIED | P0 | P1-001 | LexiPluginExecutionContext, LexiPluginLifecycleManager | **Round 18 定案(ADR-R18-01)**:身份四元组+contextRegistry 端口表+既有 broker 复用+两轨策略+回退备选 ✔ |
 | P1-003a | contextRegistry + 端口 RPC 网关（宿主侧:HostContextRecord/反查/喂既有 broker;离线可测） | **VERIFIED** | P0 | P1-002 | LexiContextRegistry.ets(新), RuntimeHost 端口实装, runtime 集成 | **Round 20 结案**:端口对真机建立(page-side attached)+enable 注册/disable 吊销接线+帧裁决链复用 call();门禁 15 项+29/29 ✔ |
-| P1-003b | 沙箱页插件 API 面(obsidian namespace 端口化重建;CSP unsafe-eval 仅 iframe) | BLOCKED | P0 | P1-003a, B-009 | rawfile sandbox html(container+bootPlugin 就绪), shim 拆分 | **Round 21 切片**:容器/bootPlugin/最小面代码就绪,真机贯通至 bootPlugin;**runtime 页跨帧通道缺陷(B-009)→方案 B(ADR-R21-02)迁移后继续** |
+| P1-003b | 沙箱页插件 API 面(obsidian namespace 端口化重建;CSP unsafe-eval 仅 iframe) | IN_PROGRESS(第一切片 VERIFIED) | P0 | P1-003a | sandbox host html+container+bootPlugin(就绪) | Round 22 方案 B 全链真机贯通：onload+data 往返铁证(data.json=marker ok)；B-009 解除；obsidian 面扩容与 sample 完整迁移为后续切片 |
 | P1-003c | 构建期 CommonJS→IIFE + 宿主页面 CSP 收紧（移除 unsafe-eval） | TODO | P0 | P1-003b | tools/lexi-cli, template, runtime.html CSP | 宿主页面无 eval;S20 类断言覆盖 runtime 页 |
 | P1-003d | 真实业务插件迁移验收（lexi-sample/calendar 真机 + SEC 探针进业务路径） | TODO | P0 | P1-003a..c | 设备批次 | RFC §3.6 验收表通过;旧共享 realm 路径停用 |
 | P1-004 | Workspace 轨道收敛：插件执行面从编辑器页面剥离/同构接入 | TODO | P0 | P1-002, P1-003a, P1-003b | LexiWorkspacePage, WorkspaceBridge, lexinote_workspace_shim.js | 编辑器页不再直接求值第三方代码，或该面进入 Trusted 策略 |

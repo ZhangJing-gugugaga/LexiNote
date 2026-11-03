@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <!-- P1-003b 方案 B(ADR-R21-02)·沙箱容器页(独立 Web 组件,LexiSandboxHost 同构形态)。
+       通道选型全部使用真机已验证机制:
+         - 页内 iframe↔本页:window.postMessage(双向,PoC Round 9 verdict 全程验证);
+         - 本页→ArkTS:javaScriptProxy 'sandboxHost'.call(同步,Track1 久经验证);
+         - ArkTS→本页:runJavaScript 'window.sandboxHostInbox(...)'(Track1 久经验证)。
+       身份仍由宿主侧 LexiContextRegistry 反查;iframe 永不自报 contextId(容器覆写)。 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; child-src 'self'; frame-src 'self'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>lexinote-sandbox-host</title>
+  <script src="lexinote_sandbox_container.js"></script>
+</head>
+<body></body>
+</html>

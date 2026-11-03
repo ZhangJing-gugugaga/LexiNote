@@ -471,4 +471,34 @@ Phase 2 收尾复核（exit criteria 对照）→ **P1-002/P1-003 沙箱主改�
 
 **Round 22：方案 B——独立沙箱容器 Web 组件**（LexiSandboxHost 同构形态新建容器页/组件，迁移容器脚本与网关对接，探针真机 onload 闭环）。**P1-003b 整体 BLOCKED 于 B-009**（随方案 B 解除）。
 
-最近更新时间：2026-11-04（Round 21）。
+最近更新时间：2026-11-04（Round 22）。
+
+---
+
+## Round 22 — 2026-11-04（方案 B 实施：独立沙箱容器 Web 组件 → **B-009 解除,沙箱轨真机全链贯通**）
+
+### 本轮完成
+
+1. **新容器页/组件**：`lexinote_sandbox_host.html` + `LexiSandboxContainerHost.ets`（1x1，LexiSandboxHost 同构形态，挂 Index）——**全部通道使用真机已验证机制**：页内 iframe↔页 window.postMessage（PoC verdict 验证）、页→ArkTS javaScriptProxy `sandboxHost.call`（Track1 久经验证）、ArkTS→页 runJavaScript `sandboxHostInbox`（Track1 久经验证）——**零未知通道**。
+2. **manager 网关接入**：`LexiSandboxProxyFace`（proxy 面）→ `handleSandboxProxyCall`（adjudicate→broker→tokenForPlugin credential 复用 call()）→ `dispatchSandboxResponse`（runJavaScript 回推 inbox）；`attachSandboxController` 登记 controller（boot 派发改走容器页）；`waitForSandboxContainer`（onPageEnd 竞态兜底，超时 fail-closed 拒装）。
+3. **真机四轮迭代定位三断点**（全部当日闭环）：①容器在 appendChild 前缓存 contentWindow=null→load 后重取；②proxy 帧的 frame 须以**字符串**过网关（adjudicate 契约）；③响应回推须对字符串二次 JSON 编码（对象字面量被页侧当 object）。
+4. **终验铁证（04:53:48-50）**：`已启用(沙箱轨)` → `->arkts data.save` → `<-arkts id=w1 ok=true` → **`plugin onload done`** → `->arkts plugin.onload.done` → `<-arkts ok=true` → **data.json = {"marker":"sandbox-probe-ok"} 落盘**——**业务插件在 per-plugin iframe 内以端口身份完成 onload+数据往返，P1-003b 第一验收点达成，B-009 解除**。
+5. 探针恢复首启自动启用（沙箱轨可用，失败仅 errorState）；沙箱轨条件=容器就绪||显式设置（生产语义成立）。
+
+### 修改文件
+
+`lexinote_sandbox_host.html`(新)、`lexinote_sandbox_container.js`(方案 B 重写)、`LexiSandboxContainerHost.ets`(新)、`LexiPluginRuntime.ets`(proxy/网关/等待/条件)、`Index.ets`(挂载)、`plugins/sandbox-probe/*`、tools/contract/symbols.json(锚点 ×2 轮)。
+
+### 测试
+
+| 命令 | 结果 |
+|---|---|
+| `release-gate --ci` | **PASS 29/29** |
+| `hvigorw assembleHap` ×5 轮 | **PASS**（ArkTS 错误即时修复：WebRuntime 字段等） |
+| 真机沙箱链终验 | **PASS**（铁证如上） |
+
+### 下一轮
+
+P1-003b 继续（沙箱内 obsidian 面扩容→sample 完整迁移）；观测点 slog 清理随迁移轮。
+
+最近更新时间：2026-11-04（Round 22）。

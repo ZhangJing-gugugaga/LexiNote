@@ -4,6 +4,7 @@ import { CustomTheme, curves, LengthMetrics, uiMaterial } from '@kit.ArkUI';
 import { LexiDesktopWorkspace } from '../components/LexiDesktopWorkspace';
 import { LexiPluginRuntimeHost } from '../components/plugin/LexiPluginRuntimeHost';
 import { LexiSandboxHost } from '../components/plugin/LexiSandboxHost';
+import { LexiSandboxContainerHost } from '../components/plugin/LexiSandboxContainerHost';
 import { LexiIcon } from '../components/LexiIcon';
 import { LexiTitleBackdrop } from '../components/LexiTitleBackdrop';
 import { LexiNavigation } from '../components/LexiNavigation';
@@ -1354,6 +1355,9 @@ struct Index {
       LexiPluginRuntimeHost()
       // RFC T0.2 沙箱 PoC 宿主(1x1 ArkWeb):跑沙箱逃逸探针,结论进 hilog
       LexiSandboxHost()
+      // P1-003b 方案 B(ADR-R21-02):沙箱容器(1x1 ArkWeb)——per-plugin iframe 宿主,
+      // 通道形态与 PoC 同构(页内 window 双向 + javaScriptProxy/runJavaScript 进 ArkTS)
+      LexiSandboxContainerHost()
       Stack() {
       if (!this.ready) {
         LexiLaunchScreen({
