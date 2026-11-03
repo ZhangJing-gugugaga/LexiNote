@@ -134,3 +134,45 @@
 - 下一轮：**P1-006**（页面级身份暴露面移除——P0 安全缺陷，本地可做）→ P0-003（根 CI）→ P2-001/002。
 
 最近更新时间：2026-11-03（Round 9）。
+
+---
+
+## Round 10 — 2026-11-03（P1-006：插件可及身份暴露面收口）
+
+**当前 Phase：** Phase 1。身份面安全缺陷（RFC P0-02 的页面侧半边）离线闭环+真机回归中。
+
+### 本轮完成
+
+1. **P1-006 实施（见 ADR-R10-01）**：
+   - `currentToken()` 栈空回落 `sessionToken` → **空串**（宿主 anonymous fail-closed；同时封死"裸异步排定时器→捕获会话身份→控制面可达"升格链）。
+   - `__lexiToken` 属性形态（插件实例/leaf/EditorProxy）**全部迁入闭包 WeakMap** `objectIdentityTokens`（`setObjectToken/objectToken`），代码体属性形态被 bridge-security R7a 永久禁绝。
+   - 公共面删除 `currentToken/withToken/hostCall`（容器 bundle 实测零消费）；`loadPlugin/unloadPlugin` 装载口保留（R6h 防误删）。
+   - 布局管理面（persistLayout/restoreLayout/saveLayout/markLayoutReady）**显式携带闭包 sessionToken**——宿主页自身组件用自有凭据，与插件兜底路径彻底分离；视图创建/关闭全链经 leaf 归属令牌执行。
+   - 攻击探针 cap-probe-unauth/open 升级为 P1-006 语义：入口面自检（三个 typeof 必须 undefined）+ 冒名走正规 requestUrl（`capability_denied` 证据锚点保持）+ 新增 `cap.identity.stolen` 盗读回归探针 + `NO_MANUAL_ENTRYPOINT` 结论分支。
+2. **门禁**：bridge-security 34/34（新增 R6f/R6g/R6h 行为级、R7a-d 静态）；identity-model 分类器识别 WeakMap 包装形态（wrapper 判定本质不变=同步栈有令牌）；identity-delivery --strict **30/30 traced, 0 gaps**。channel-audit 曾被注释里的 `hostCall('note.write'…)` 字面量误报死通道——改写注释措辞（门禁字面量匹配教训记录进台账）。
+3. **真机回归（Round 10 收尾更新）**：独立进程链式 **install→upgrade→rollback→uninstall 四流程全 PASS**（证据 20261103-230728/230828/230855/231445；rollback 断言 previousVersion=1.1.0、重启后 onload+命令执行全绿——身份新语义完整闭环）。期间发现并修复一处真实回归：**容器 restoreLayout 路径 makePluginLeaf 现场捕获空栈** → 恢复视图的 openView/closeView 匿名化；修复为恢复循环内 `setObjectToken(leaf, sessionToken)`（与 persistLayout 同理：容器管理动作显式会话凭据）。修复后重装冷启：**denied 分布与基线一致**（仅预存在的 adapter-probe vault.files 匿名一条，无新模式）。另立 **P0-009**：单进程 `--flow all` 在默认市场源上线后首步失联（同构建分进程链式全绿→flows 工具跨流程状态缺陷，非产品缺陷）。
+4. **新登记**：**P1-006b**（残余面：同 realm `__receive` 可被触发 invoke.command 跨插件回调——需 dispatch 通道鉴权,.ets 协议面,技术论证先行）；**P0-008**（shim-regression 手工门禁 bit-rot：HEAD 上即红，harness 缺 DOM stub，stash 对照证实非本轮引入）。
+
+### 修改文件
+
+`lexinote_plugin_shim.js`（身份模型）、`plugins/cap-probe-unauth/main.js`、`plugins/cap-probe-open/main.js`、`scripts/tests/plugin-bridge-security.cjs`、`scripts/tests/plugin-identity-model.cjs`、`tools/contract/symbols.json`（6 锚点 +15 位移修正）。
+
+### 实际执行的测试
+
+| 命令 | 结果 |
+|---|---|
+| `plugin-bridge-security.cjs` | **PASS 34/34** |
+| `plugin-identity-delivery.cjs --strict` | **PASS**（traced 30/30） |
+| `release-gate --ci` | **PASS 28/28** |
+| `plugin-shim-regression.cjs` | FAIL——**bit-rot 预存在**（HEAD 即红，已登记 P0-008，非本轮） |
+| `hvigorw assembleHap` | **PASS** |
+| 真机冷启 hilog | onload（sample/adapter-probe）✔、匿名拒绝基线一致；tasks `@codemirror/view` 为 P4-004 已知 |
+| 真机 flows install | **PASS**；rollback 前置污染已识别,重跑收尾（见上） |
+
+### 尚存风险 / 下一轮
+
+- flows rollback/upgrade 重跑结论落地后才把 P1-006 记 VERIFIED。
+- P1-006b（__receive 门卫）→ 下一轮候选，含技术论证。
+- 下一轮主任务：**P2-001+P2-002**（v2 细粒度视图透传 + 能力指纹正典化与迁移——权限闭环先决两步，本地可验证）。
+
+最近更新时间：2026-11-03（Round 10）。

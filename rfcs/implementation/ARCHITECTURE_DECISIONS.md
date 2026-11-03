@@ -41,6 +41,15 @@
 - 复审条件：P1-001a 完成即定案。
 - **Round 9 结案（ADR-R9-01，取代本条待定部分）**：三层根因（内联脚本被 CSP 拦杀 / 子→宿主消息缺协议标记 / 探针 frames[0] 假阳性）全部修复后，真机 `PoC verdict: PASS contexts=2/2, vectors 10/10 blocked, credentialHits=0`。**定案：iframe(sandbox=allow-scripts)+opaque origin+DOM MessageChannel 载体在 ArkWeb API 26 可行，RFC §3.2/§3.3 无需修订**。假说②(平台限制)证伪；`origin=null`、`sourceIsParent=true`、`ports=1` 为常驻真机见证。残余注意：正式运行时消除宿主 eval（P1-003）、ping/pong 见证与里程碑打点保留为巡检信号。
 
+## ADR-R10-01 页面身份模型收紧：回落 fail-closed + 归属令牌 WeakMap 化 + 手工入口移除
+
+- 背景：Round 7 审计确认共享 realm 三泄露面（`LexiObsidian.currentToken()` 回落裸会话令牌；`instance.__lexiToken` 属性可被他插件 `app.plugins.getPlugin()` 盗读；`hostCall/withToken` 手工入口允许插件自带任意令牌调 RPC，配合会话回落可触控制面）。
+- 方案：①`currentToken()` 栈空返回空串（宿主 anonymous fail-closed）；②归属令牌迁入闭包 `WeakMap(objectIdentityTokens)`，属性形态在代码体中永久禁绝（bridge-security R7a 扫描去注释后代码体）；③公共面删除 `currentToken/withToken/hostCall`（容器 bundle 实测零消费后删除，R6f-h 行为级断言 + R6h 保留 loadPlugin/unloadPlugin 装载口）；④布局/恢复等宿主页管理函数显式传闭包 `sessionToken`（shim 是宿主页组件，直接持有凭据合法）。
+- 备选：保留 hostCall 入口但要求显式合法令牌——拒绝：入口本身就是攻击面，无正当消费方；只删别名不改回落——拒绝：定时器捕获兜底仍会把插件异步路径升格会话身份。
+- 兼容性影响：**旧插件若曾直接调 `window.LexiObsidian.hostCall(...)`（不合规写法）将失效**——这正是 RFC §3.5 禁止形态；合规插件（正规 API 面）经 wrapper/api-root/captured 三类通道身份不变，identity-delivery 30/30 traced。Round 8 真机对照：onload/adapter-probe/匿名拒绝基线一致；cap-probe 证据锚点(cap.identity.forged capability_denied / self allowed=true)经正规 API 路径保持可产出。
+- 残余风险(登记)：同 realm 下 `window.lexiRuntime.__receive` 仍可被他插件调用以触发 `invoke.command`(跨插件回调执行)——修复需 dispatch 通道鉴权(涉及 .ets 协议面),列 **P1-006b**;`setSessionToken` 仍可被他插件乱写(DoS 宿主回话,非提权),同场登记。
+- 复审:P1-003 沙箱落地后 __receive 面自然消失,本 ADR 残余风险随之关闭。
+
 ## 历史决策登记（迁移自既有代码语义,防遗失）
 
 - Manifest v1 无 capabilities → `capabilitiesDeclared=false` → 跳过 T2.2 授权门且 legacy 分支放行 fs。此为兼容策略,但等于"旧插件默认高权"——P2 权限闭环须将其收敛为显式兼容权限集（RFC §18.1）。

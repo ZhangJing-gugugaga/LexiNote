@@ -147,9 +147,36 @@ try {
     ok('R6e 注入后不可读回', surface.setSessionToken('st-unit-test-abcdef') ||
       typeof surface.getSessionToken === 'undefined',
       '注入成功即可，不得提供读回通道');
+    // R6f-h: P1-006 三层收口的行为级负断言(vm 求值后的真实对象面上做 typeof,静态文本骗不过这里)。
+    ok('R6f 公共面无 currentToken 读回', typeof surface.currentToken === 'undefined',
+      'currentToken 别名 = 裸会话令牌读回通道(真机审计 Round 7 确认的泄露面),不得回归');
+    ok('R6g 公共面无 withToken/hostCall 手工入口', typeof surface.withToken === 'undefined' &&
+      typeof surface.hostCall === 'undefined',
+      '手工 RPC/压栈入口允许插件携带任意令牌调控制面;插件身份通道只允许 bindApiToken 包裹的 app API 面');
+    ok('R6h 装载口仍在(容器 bundle 实测消费)', typeof surface.loadPlugin === 'function' &&
+      typeof surface.unloadPlugin === 'function', 'loadPlugin/unloadPlugin 是容器装载口,误删即回归');
   }
 } catch (error) {
   ok('R6a shim 可在无宿主环境求值', false, 'threw: ' + error.message);
+}
+
+// ---------------------------------------------------------------- R7 身份闭包化(P1-006)
+console.log('== R7 令牌只活闭包 ==');
+{
+  // 去掉块注释与行注释后扫描代码体,防止"把泄漏写进注释躲门禁"。
+  const codeBody = shimSrc
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+  ok('R7a 代码体无 __lexiToken 属性形态', !/__lexiToken/.test(codeBody),
+    '实例/leaf/EditorProxy 的 __lexiToken 属性 = 同 realm 插件 A 经 getPlugin(B) 盗读 B 凭据的通道;' +
+    '归属令牌必须存闭包 WeakMap(objectIdentityTokens)');
+  ok('R7b currentToken 无会话兜底', !/return\s+tokenScope[\s\S]{0,120}:\s*sessionToken\s*;/.test(codeBody),
+    '栈空必须返回空串 fail-closed 匿名;兜底 sessionToken 会把裸异步/定时器路径升格为页面会话身份');
+  ok('R7c 布局控制面显式会话凭据', /hostCall\('workspace\.loadLayout'[\s\S]{0,80}sessionToken/.test(codeBody) &&
+    /hostCall\('workspace\.saveLayout'[\s\S]{0,120}sessionToken/.test(codeBody),
+    'restoreLayout/saveLayout/persistLayout 属宿主页自身管理面:必须显式携带闭包内 sessionToken,不得借道兜底');
+  ok('R7d WeakMap 归属表存在', /objectIdentityTokens\s*=\s*new WeakMap/.test(codeBody) &&
+    /function\s+setObjectToken\(/.test(codeBody), 'P1-006 的闭包令牌表结构锚点');
 }
 
 // ---------------------------------------------------------------- 汇总

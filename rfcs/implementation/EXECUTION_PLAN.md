@@ -15,6 +15,8 @@
 | P0-004 | 八篇公开开发者文档纳入 Git | TODO | P1 | — | `docs/`→`rfcs/` 或解除 docs 忽略 | 公开克隆可得全部 8 篇；忽略规则调整最小范围 |
 | P0-005 | 修 `tools/contract/generate.cjs` 解析器与对账器不一致缺陷（Round 7 发现：重生成会弄坏 shim 锚点，7 项假脱节） | TODO | P2 | — | tools/contract | `generate.cjs` 产物直接过 `plugin-contract-matrix`；幂等 |
 | P0-006 | 测试入口健壮化：Windows 下 node 坏 shim、LEXI_TYPESCRIPT 探测、统一 `test` 入口 | TODO | P2 | — | scripts/, tools/plugin-dist | 新环境按 README 一条命令可跑 28 门禁 |
+| P0-008 | **新(Round 10)**:手工门禁 bit-rot 修复——`plugin-shim-regression.cjs` 在 HEAD 上即红(harness 缺 document/DOM 链 stub,ViewShim 构造 ReferenceError;非本轮引入,stash 对照证实)。同类:手动批次 15 个脚本无 CI 覆盖,bit-rot 无人知 | TODO | P2 | P0-003 | scripts/tests/plugin-shim-regression.cjs | harness 补 DOM stub 后全绿;或明确退役并入现有 CI 门禁 |
+| P0-009 | **新(Round 10)**:`plugin-dist-flows.cjs` 单进程 `--flow all` 在默认市场源上线后首步即失联(演示源列表空;独立进程链式 install→upgrade→rollback→uninstall 同构建全绿,23:07-23:09 证据)。怀疑 server/状态机跨流程复用或时序缺陷;需最小复现定位 | TODO | P3 | — | scripts/tests/plugin-dist-flows.cjs | `--flow all` 单进程四流程 PASS,或文档化"必须分进程链式运行"并改 --ci 计划 |
 
 ## Phase 1 — 安全执行环境（RFC P0-01/P0-02，总目标 3.1）
 
@@ -29,7 +31,8 @@
 | P1-003 | Runtime 轨道沙箱接入：每插件独立 iframe 取代共享 realm `new Function`；构建期 IIFE 优先 | TODO | P0 | P1-002 | lexinote_plugin_runtime.html, lexinote_plugin_shim.js, LexiPluginRuntime.ets | 业务插件在无 'unsafe-eval' 的独立上下文中加载运行；SEC 探针全过 |
 | P1-004 | Workspace 轨道收敛：插件执行面从编辑器页面剥离/同构接入 | TODO | P0 | P1-002, P1-003 | LexiWorkspacePage, WorkspaceBridge, lexinote_workspace_shim.js | 编辑器页不再直接求值第三方代码，或该面进入 Trusted 策略 |
 | P1-005 | 宿主端 port↔PluginExecutionIdentity 绑定；废弃 credential 第四参经页面传递的形态 | TODO | P0 | P1-003 | LexiWebRuntime.call, WorkspaceBridge | 插件侧报文不含任何身份字段；身份仅由端口解析 |
-| P1-006 | **移除页面级身份暴露面**（Round 7 审计确认可本地做）：`LexiObsidian.currentToken()` 回落裸 sessionToken、`app.plugins.getPlugin()` 暴露他插件 `__lexiToken`、`window.lexiHost`/`hostCall` 可被插件直接调用 | TODO | **P0 安全缺陷** | — | lexinote_plugin_shim.js, plugin-bridge-security.cjs R5 扩展 | 恶意探针拿不到任何非自属凭据；bridge-security 新增负向用例并全绿 |
+| P1-006 | **移除插件可及身份暴露面**（方案见 ADR-R10-01；含 restore-leaf 会话凭据修复） | VERIFIED | P0 | — | lexinote_plugin_shim.js, cap-probe fixtures, bridge-security/identity-model/delivery | bridge-security 34/34、identity-delivery 30/30 traced、真机四流程链全 PASS(230728-231445)+冷启 denied 无新模式 ✔(Round 10) |
+| P1-006b | 残余暴露面(ADR-R10-01 登记):①`window.lexiRuntime.__receive` 可被他插件调用触发 invoke.command 跨插件回调执行——需 dispatch 通道鉴权(.ets 协议面,技术论证先行);②`setSessionToken` 他插件可乱写(DoS 回话,非提权) | TODO | P1 | — | LexiWebRuntime.dispatch + shim __receive 门卫 | SEC-007 负向用例进门禁;dispatch 携带不可读的一次性通道凭据 |
 | P1-007 | RPC 入口归一：两 broker 实例（runtime+bridge）合并到单一 Gateway；未知方法/payload schema 校验 | TODO | P1 | P1-005 | LexiPluginRuntime, WorkspaceBridge, LexiPermissionBroker | 100% RPC 经同一入口；契约测试对账 |
 | P1-008 | 执行环境销毁闭环：停用→关端口→销毁 iframe→吊销凭据→清 pending | TODO | P1 | P1-003..005 | LifecycleManager, ExtensionRegistry | 卸载后旧通道 RPC 一律拒绝（SEC-009/013 自动化） |
 | P1-009 | 真实业务路径安全测试套件（RFC §13.4 SEC-001..008/011..013 自动化） | TODO | P0 | P1-003 | scripts/tests | 每条 SEC 有正/负用例，进 release-gate |

@@ -29,6 +29,18 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
   // 每次 hostCall 都带当前令牌,宿主靠令牌反查 pluginId,payload 里的 pluginId 一律不可信。
   var sessionToken = '';
   var tokenScope = [];
+  // RFC P1-006(LEXI-RFC-PLUGIN-001 §3.5):实例归属令牌从"对象属性"迁到闭包 WeakMap。
+  // 此前 instance.__lexiToken 挂在插件实例/leaf/EditorProxy 上——同 realm 的插件 A
+  // 可经 app.plugins.getPlugin('b').__lexiToken 盗读 B 的凭据再冒用。属性删除后,
+  // 令牌只存在闭包映射里,插件代码既读不到也枚举不到。
+  var objectIdentityTokens = new WeakMap();
+  function setObjectToken(obj, token) {
+    if (obj && typeof token === 'string' && token.length > 0) { objectIdentityTokens.set(obj, token); }
+  }
+  function objectToken(obj) {
+    var t = obj ? objectIdentityTokens.get(obj) : undefined;
+    return typeof t === 'string' ? t : '';
+  }
   var metadataByPath = new Map();
   var metadataPending = new Set();
   var openLeaves = [];
@@ -53,7 +65,10 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
   }
 
   function currentToken() {
-    return tokenScope.length > 0 ? tokenScope[tokenScope.length - 1] : sessionToken;
+    // P1-006:栈空不再回落会话令牌。兜底 sessionToken 曾把"插件裸异步里排的 setTimeout/
+    // 未包代理的原始调用"升格成页面会话身份(control-plane 可达,§7.3 违例);现在统一
+    // 空串 → hostCall 传匿名 → 宿主 fail-closed。宿主页自身的受控调用一律显式带 sessionToken。
+    return tokenScope.length > 0 ? tokenScope[tokenScope.length - 1] : '';
   }
 
   function withToken(token, fn) {
@@ -63,7 +78,7 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
 
   function tokenForPluginId(pluginId) {
     var instance = plugins.get(pluginId);
-    return instance && instance.__lexiToken ? instance.__lexiToken : '';
+    return objectToken(instance);
   }
 
   // 令牌作用域是一个同步栈:插件在 await / setTimeout / 事件回调之后再次发起宿主调用时,栈早就弹空了。
@@ -1186,7 +1201,8 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
   function persistLayout() {
     if (!layoutPersistEnabled) { return; }
     if (!sessionToken && tokenScope.length === 0) { return; }
-    hostCall('workspace.saveLayout', { layout: layoutSnapshot() }).catch(function (err) {
+    // 布局落盘是宿主页自身的控制面调用:显式带会话凭据,不再借 currentToken 兜底(P1-006)。
+    hostCall('workspace.saveLayout', { layout: layoutSnapshot() }, sessionToken).catch(function (err) {
       console.warn('[lexinote] 布局保存失败', err);
     });
   }
@@ -1230,8 +1246,8 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
   function makePluginLeaf(viewType) {
     var leaf = {
       __viewType: viewType || '',
-      // 归属令牌:创建 leaf 的同步栈身份(插件开视图=插件令牌,容器恢复布局=会话凭据)。
-      __lexiToken: currentToken(),
+      // 归属令牌改经 WeakMap(P1-006):创建时同步栈身份——插件开视图=插件令牌;
+      // 容器恢复布局=会话凭据(restoreLayout 显式改写)。
       __viewState: null,
       view: null,
       app: app,
@@ -1244,25 +1260,29 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
         ensureLeafDom(leaf);
         if (creator && !leaf.view) {
           var mountEl = leaf.__leafBodyEl;
-          try { leaf.view = creator(leaf); } catch (err) { console.warn('[lexinote] 视图创建失败', err); }
-          if (leaf.view) {
-            if (!leaf.view.leaf) { leaf.view.leaf = leaf; }
-            if (!leaf.view.containerEl) { leaf.view.containerEl = document.createElement('div'); }
-            // 顺序对齐 Obsidian:先挂 DOM,再 setState → load → onOpen(calendar 在 onOpen 里建 Svelte 组件)。
-            if (!leaf.view.containerEl.parentNode) { mountEl.appendChild(leaf.view.containerEl); }
-            if (typeof leaf.view.setState === 'function' && state) {
-              try { leaf.view.setState(state, true); } catch (err) { console.warn('[lexinote] view.setState error', err); }
+          // 视图创建/onOpen 全链带 leaf 归属身份执行(P1-006):creator 里插件常调
+          // vault/编辑器 API,而 leaf 是原始对象不在 bindApiToken 覆盖面内。
+          withToken(objectToken(leaf) || currentToken(), function () {
+            try { leaf.view = creator(leaf); } catch (err) { console.warn('[lexinote] 视图创建失败', err); }
+            if (leaf.view) {
+              if (!leaf.view.leaf) { leaf.view.leaf = leaf; }
+              if (!leaf.view.containerEl) { leaf.view.containerEl = document.createElement('div'); }
+              // 顺序对齐 Obsidian:先挂 DOM,再 setState → load → onOpen(calendar 在 onOpen 里建 Svelte 组件)。
+              if (!leaf.view.containerEl.parentNode) { mountEl.appendChild(leaf.view.containerEl); }
+              if (typeof leaf.view.setState === 'function' && state) {
+                try { leaf.view.setState(state, true); } catch (err) { console.warn('[lexinote] view.setState error', err); }
+              }
+              if (leaf.view instanceof ComponentShim) {
+                try { leaf.view.load(); } catch (err) { console.warn('[lexinote] 视图 load 失败', err); }
+              }
+              if (typeof leaf.view.onOpen === 'function') {
+                try {
+                  var opened = leaf.view.onOpen();
+                  if (opened && typeof opened.catch === 'function') { opened.catch(function (err) { console.warn('[lexinote] onOpen error', err); }); }
+                } catch (err) { console.warn('[lexinote] onOpen error', err); }
+              }
             }
-            if (leaf.view instanceof ComponentShim) {
-              try { leaf.view.load(); } catch (err) { console.warn('[lexinote] 视图 load 失败', err); }
-            }
-            if (typeof leaf.view.onOpen === 'function') {
-              try {
-                var opened = leaf.view.onOpen();
-                if (opened && typeof opened.catch === 'function') { opened.catch(function (err) { console.warn('[lexinote] onOpen error', err); }); }
-              } catch (err) { console.warn('[lexinote] onOpen error', err); }
-            }
-          }
+          });
         }
         if (openLeaves.indexOf(leaf) < 0) { openLeaves.push(leaf); }
         if (leaf.__tabEl) {
@@ -1275,7 +1295,7 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
           revealActiveLeaf(activeLeafRef);
         }
         notifyLayoutChange();
-        return hostCall('workspace.openView', { type: type }).catch(function () { return null; });
+        return hostCall('workspace.openView', { type: type }, objectToken(leaf) || undefined).catch(function () { return null; });
       },
       openFile: function (file) {
         if (file && file.path) { return workspace.openLinkText(file.path, ''); }
@@ -1300,14 +1320,15 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
           revealActiveLeaf(activeLeafRef);
         }
         notifyLayoutChange();
-        // 视图关闭必须以"打开该视图的身份"发出:创建 leaf 时捕获的令牌优先于现场 currentToken()。
-        return hostCall('workspace.closeView', { type: leaf.__viewType }, leaf.__lexiToken || currentToken()).catch(function () { return null; });
+        // 视图关闭必须以"打开该视图的身份"发出:leaf 归属令牌在 WeakMap(P1-006),优先于现场栈。
+        return hostCall('workspace.closeView', { type: leaf.__viewType }, objectToken(leaf) || currentToken()).catch(function () { return null; });
       },
       getDisplayText: function () {
         return (leaf.view && typeof leaf.view.getDisplayText === 'function') ? leaf.view.getDisplayText() : leaf.__viewType;
       },
       getIcon: function () { return (leaf.view && typeof leaf.view.getIcon === 'function') ? leaf.view.getIcon() : ''; }
     };
+    setObjectToken(leaf, currentToken());
     return leaf;
   }
 
@@ -1578,7 +1599,7 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
     ComponentShim.call(this);
     this.app = appRef;
     this.manifest = manifest;
-    this.__lexiToken = '';
+    // 归属令牌不在属性上(P1-006):loadPlugin 时经 setObjectToken 记入闭包 WeakMap。
   }
   PluginShim.prototype = Object.create(ComponentShim.prototype);
   PluginShim.prototype.constructor = PluginShim;
@@ -1689,7 +1710,7 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
     var reading = typeof window !== 'undefined' ? window.LexiReading : null;
     if (reading && typeof reading.registerPostProcessor === 'function') {
       var deregister = reading.registerPostProcessor(function (el, context) {
-        return withToken(self.__lexiToken || currentToken(), function () { return processor(el, context); });
+        return withToken(objectToken(self) || currentToken(), function () { return processor(el, context); });
       }, sortOrder);
       if (self._cleanups) {
         self._cleanups.push(function () { if (typeof deregister === 'function') { deregister(); } });
@@ -1735,7 +1756,7 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
     PluginShim.prototype[name] = function () {
       var self = this;
       var args = arguments;
-      return withToken(self.__lexiToken || currentToken(), function () { return original.apply(self, args); });
+      return withToken(objectToken(self) || currentToken(), function () { return original.apply(self, args); });
     };
   });
 
@@ -1788,8 +1809,8 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
       end: Math.max(0, typeof selection.end === 'number' ? selection.end : (selection.start || 0))
     };
     this._noteId = (state && state.noteId) || '';
-    // RFC T0.3:编辑器代理携带归属插件的令牌,异步回调里 editor 写入不再退化成会话/匿名身份。
-    this.__lexiToken = typeof ownerToken === 'string' ? ownerToken : '';
+    // RFC T0.3+P1-006:编辑器代理的归属令牌存闭包 WeakMap(属性形态会被同 realm 插件盗读)。
+    setObjectToken(this, typeof ownerToken === 'string' ? ownerToken : '');
   }
   // Obsidian 的 Editor.cm 就是 CM6 的 EditorView:obsidian-outliner 直接拿它调 view/state API。
   try {
@@ -1829,8 +1850,8 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
   };
   EditorProxy.prototype._apply = function (method, payload) {
     var self = this;
-    // 显式带归属令牌:异步栈上 currentToken() 已弹空,会退化成会话/匿名身份被授权矩阵拒绝。
-    return hostCall(method, payload, this.__lexiToken || currentToken()).then(function (state) {
+    // 显式带归属令牌:异步栈上 currentToken() 已弹空,会退化成匿名被授权矩阵拒绝(fail-closed)。
+    return hostCall(method, payload, objectToken(this) || currentToken()).then(function (state) {
       acceptEditorState(state);
       if (state && typeof state.text === 'string') { self._text = state.text; }
       if (state && state.selection) { self._selection = { start: state.selection.start, end: state.selection.end }; }
@@ -2303,12 +2324,13 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
       });
       instance._children = []; instance._cleanups = []; instance._intervals = []; instance._loaded = false;
     }
-    instance.__lexiToken = typeof message.token === 'string' ? message.token : '';
+    // 归属令牌进闭包 WeakMap(P1-006):实例属性形态 = 插件间凭据盗读通道,永久删除。
+    setObjectToken(instance, pluginToken);
     // 有的插件在构造函数里自己覆盖 this.app,这里统一覆盖回带身份的 API 面。
     if (boundApp !== app) { instance.app = boundApp; }
     plugins.set(manifest.id, instance);
-    await withToken(instance.__lexiToken, function () { return instance.load(); });
-    await withToken(instance.__lexiToken, function () {
+    await withToken(pluginToken, function () { return instance.load(); });
+    await withToken(pluginToken, function () {
       return hostCall('plugin.onload.done', { id: manifest.id });
     });
   }
@@ -2621,10 +2643,10 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
       console.log('[lexinote] session.token tail=' + (sessionToken.length > 0 ? sessionToken.slice(-6) : 'none'));
     },
     // 会话令牌只进不出(RFC §3.4):容器经 setSessionToken 单向注入,页面内代码
-    // (含插件)没有读回通道;插件身份一律走各自实例的 __lexiToken,不许互相改写。
-    withToken: withToken,
-    currentToken: currentToken,
-    hostCall: hostCall,
+    // (含插件)没有读回通道。P1-006 收口:currentToken/withToken/hostCall 三个别名
+    // 已从本面删除(容器 bundle 实测零消费,见 plugin-bridge-security R6)——
+    // 此前插件可借这三者读裸会话令牌、手工压栈、直调控制面方法(如 note.write)。
+    // 插件身份通道 = bindApiToken 包裹的 app API 面,不再有任何手工入口。
     loadPlugin: loadPlugin,
     unloadPlugin: unloadPlugin,
     hasPlugin: function (pluginId) { return plugins.has(pluginId); },
@@ -2670,7 +2692,8 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
     refreshVaultFiles: refreshVaultFiles,
     // 重启后回放布局:凡是本页注册过 creator 的视图类型都按上次的 state 重新打开。
     restoreLayout: function () {
-      return hostCall('workspace.loadLayout', {}).then(function (layout) {
+      // 容器管理面:显式会话凭据,不靠 currentToken 兜底(P1-006)。
+      return hostCall('workspace.loadLayout', {}, sessionToken).then(function (layout) {
         var leaves = layout && Array.isArray(layout.leaves) ? layout.leaves : [];
         var restored = 0;
         // 同一个 (type, 非 active 的 state) 只恢复一次:否则每启动一次就多出一份重复 leaf,
@@ -2692,6 +2715,9 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
           if (seenLayout[stateKey] === true) { continue; }
           seenLayout[stateKey] = true;
           var leaf = makePluginLeaf(entry.type);
+          // P1-006:恢复路径是容器管理动作——leaf 归属令牌显式记会话凭据
+          //(makePluginLeaf 现场捕获此时为空栈,若不覆写则 openView/closeView 匿名 fail-closed)。
+          setObjectToken(leaf, sessionToken);
           leaf.setViewState(Object.assign({}, entry.state || {}, {
             type: entry.type,
             active: i === (layout.activeIndex === undefined ? -1 : layout.activeIndex)
@@ -2705,9 +2731,9 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
         return restored;
       }, function () { layoutPersistEnabled = true; return 0; });
     },
-    saveLayout: function () { return hostCall('workspace.saveLayout', { layout: layoutSnapshot() }); },
+    saveLayout: function () { return hostCall('workspace.saveLayout', { layout: layoutSnapshot() }, sessionToken); },
     layout: layoutSnapshot,
-    markLayoutReady: function () { return hostCall('workspace.layoutReady', {}); },
+    markLayoutReady: function () { return hostCall('workspace.layoutReady', {}, sessionToken); },
     dispatchEvent: dispatchHostEvent,
     leavesOfType: function (type) {
       return openLeaves.filter(function (leaf) { return leaf.__viewType === type; });

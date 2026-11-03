@@ -14,7 +14,8 @@
 | 权限存储/指纹 | plugin-permission-store | 单元 | PASS | ✘ | 指纹输入是字面量非真实 tagsOf(P2-002 连带) |
 | Manifest v2 解析 | plugin-manifest-v2 | 契约 | PASS | ✘ | 证明解析,不证明执行面(P2-003..007) |
 | 沙箱隔离 | plugin-context-isolation + **真机 PoC verdict** | 安全(PoC 面,离线 36 项+真机 hilog) | **PASS 36/36；真机 PASS(Round 9)**：contexts=2/2, vectors 20/20 blocked, credentialHits=0；origin=null/ports=1/ping-pong 为常驻见证 | ✔(载体级) | **B-008 关闭,ADR-R9-01 iframe 载体定案**；业务轨道共享 realm 未覆盖(P1-003/009);SEC 全表待接入 |
-| 身份面 | plugin-bridge-security | 安全(真实宿主) | PASS；**真机 hilog 佐证 fail-closed(Round 8)**：`identity.anonymous … fail_closed=true`、`authz.denied vault.files role=anonymous code=ERR_UNAUTHORIZED` 实测出现 | ✔(负面路径) | R5 未覆盖 currentToken 回落/__lexiToken 暴露(P1-006) |
+| 身份面 | plugin-bridge-security | 安全(真实宿主) | **PASS 34/34(Round 10,+8 断言:R6f-h 行为级 vm、R7a-d WeakMap/fail-closed/显式凭据)**;真机佐证见下 | ✔(负面路径 Round 8/10) | P1-006 收口:currentToken/withToken/hostCall 入口删除、WeakMap 归属令牌、栈空 anonymous;残余 `__receive` 面登记 P1-006b |
+| 身份投递静态对账 | plugin-identity-delivery --strict | 静态审计 | **PASS 30/30 traced 0 gaps(Round 10,分类器识别 objectToken 包装形态)** | ✘ | KNOWN_GAPS 台账机制保留 |
 | 令牌下发一致性 | plugin-identity-delivery --strict | 静态审计 | PASS | ✘ | KNOWN_GAPS 台账 |
 | Registry 信任链 | plugin-registry-trust | 单元 | PASS | ✘ | 模块宿主零引用→需加接线断言(P5-002) |
 | 更新/回滚/降级策略 | plugin-update-policy, plugin-dist-regression §5 | 单元+真FS | PASS | ✘ | 同版本异哈希不对称未修(P5-010) |

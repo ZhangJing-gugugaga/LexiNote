@@ -187,7 +187,10 @@ function mechanisms() {
   return {
     bindRoots,
     wrappers,
-    wrappedByWithToken: /withToken\(self\.__lexiToken/.test(shimText),
+    // P1-006 迁移:包装形态从 withToken(self.__lexiToken…) 改为 withToken(objectToken(self)…)
+    // ——判定本质不变:调用期间同步令牌栈非空。两种形态都认(旧宿主兼容),新代码只许 WeakMap 形态。
+    wrappedByWithToken: /withToken\(objectToken\(self\)/.test(shimText) ||
+      /withToken\(self\.__lexiToken/.test(shimText),
     bindAppliedInLoad: /bindApiToken\([^;\n]*message\.token[^;\n]*\)/.test(shimText),
     hostCallFallsBackToCurrentToken: /token === undefined \? currentToken\(\) : token/.test(shimText),
     handlerCount: (etsText.match(/registerHandler\('/g) || []).length
@@ -196,6 +199,7 @@ function mechanisms() {
 
 const TOKEN_SOURCES = [
   /message\.token/,
+  /objectToken\(/,
   /__lexiToken/,
   /tokenForPluginId\(/,
   /\bentry\.token\b/,
