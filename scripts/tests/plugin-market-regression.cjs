@@ -11,7 +11,7 @@ function load(spec,base){
  vm.runInThisContext('(function(require,module,exports){'+js+'\n})',{filename:target})((s)=>load(s,path.dirname(target)),mod,mod.exports);
  return mod.exports;
 }
-const {parseMarketIndex}=load('plugin/LexiPluginMarketModel');
+const {parseMarketIndex,parseMarketIndexResult}=load('plugin/LexiPluginMarketModel');
 
 // 逐字段 assert.equal 会静默接受解析结果里"多出来的字段"——循环照样通过。
 // 键集先钉死:新增字段必须显式改这份期望,不许自动通过。
@@ -39,6 +39,17 @@ const tests=[
   assert.equal(parseMarketIndex('not-json').length,0);
   assert.equal(parseMarketIndex('{}').length,0);
   assert.equal(parseMarketIndex(JSON.stringify([{name:'no-id'},{id:'no-name'},null,42])).length,0);
+ }],
+ // 兼容展示 ≠ 可信安装:旧版条目照常解析,但 sha256 必为空,上游信任闸门据此拒绝远程安装。
+ // warnings 曾经无人读取——这里钉死"旧版可识别"契约,配合 installFromUrl 的 fail-closed 闸门。
+ ['legacy entries stay displayable but untrusted (empty hash + warning)',()=>{
+  const arr=parseMarketIndexResult(JSON.stringify([{id:'x',name:'X',zipUrl:'https://x/a.zip'}]));
+  assert.equal(arr.ok,true);
+  assert.deepEqual(arr.warnings,['legacy_array_schema']);
+  assert.equal(arr.entries.length,1);
+  assert.equal(arr.entries[0].sha256,'','旧版条目必须显式暴露为空哈希');
+  const wrapped=parseMarketIndexResult(JSON.stringify({plugins:[{id:'y',name:'Y'}]}));
+  assert.deepEqual(wrapped.warnings,['legacy_object_schema']);
  }]
 ];
 (async()=>{

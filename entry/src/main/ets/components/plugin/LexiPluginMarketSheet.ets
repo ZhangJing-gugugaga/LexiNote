@@ -2,7 +2,7 @@
 // and manage what is already installed (version / rollback / uninstall).
 
 import { LexiPluginManager } from '../../core/plugin/LexiPluginRuntime';
-import { LexiPluginMarketEntry, LexiMarketIndexResult } from '../../core/plugin/LexiPluginMarketModel';
+import { LexiPluginMarketEntry, LexiMarketIndexResult, isTrustedInstallHash } from '../../core/plugin/LexiPluginMarketModel';
 import { LexiInstalledPlugin } from '../../core/plugin/LexiPluginManifest';
 
 const DEFAULT_MARKET_URL: string = 'https://raw.githubusercontent.com/ZhangJing-gugugaga/lexinote-releases/master/community-plugins.json';
@@ -77,7 +77,10 @@ export struct LexiPluginMarketSheet {
       const result: LexiMarketIndexResult = await manager.fetchMarketIndex(this.marketUrl);
       this.entries = result.entries;
       if (result.ok) {
-        this.status = result.entries.length > 0 ? `共 ${result.entries.length} 个插件` : '市场为空';
+        // 旧版索引(warnings 非空)仍然展示,但缺受信任哈希的条目在安装口被硬拦截。
+        const warn: string = result.warnings.length > 0
+          ? `（旧版索引：${result.warnings.join('、')}，缺哈希条目不可安装）` : '';
+        this.status = (result.entries.length > 0 ? `共 ${result.entries.length} 个插件` : '市场为空') + warn;
       } else {
         // 索引被拒绝时报出原因，而不是显示"市场为空"
         this.status = `索引被拒绝(${result.code})：${result.message}`;
@@ -101,6 +104,11 @@ export struct LexiPluginMarketSheet {
     if (!manager || this.busy) { return; }
     if (!entry.zipUrl) {
       this.status = `${entry.name}：缺少下载地址(zipUrl)`;
+      return;
+    }
+    // 与宿主 installFromUrl 同一判定：缺受信任哈希的条目不发起下载(RFC P0-04)。
+    if (!isTrustedInstallHash(entry.sha256)) {
+      this.status = `${entry.name}：缺少受信任哈希，市场禁止远程安装（可用本地安装包侧载）`;
       return;
     }
     this.busy = true;
@@ -271,8 +279,10 @@ export struct LexiPluginMarketSheet {
                   if (entry.version.length > 0) {
                     Text(`v${entry.version}`).fontSize(10).fontColor($r('app.color.text_secondary'))
                   }
-                  if (entry.sha256.length > 0) {
-                    Text('已签名哈希').fontSize(10).fontColor($r('app.color.brand'))
+                  if (isTrustedInstallHash(entry.sha256)) {
+                    Text('哈希已校验').fontSize(10).fontColor($r('app.color.brand'))
+                  } else if (entry.zipUrl.length > 0) {
+                    Text('旧版·缺哈希').fontSize(10).fontColor($r('app.color.text_secondary'))
                   }
                 }
                 Text(entry.description.length > 0 ? entry.description : entry.repo)
@@ -287,11 +297,11 @@ export struct LexiPluginMarketSheet {
               .layoutWeight(1)
               .alignItems(HorizontalAlign.Start)
 
-              Button(entry.zipUrl ? '安装' : '无下载地址', { type: ButtonType.Normal })
+              Button(entry.zipUrl ? (isTrustedInstallHash(entry.sha256) ? '安装' : '缺哈希') : '无下载地址', { type: ButtonType.Normal })
                 .height(34)
                 .fontSize(12)
                 .borderRadius(10)
-                .enabled(!this.busy && entry.zipUrl.length > 0)
+                .enabled(!this.busy && entry.zipUrl.length > 0 && isTrustedInstallHash(entry.sha256))
                 .backgroundColor($r('app.color.brand'))
                 .fontColor($r('app.color.inverse_text'))
                 .onClick((): void => { this.install(entry); })

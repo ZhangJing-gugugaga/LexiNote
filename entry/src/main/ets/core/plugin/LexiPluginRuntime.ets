@@ -34,7 +34,7 @@ import { LexiEditorRegistry } from './LexiEditorRegistry';
 import { LexiPluginViewInfo, LexiPluginViewRegistry } from './LexiPluginViewRegistry';
 import { LexiEditorPosUtil, LexiEditorPosition } from './LexiEditorPos';
 import { LexiPluginInstaller, PluginLifecycleOutcome } from './LexiPluginInstaller';
-import { LexiPluginMarketEntry, LexiMarketIndexResult, parseMarketIndexResult } from './LexiPluginMarketModel';
+import { LexiPluginMarketEntry, LexiMarketIndexResult, parseMarketIndexResult, isTrustedInstallHash } from './LexiPluginMarketModel';
 import { LexiPluginSettingDef, parseSettingDefinitions } from './LexiPluginSettingModel';
 import { mintCredential } from './LexiCredentialFactory';
 import {
@@ -640,6 +640,13 @@ export class LexiPluginManager {
 
   /** Downloads a plugin zip and installs it. expectedSha256 comes from the index entry. */
   async installFromUrl(url: string, expectedSha256: string = ''): Promise<string> {
+    // 信任闸门(LEXI-RFC-PLUGIN-001 P0-04/§8.5/§18.4):远程安装必须携带受信任哈希。
+    // 空哈希在 verifyPackageHash 里会跳过比对(fail-open),必须在下载之前就挡掉;
+    // 自述哈希尚不等于来源可信(TUF Targets 接线是后续任务),但没有哈希连完整性都无从谈起。
+    // 本地侧载继续走 installZip 的空哈希语义,不受此闸门约束(开发安装另行标记)。
+    if (!isTrustedInstallHash(expectedSha256)) {
+      throw new Error('远程安装被拒绝：索引条目缺少受信任的 sha256 哈希（旧版索引请升级到 schemaVersion=1）');
+    }
     if (!this.context) { throw new Error('插件管理器尚未初始化'); }
     if (!/^https?:\/\//i.test(url)) { throw new Error('仅支持 http/https 下载地址'); }
     const cachePath = `${this.context.cacheDir}/plugin-download-${Date.now()}.zip`;
@@ -716,7 +723,8 @@ export class LexiPluginManager {
       const text = typeof response.result === 'string' ? response.result : JSON.stringify(response.result);
       const result = parseMarketIndexResult(text);
       if (result.ok) {
-        pluginLog('市场索引加载: ' + result.entries.length + ' 个插件 schema=' + result.schemaVersion);
+        const note: string = result.warnings.length > 0 ? ' 警告: ' + result.warnings.join(', ') : '';
+        pluginLog('市场索引加载: ' + result.entries.length + ' 个插件 schema=' + result.schemaVersion + note);
       } else {
         pluginError('市场索引被拒绝 ' + result.code + ': ' + result.message);
       }

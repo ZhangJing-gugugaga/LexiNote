@@ -20,6 +20,15 @@ import { LexiPluginCapabilities } from './LexiPluginManifest';
 
 export const MARKET_INDEX_SCHEMA_VERSION: number = 1;
 
+/**
+ * 受信任安装哈希判定(schema v1 语义):64 位小写十六进制。
+ * 远程安装(installFromUrl)与市场 UI 的唯一判定入口——旧版索引条目缺哈希时一律不可信。
+ * 本地侧载(用户选定的 zip)不走这个闸门。RFC LEXI-RFC-PLUGIN-001 §8.5/§18.4。
+ */
+export function isTrustedInstallHash(value: string): boolean {
+  return /^[0-9a-f]{64}$/.test(value);
+}
+
 export const INDEX_ERROR_INVALID: string = 'index_invalid';
 export const INDEX_ERROR_SCHEMA_VERSION: string = 'unsupported_schema_version';
 export const INDEX_ERROR_ZCODE: string = 'legacy_zcode_rejected';

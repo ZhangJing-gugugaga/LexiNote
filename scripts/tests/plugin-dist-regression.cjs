@@ -326,6 +326,26 @@ test('索引 v1：ArkTS 解析器与 Node 校验器逐例一致', () => {
   }
 });
 
+test('信任闸门：isTrustedInstallHash 只认 64 位小写十六进制（RFC P0-04 整改）', () => {
+  assert.equal(marketMod.isTrustedInstallHash('a'.repeat(64)), true);
+  assert.equal(marketMod.isTrustedInstallHash('A'.repeat(64)), false);
+  assert.equal(marketMod.isTrustedInstallHash(''), false);
+  assert.equal(marketMod.isTrustedInstallHash('deadbeef'), false);
+  assert.equal(marketMod.isTrustedInstallHash('a'.repeat(63) + 'g'), false);
+});
+
+test('远程安装信任闸门已接线：宿主在下载前拦截，UI 复用同一判定', () => {
+  const runtimeText = fs.readFileSync(path.join(CORE, 'plugin', 'LexiPluginRuntime.ets'), 'utf8');
+  const gate = runtimeText.slice(runtimeText.indexOf('async installFromUrl('));
+  assert.match(gate, /if \(!isTrustedInstallHash\(expectedSha256\)\) \{/,
+    'installFromUrl 必须拦截空/非法哈希(空哈希在 verifyPackageHash 里是 fail-open)');
+  assert.ok(gate.indexOf('isTrustedInstallHash') < gate.indexOf('client.request('),
+    '信任闸门必须排在网络下载之前');
+  const sheetText = fs.readFileSync(
+    path.join(REPO_ROOT, 'entry', 'src', 'main', 'ets', 'components', 'plugin', 'LexiPluginMarketSheet.ets'), 'utf8');
+  assert.match(sheetText, /isTrustedInstallHash\(entry\.sha256\)/, '市场 UI 必须复用同一判定，而不是各写一份');
+});
+
 test('导出索引能被两边同时接受，且 ZCode 旧文件确实会被客户端拒绝', () => {
   const exported = path.join(REPO_ROOT, 'exports', 'market-index-v1.json');
   if (fs.existsSync(exported)) {
@@ -522,6 +542,7 @@ test('runtime 接线：能力门禁在处理器前面，卸载/回滚/严格索�
   assert.match(text, /fetchMarketIndex\(/, '市场必须走严格索引解析');
   assert.match(text, /parseMarketIndexResult\(/, '严格解析函数必须被真正调用');
   assert.match(text, /code: string = ''/, 'RpcResponse 必须能携带错误码');
+  // 默认值 '' 只是签名兼容；空哈希已被 installFromUrl 的信任闸门拒绝(见上面的接线用例)。
   assert.match(text, /installFromUrl\(url: string, expectedSha256: string = ''\)/, 'installFromUrl 必须能收 sha256');
   assert.match(text, /private wasUninstalled\(/, '卸载记录必须能挡住内置资源重装');
   assert.match(text, /if \(this\.wasUninstalled\(entryName\)\) \{ return; \}/, '内置插件落盘前必须先查卸载记录');
