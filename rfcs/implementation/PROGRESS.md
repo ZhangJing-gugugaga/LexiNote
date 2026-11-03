@@ -357,3 +357,27 @@
 Phase 2 收尾复核（exit criteria 对照）→ **P1-002/P1-003 沙箱主改造启动**（执行上下文模型定案 ADR → Runtime 轨道 iframe 接入）。
 
 最近更新时间：2026-11-04（Round 16）。
+
+---
+
+## Round 17 — 2026-11-04（P2-011：RPC↔权限 100% 行为对账 + Phase 2 复核）
+
+**当前 Phase：** Phase 2 收尾。
+
+### 本轮完成
+
+1. **P2-011 全矩阵扫描**：authz-matrix 新增 M2c 段——对 broker 全部 68 个登记方法 × 4 种角色（anonymous/session/plugin/owner）**真跑 authorize**，结果逐一对照 kind 语义表（282 格全对账，非抽样）；fs-write 特例对 fsAuthorizer 两种插件身份分别对表。RFC §17.1"100% RPC 进权限矩阵 + 正负用例"现在有行为级自动化证据。
+2. **扫描器自身两处语义 bug 在首跑被抓**（owner 伪角色未映射 role='plugin'；plugin-owned 格误用自身资源）——修正后全绿；这正是"对账而非手写"的价值。
+3. **Phase 2 exit criteria 复核**（对照 RFC §15 Phase 1 验收段）：能力→执行入口 ✔（M1.2/1.3 + P2-003/004/006 消费链）；新增权限重问 ✔（指纹+grantApproved）；撤销全版本生效 ✔（P2-010）；**未闭环项**：P2-009（quarantined/degraded 状态可达）、设置页权限管理入口（现仅市场 Sheet）、管理面 v2 键。Phase 2 不宣布 VERIFIED，按 §8 诚实留缺口。
+
+### 实际执行的测试
+
+| 命令 | 结果 |
+|---|---|
+| `plugin-authz-matrix.cjs` | **PASS 65/65**（M2c 282 格 + 规模断言） |
+
+### 下一轮
+
+**P1-002（执行上下文模型 ADR 定案）→ P1-003（Runtime 轨道 iframe 沙箱接入）**——Phase 1 主体；P2-009 随 P2 残余项并行排程。
+
+最近更新时间：2026-11-04（Round 17）。

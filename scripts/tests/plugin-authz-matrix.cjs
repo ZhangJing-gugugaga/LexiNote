@@ -188,6 +188,67 @@ if (broker) {
   ok('M2.47 gate 未注入 → 既有纯角色行为保持(M2.25 同例)', verdict('plugin', 'plug-a', 'editor.replace').allowed);
   ok('M2.48 fs-write 仍走 fsAuthorizer(与 capabilityGate 两个 seam 互不干扰)',
     gverdict('fs-plugin', 'vault.modify').allowed && !gverdict('cap-ok', 'vault.modify').allowed);
+
+  // --- M2c P2-011:全方法×全角色矩阵扫描(行为级 100% 对账,RFC §17.1) -------------
+  // 不再逐条手写场景:对每个登记方法 × 角色真跑 authorize,结果必须符合 kind 语义表。
+  // capability gate 未注入(既有 broker)——插件角色按纯角色语义判定(fs-write 见特例)。
+  section('M2c 全矩阵扫描(P2-011:每方法×每角色)');
+  const kindExpectation = {
+    'public': ['anonymous', 'session', 'plugin', 'owner'],
+    'control-plane': ['session'],
+    'ui-domain': ['session', 'plugin', 'owner'],
+    'fs-read': ['session', 'plugin', 'owner'],
+    'fs-write': ['owner'],
+    'editor-write': ['plugin', 'owner'],
+    'register': ['plugin', 'owner'],
+    'plugin-owned': ['session', 'owner'],
+    'plugin-storage': ['plugin', 'owner'],
+    'plugin-source': ['plugin', 'owner'],
+    'net': ['plugin', 'owner'],
+    'demo-plugin': ['plugin', 'owner']
+  };
+  const scanRoles = ['anonymous', 'session', 'plugin', 'owner'];
+  let matrixCells = 0;
+  const matrixBad = [];
+  broker.matrixKeys().forEach((method) => {
+    const kind = broker.kindOf(method);
+    const allowedRoles = kindExpectation[kind];
+    if (!allowedRoles) { matrixBad.push(method + '(未知 kind ' + kind + ')'); return; }
+    for (const role of scanRoles) {
+      let ctxRole = role;
+      let pluginId = '';
+      let resource = null;
+      let expectAllowed = allowedRoles.indexOf(role) >= 0;
+      if (role === 'plugin') { ctxRole = 'plugin'; pluginId = 'other-b'; }
+      if (role === 'owner') { ctxRole = 'plugin'; pluginId = 'owner-a'; }
+      if (kind === 'plugin-owned') {
+        // plugin-owned 语义:调用方持有该资源才可删——统一拿"owner-a 的"资源:
+        // owner 格(pluginId=owner-a)应放,plugin 格(other-b)应拒,session 代管应放。
+        resource = res('owner-a');
+      }
+      if (kind === 'fs-write' && (role === 'plugin' || role === 'owner')) {
+        // fs-write 由 fsAuthorizer 判定(仅 fs-plugin/legacy-plugin):两种插件身份都要对表。
+        for (const candidate of ['other-b', 'fs-plugin']) {
+          const decision = broker.authorize(ctxOf('plugin', candidate), method, resource);
+          matrixCells += 1;
+          const expectFs = candidate === 'fs-plugin';
+          if (decision.allowed !== expectFs) {
+            matrixBad.push(method + '[plugin:' + candidate + ']=' + decision.allowed);
+          }
+        }
+        continue;
+      }
+      const decision = broker.authorize(ctxOf(ctxRole, pluginId), method, resource);
+      matrixCells += 1;
+      if (decision.allowed !== expectAllowed) {
+        matrixBad.push(method + '[' + role + ']=' + decision.allowed + '(' + decision.code + ')');
+      }
+    }
+  });
+  ok('M2c.1 全矩阵行为对账(' + broker.matrixKeys().length + ' 方法 × 角色 = ' + matrixCells + ' 格)',
+    matrixBad.length === 0, matrixBad.slice(0, 8).join('; '));
+  ok('M2c.2 矩阵规模(§17.1 100% 对账基础)', broker.matrixKeys().length >= 40 && matrixCells >= 160,
+    'methods=' + broker.matrixKeys().length + ' cells=' + matrixCells);
   // 注册域：仅插件
   ok('M2.35 插件+commands.add 放行', verdict('plugin', 'plug-a', 'commands.add').allowed);
   ok('M2.36 会话+commands.add 拒绝', !verdict('session', '', 'commands.add').allowed);
