@@ -250,6 +250,7 @@ function ciMode() {
     ['identity-delivery: 令牌下发点', 'scripts/tests/plugin-identity-delivery.cjs', []],
     ['bridge-security: T0.1 身份面(RFC)', 'scripts/tests/plugin-bridge-security.cjs', []],
     ['context-isolation: T0.2 沙箱面(RFC)', 'scripts/tests/plugin-context-isolation.cjs', []],
+    ['context-registry: P1-003a 上下文网关(RFC)', 'scripts/tests/plugin-context-registry.cjs', []],
     ['authz-matrix: T0.3 授权矩阵(RFC)', 'scripts/tests/plugin-authz-matrix.cjs', []],
     ['lifecycle-once: T1.1 生命周期(RFC)', 'scripts/tests/plugin-lifecycle-once.cjs', []],
     ['extension-ownership: T1.2 扩展注册(RFC)', 'scripts/tests/plugin-extension-ownership.cjs', []],

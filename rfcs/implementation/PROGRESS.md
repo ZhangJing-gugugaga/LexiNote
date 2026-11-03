@@ -381,3 +381,32 @@ Phase 2 收尾复核（exit criteria 对照）→ **P1-002/P1-003 沙箱主改�
 **P1-002（执行上下文模型 ADR 定案）→ P1-003（Runtime 轨道 iframe 沙箱接入）**——Phase 1 主体；P2-009 随 P2 残余项并行排程。
 
 最近更新时间：2026-11-04（Round 17）。
+
+---
+
+## Round 18/19 — 2026-11-04（P1-002 ADR 定案 + P1-003a contextRegistry 端口网关）
+
+**当前 Phase：** Phase 1 主体开工。
+
+### Round 18（ADR 轮）
+- **ADR-R18-01 定案**：身份四元组（LifecycleManager 记账）+ 每上下文 MessageChannel + **宿主侧 contextRegistry 作为沙箱 RPC 身份真源**（取代 shim 内令牌栈成为沙箱身份通道）+ 既有 broker/矩阵零改动复用 + Track1 先行两轨策略 + 每插件独立 Web 组件回退备选；P1-003 切分为 a/b/c/d 子任务（P1-004/005 依赖同步修正）。`1ded847`。
+
+### Round 19（P1-003a 实现）
+1. **新模块 `LexiContextRegistry.ets`**（零 kit 依赖）：HostContextRecord（contextId/pluginId/activationId/kind/revoked）；`create/revoke/revokePlugin/aliveCount`；**帧裁决 `adjudicate`**——未注册 contextId 拒（context_unregistered）、吊销后拒（context_revoked，P2-010 的载体级形态）、协议版本/非请求帧/缺字段拒（context_bad_frame）、**载荷自证 pluginId 剥离**、放行结论携带记录反查的可信身份；§3.4 响应帧组装（ok/data/error{code,message,retryable}）。
+2. **网关与既有授权零缝隙协同**：adjudicate → contextOf(role=plugin, 身份=记录) → 既有 broker.authorize → 既有 handler——矩阵/capability/fsGate/路径门全部原样生效（R3.3/R3.4 用例证明双 seam 行为）。
+3. **新门禁 `plugin-context-registry.cjs` 15 项全绿**并**正式纳入 release-gate CI**（现 29 步）；测试自身两处断言错误首跑被抓后修正。
+4. 设备接线（Track1 页面 port 转移实装）留 Round 20（P1-003a 收尾 + P1-003b 开工）。
+
+### 实际执行的测试
+
+| 命令 | 结果 |
+|---|---|
+| `plugin-context-registry.cjs` | **PASS 15/15**（新门禁） |
+| `release-gate --ci` | **PASS 29/29** |
+| `hvigorw assembleHap` | **PASS** |
+
+### 下一轮
+
+**P1-003a 收尾（ArkWeb 组件端口转移实装）+ P1-003b 沙箱页 API 面开工**。
+
+最近更新时间：2026-11-04（Round 19）。

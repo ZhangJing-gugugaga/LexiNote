@@ -28,7 +28,7 @@
 | P1-001 | ArkWeb 沙箱能力真机验证（iframe sandbox=allow-scripts opaque origin、MessageChannel、postMessage 转移端口、CSP 'unsafe-eval' 移除可行性） | IN_PROGRESS | P0 | P1-001a | LexiSandboxHost, lexinote_* | 载体核心能力**已证（Round 9 verdict PASS 2/2×10 向量,ADR-R9-01）**；剩余项:'unsafe-eval' 移除可行性 + 性能驻留基准(poc-verdict) |
 | P1-001a | 沙箱 PoC 静默根因插桩定位 | **VERIFIED** | P0 | — | poc.html/js, sandbox.html, probe.js, context-isolation 门禁 | **Round 9 结案**：三根因(内联 CSP 拦杀/标记缺失/探针 frames[0] 假阳性)修复,真机 `verdict PASS contexts=2/2 vectors=20/20 blocked credentialHits=0` ✔ |
 | P1-002 | 正式执行上下文模型定案（contextId×kind、port↔身份绑定落点）+ ADR | VERIFIED | P0 | P1-001 | LexiPluginExecutionContext, LexiPluginLifecycleManager | **Round 18 定案(ADR-R18-01)**:身份四元组+contextRegistry 端口表+既有 broker 复用+两轨策略+回退备选 ✔ |
-| P1-003a | contextRegistry + 端口 RPC 网关（宿主侧:HostContextRecord/反查/喂既有 broker;离线可测） | TODO | P0 | P1-002 | LexiPluginRuntime.ets 或新模块, rawfile runtime 页 | 端口 RPC 与 javaScriptProxy 并存;身份=端口表反查;离线门禁覆盖 |
+| P1-003a | contextRegistry + 端口 RPC 网关（宿主侧:HostContextRecord/反查/喂既有 broker;离线可测） | IMPLEMENTED | P0 | P1-002 | LexiContextRegistry.ets(新), release-gate | **Round 19**:模块+帧裁决+剥离+§3.4 帧;新门禁 15 项入 CI(29 步);**ArkWeb 组件 port 转移实装收尾留 Round 20** |
 | P1-003b | 沙箱页插件 API 面（obsidian namespace 端口化重建;CSP 'unsafe-eval' 仅 iframe） | TODO | P0 | P1-003a | rawfile lexinote_plugin_sandbox.html, shim 拆分 | 业务插件在 iframe 内以端口身份完成 onload+注册 |
 | P1-003c | 构建期 CommonJS→IIFE + 宿主页面 CSP 收紧（移除 unsafe-eval） | TODO | P0 | P1-003b | tools/lexi-cli, template, runtime.html CSP | 宿主页面无 eval;S20 类断言覆盖 runtime 页 |
 | P1-003d | 真实业务插件迁移验收（lexi-sample/calendar 真机 + SEC 探针进业务路径） | TODO | P0 | P1-003a..c | 设备批次 | RFC §3.6 验收表通过;旧共享 realm 路径停用 |
