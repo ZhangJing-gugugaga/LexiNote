@@ -42,3 +42,18 @@
 **现象**：`hdc shell "echo … > …/files/plugins/<id>/data.json"` → `Permission denied`；`hdc file send` 同路径 → `[Fail]Error opening file: permission denied`。目录本身是 777，但 shell 用户仍被挡。
 
 **影响**：回归脚本不能用 shell 预置插件数据。绕法：探针插件自己在 onload 里经 `data.save` 写标记（`scripts/tests/plugin-dist-flows.cjs` 的 `dataBootstrap()`），升级后磁盘上的标记属于哪个版本就是 preserveDataFile 的直接证据。
+
+---
+
+## KI-4 运行时安装的插件"装得上却永不 onload"（生命周期记账缺口）【已修】
+
+**现象**（Round 8 真机，2in1 实例 127.0.0.1:5555，API 26）：市场安装成功（hilog `插件安装完成: dist-flow-probe v1.0.0`），但启用被状态机拒绝：
+`插件启动被拒 dist-flow-probe: 非法迁移: discovered → starting`；data.json 未写出，hilog 无 `onload 完成`/`命令注册` 锚点（`.fixtures-out/evidence/20261103-212226/flows/install/hilog.log`）。
+
+**根因**：`scanPluginDir()` 只登记 `this.plugins`，不做生命周期记账；全仓唯一 `markInstalled` 调用点在启动路径 `init()`（`LexiPluginRuntime.ets:765`）。运行时 `installZip→scanPluginDir→enablePlugin` 序列里插件状态恒为隐式 `discovered`，而迁移表只允许 `installed/disabled → starting`（`LexiPluginLifecycleManager.ets:45,47`）。离线 lifecycle 门禁直接驱动 LifecycleManager，绕开了 Runtime 接线，所以 28 步全绿也测不出——典型离线/真机口径差。
+
+**修复**：`scanPluginDir` 对每个成功解析的插件调 `this.lifecycle.markInstalled(...)`（幂等，boot 路径不受影响）；`plugin-dist-regression` §6 加接线断言钉死。
+
+**修复证据**（20261103-213058）：install 全流程 PASS——`onload 完成`、`命令注册 dist-flow-probe:insert-demo-block`、`data.json={"marker":"keep-me-from-1.0.0"}` 全部达成。
+
+**影响面**：这个缺陷影响**所有运行时安装路径**（市场安装与设置页侧载后的即时启用），此前从未在真机上跑通过完整四流程（Round 5/6 设备批次因模拟器 00801005 未闭环）。

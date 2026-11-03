@@ -550,6 +550,10 @@ test('runtime 接线：能力门禁在处理器前面，卸载/回滚/严格索�
   // 单一正典形态：fsGate(identity)。两种形态都认会让"半途回退"（一部分改回 request）蒙混过关。
   assert.ok((text.match(/\.fsGate\(identity,/g) || []).length >= 6, 'fs 门禁必须覆盖 data.save 与 vault.* 五个写入口（fsGate(identity, …) 至少 6 处）');
   assert.equal((text.match(/\.fsGate\(request\)/g) || []).length, 0, '禁止回退成 fsGate(request)：正典形态是 fsGate(identity)');
+  // 真机 KI-4:运行时安装的插件在 enablePlugin 前必须经 scanPluginDir 落 installed,
+  // 否则生命周期表判 discovered→starting 非法迁移,"装得上却永不 onload"。
+  const scan = text.slice(text.indexOf('private async scanPluginDir('), text.indexOf('private readTextFile('));
+  assert.match(scan, /this\.lifecycle\.markInstalled\(/, '落盘扫描必须做 discovered→installed 记账(KI-4)');
   assert.match(text, /async uninstallPlugin\(/, '宿主必须暴露卸载');
   assert.match(text, /async rollbackPlugin\(/, '宿主必须暴露回滚');
   assert.match(text, /fetchMarketIndex\(/, '市场必须走严格索引解析');

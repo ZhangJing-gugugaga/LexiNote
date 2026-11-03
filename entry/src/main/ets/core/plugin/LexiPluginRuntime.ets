@@ -885,6 +885,10 @@ export class LexiPluginManager {
         record.dir = dir;
         record.enabled = false;
         this.plugins.set(manifest.id, record);
+        // 落盘扫描 = 安装链的 discovered→installed 记账步。运行时安装后立刻启用时,
+        // 生命周期表只认 installed/disabled 为未运行面(discovered→starting 非法迁移,
+        // 真机回归"装得上却永不 onload"的根因)。markInstalled 对重复扫描幂等。
+        this.lifecycle.markInstalled(manifest.id, manifest.version);
       } catch (error) {
         const broken = new LexiInstalledPlugin();
         broken.manifest.id = entry;
