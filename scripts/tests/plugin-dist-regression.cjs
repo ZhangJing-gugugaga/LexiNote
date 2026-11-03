@@ -363,6 +363,19 @@ test('导出索引能被两边同时接受，且 ZCode 旧文件确实会被客�
   }
 });
 
+test('发布镜像索引三方一致(P5-006)：仓库 CI 校验器 = 共享校验器 = 客户端解析器', () => {
+  const indexPath = path.join(REPO_ROOT, 'tools', 'lexinote-releases', 'community-plugins.json');
+  const text = fs.readFileSync(indexPath, 'utf8');
+  const ark = marketMod.parseMarketIndexResult(text);
+  assert.equal(ark.ok, true, '发布镜像必须被客户端接受: ' + ark.code + ' ' + ark.message);
+  assert.equal(ark.schemaVersion, 1, '发布镜像必须走严格 v1 口径(裸数组已停用)');
+  assert.equal(ark.warnings.length, 0, 'v1 索引不应产生旧版警告');
+  assert.equal(validator.parseIndex(text).ok, true, '发布镜像必须通过共享 Node 校验');
+  // 钉死"能过发布仓 CI ⇒ 客户端必可安装"：直接跑本仓自己的 validate.mjs(离线口径)。
+  const { execFileSync } = require('node:child_process');
+  execFileSync(process.execPath, [path.join(REPO_ROOT, 'tools', 'lexinote-releases', 'scripts', 'validate.mjs')], { stdio: 'pipe' });
+});
+
 // --- 4. state machine on the fake filesystem ----------------------------
 async function fakeLifecycle() {
   const io = makeFakeIo();
