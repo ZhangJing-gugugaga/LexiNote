@@ -176,3 +176,38 @@
 - 下一轮主任务：**P2-001+P2-002**（v2 细粒度视图透传 + 能力指纹正典化与迁移——权限闭环先决两步，本地可验证）。
 
 最近更新时间：2026-11-03（Round 10）。
+
+---
+
+## Round 11 — 2026-11-04（P2-001 + P2-002：权限闭环先决两步）
+
+**当前 Phase：** Phase 2 启动。v2 细粒度能力从"解析器私有"变为"执行面与授权链可见"。
+
+### 本轮完成
+
+1. **P2-001 视图透传**：`LexiPluginManifest` 新增 `v2: LexiManifestV2Caps` 字段，`manifestFromV2` 透传 `normalized.v2`——此前在解析边界被销毁的 paths/methods/quota/notifications 现在执行面可读（P0-03 机械根因消除）；v1 清单保持默认全关（§8.2 旧权限不自动细粒度化）。
+2. **P2-002 标签唯一正典**：`LexiPluginManifestV2.capabilityTagsOfV2Caps()` 按 RFC §4.4 全维度产出标签（vault.read/write[:path]、vault.delete、editor.*、workspace.*、network:origin、netmethod/netreq/netres、clipboard.read/write、storage.quota、notifications）；runtime `capabilityTagsOf` 与 installer `manifestCapabilityTags` 两份粗粒度副本**归一为同一函数的 v2 分支**（v1 保持 legacy 三标签）。
+3. **指纹语义（零迁移代码的正确解）**：数字上限恒入标签 ⇒ 配额/方法/路径扩张必然改变指纹 ⇒ `decisionFor` 自动 regrant-required——审计担心的"权限扩张静默继承"（P0-03 后果）由数据结构天然封死；v1/无声明插件标签集为空 ⇒ 指纹不变 ⇒ 用户零打扰。**无需 SCHEMA bump**：旧记录载入后指纹不匹配即触发一次性重确认，安全语义自动成立。
+4. **门禁**：manifest-v2 新增 V4.4/V4.5 接线断言 + **V5 行为段**（真转译 Manifest+V2 双文件：穿透断言、v1 不继承、11 维标签产出、扩张/配额/方法变更必改标签集）39 项全绿；permission-store 新增 **P5 指纹级行为段**（真实正典标签 → fingerprintOf → decisionFor：同能力延续/编辑器写扩张重问/配额扩张重问/撤销即拒）28 项全绿。
+
+### 修改文件
+
+`LexiPluginManifest.ets`、`LexiPluginManifestV2.ets`、`LexiPluginRuntime.ets`、`LexiPluginInstaller.ets`、`plugin-manifest-v2.cjs`、`plugin-permission-store.cjs`、`tools/contract/symbols.json`（1 锚点 +1 位移）。
+
+### 实际执行的测试
+
+| 命令 | 结果 |
+|---|---|
+| `plugin-manifest-v2.cjs` | **PASS 39/39**（+8） |
+| `plugin-permission-store.cjs` | **PASS 28/28**（+4 行为断言） |
+| `release-gate --ci` | **PASS 28/28**（锚点修正后） |
+| `hvigorw assembleHap` | **PASS** |
+| 真机冷启（装机+启动 50s 窗口） | **PASS**：onload 2/2、**regrant 触发 0**（v1 基线无扰动）、denied=1 与基线一致 |
+
+### 尚存风险 / 下一轮
+
+- v2 插件的 regrant 通道仍缺 UI（P2-008：grant/revoke API 零调用方、regrant-required 仅 errorState 文案）——用户侧闭环是 Phase 2 下一个大块。
+- P2-003（broker capability 泛化）依赖本两步已就绪：execution 面现在能读 `manifest.v2`。
+- 下一轮：**P2-003 + P2-004**（broker capability 授权面扩展 + vault 路径级授权——首个真正消费 `manifest.v2.paths` 的执行面）。
+
+最近更新时间：2026-11-04（Round 11）。

@@ -22,6 +22,7 @@ const V2_ETS = path.join(CORE, 'LexiPluginManifestV2.ets');
 const SCHEMA = path.join(ROOT, 'tools/plugin-contract/schema/manifest-v2.schema.json');
 const RUNTIME_ETS = path.join(CORE, 'LexiPluginRuntime.ets');
 const MANIFEST_ETS = path.join(CORE, 'LexiPluginManifest.ets');
+const INSTALLER_ETS = path.join(CORE, 'LexiPluginInstaller.ets');
 
 let passed = 0;
 const failures = [];
@@ -196,6 +197,79 @@ ok('V4.2 v1 legacy 语义保留', /legacy-v1|legacy-unattributed/.test(manifestS
   'checkFsCapability 的 v1 legacy 分支必须保留(存量四夹具兼容)');
 ok('V4.3 扫描拒绝落 errorState(既有行为)', /broken:/.test(runtimeSrc),
   'scanPluginDir 对解析失败的插件维持 broken: 记录');
+ok('V4.4 P2-001 细粒度视图穿透到执行面', /v2:\s*LexiManifestV2Caps/.test(manifestSrc) &&
+  /manifest\.v2\s*=\s*v2\.v2/.test(manifestSrc),
+  'LexiPluginManifest 必须携带 v2 细粒度视图并在 manifestFromV2 里透传,否则 paths/quota/notifications 在执行面不可见(P0-03 根因)');
+ok('V4.5 P2-002 能力标签唯一正典接线(宿主双副本归一)',
+  /capabilityTagsOfV2Caps\(manifest\.v2\)/.test(runtimeSrc) &&
+  /capabilityTagsOfV2Caps\(manifest\.v2\)/.test(fs.readFileSync(INSTALLER_ETS, 'utf8')),
+  'runtime 与 installer 的 capabilityTagsOf 必须在 v2 分支调用同一正典函数,禁止再各自维护副本');
+
+// --- V5 P2-001/P2-002 行为断言(真转译,不是文本正则) ----------------------
+section('V5 细粒度视图与标签正典(真跑)');
+const tsPath5 = process.env.LEXI_TYPESCRIPT;
+if (!tsPath5) { throw new Error('需要 LEXI_TYPESCRIPT'); }
+{
+  const ts5 = require(tsPath5);
+  const load = (file, requireShim) => {
+    const js = ts5.transpileModule(fs.readFileSync(file, 'utf8'),
+      { compilerOptions: { module: ts5.ModuleKind.CommonJS, target: ts5.ScriptTarget.ES2021 } }).outputText;
+    const mod = { exports: {} };
+    vm.runInThisContext('(function(require,module,exports){' + js + '\n})', { filename: file })(requireShim, mod, mod.exports);
+    return mod.exports;
+  };
+  const v2mod = load(V2_ETS, () => { throw new Error('V2 模型必须零依赖'); });
+  const manifestMod = load(MANIFEST_ETS, (spec) => {
+    if (String(spec).indexOf('LexiPluginManifestV2') >= 0) { return v2mod; }
+    throw new Error('意外依赖: ' + spec);
+  });
+
+  const V2_WITH_FINE = {
+    manifestVersion: 2, id: 'fine-plugin', name: 'Fine', version: '1.0.0', author: 't',
+    capabilities: {
+      vault: { read: { enabled: true, paths: ['notes/**/*.md'] }, write: { enabled: true, paths: ['notes/draft/'] }, delete: true },
+      editor: { readActive: true, writeSelection: false, writeDocument: true, extensions: 'none' },
+      workspace: { commands: true, views: false },
+      network: { origins: ['api.example.com'], methods: ['GET'], maxRequestBytes: 65536, maxResponseBytes: 1048576 },
+      clipboard: { read: false, write: true },
+      storage: { quotaBytes: 2097152 },
+      notifications: true
+    }
+  };
+  const fine = manifestMod.parsePluginManifest(JSON.stringify(V2_WITH_FINE));
+  ok('V5.1 v2 细粒度视图穿透(manifest.v2 可读)', fine.manifestVersion === 2 &&
+    fine.v2.editor.writeDocument === true && fine.v2.storage.quotaBytes === 2097152 &&
+    fine.v2.vault.write.paths.length === 1 && fine.v2.vault.write.paths[0] === 'notes/draft/',
+    'manifest.v2 必须携带 editor/storage/paths 细节(P2-001)');
+  ok('V5.2 v1 清单不继承细粒度能力(默认全关)', (() => {
+    const v1 = manifestMod.parsePluginManifest(JSON.stringify({ id: 'old-plugin', name: 'Old', version: '1.0.0', author: 't' }));
+    return v1.manifestVersion === 1 && v1.v2.editor.writeDocument === false &&
+      v1.v2.storage.quotaBytes === 1048576 && v1.v2.vault.write.enabled === false;
+  })(), '旧清单的 v2 视图必须是默认全关(旧权限不自动细粒度化,§8.2)');
+
+  const tagsOf = v2mod.capabilityTagsOfV2Caps;
+  const baseTags = tagsOf(fine.v2);
+  ok('V5.3 正典标签逐维产出', baseTags.indexOf('vault.read:notes/**/*.md') >= 0 &&
+    baseTags.indexOf('vault.write:notes/draft/') >= 0 && baseTags.indexOf('vault.delete') >= 0 &&
+    baseTags.indexOf('editor.writeDocument') >= 0 && baseTags.indexOf('workspace.commands') >= 0 &&
+    baseTags.indexOf('network:api.example.com') >= 0 && baseTags.indexOf('netmethod:GET') >= 0 &&
+    baseTags.indexOf('netreq:65536') >= 0 && baseTags.indexOf('clipboard.write') >= 0 &&
+    baseTags.indexOf('storage.quota:2097152') >= 0 && baseTags.indexOf('notifications') >= 0,
+    '标签集必须覆盖 §4.4 全部维度(含数字上限)');
+  const grown = JSON.parse(JSON.stringify(fine.v2));
+  grown.editor.writeDocument = false; grown.editor.writeSelection = true; // 同级替换
+  grown.storage.quotaBytes = 4194304; grown.network.methods = ['GET', 'POST'];
+  const grownTags = tagsOf(grown);
+  ok('V5.4 权限扩张必然改变标签集(指纹敏感)', (() => {
+    const sortJoin = (a) => a.slice().sort().join('|');
+    return sortJoin(baseTags) !== sortJoin(grownTags) && grownTags.indexOf('editor.writeSelection') >= 0 &&
+      grownTags.indexOf('storage.quota:4194304') >= 0 && grownTags.indexOf('netmethod:POST') >= 0;
+  })(), '范围/配额/方法扩张必须可被指纹捕获,否则新增权限静默继承(P0-03)');
+  const shrink = tagsOf(fine.v2).length;
+  const noneAll = tagsOf(v2mod.LexiManifestV2Caps ? new v2mod.LexiManifestV2Caps() : (() => { throw new Error('x'); })());
+  ok('V5.5 全默认视图只产出恒定上限标签', noneAll.length < shrink && noneAll.indexOf('editor.writeDocument') < 0 &&
+    noneAll.indexOf('netreq:65536') >= 0, '未声明能力=没有能力;默认上限标签恒定(基线指纹稳定)');
+}
 
 console.log('\n[summary] 通过 ' + passed + ' 项 / 失败 ' + failures.length + ' 项');
 for (const f of failures) { console.log('  ✗ ' + f); }

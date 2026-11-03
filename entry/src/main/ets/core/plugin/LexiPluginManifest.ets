@@ -7,7 +7,7 @@
 // A v1 manifest without capabilities keeps loading; the capability policy below
 // states exactly which legacy behaviour survives and which does not.
 
-import { parseManifestV2, LexiManifestV2Normalized } from './LexiPluginManifestV2';
+import { parseManifestV2, LexiManifestV2Normalized, LexiManifestV2Caps } from './LexiPluginManifestV2';
 
 export class LexiPluginCapabilities {
   network: string[] = [];
@@ -34,6 +34,13 @@ export class LexiPluginManifest {
   /** true only when the manifest carried an explicit capabilities object (v2 marker). */
   capabilitiesDeclared: boolean = false;
   sha256: string = '';
+  /**
+   * P2-001(RFC §4.3 前置):v2 清单的细粒度能力视图透传。
+   * 此前 normalized.v2 在本模型边界被丢弃——paths/methods/quota/notifications
+   * 在执行面永远不可见(审计 Round 7 确认的 P0-03 机械根因)。v1 清单保持默认全关:
+   * 旧权限不自动继承为 Native 细粒度权限(§8.2 legacyProfile 语义)。
+   */
+  v2: LexiManifestV2Caps = new LexiManifestV2Caps();
 }
 
 export class LexiInstalledPlugin {
@@ -137,6 +144,8 @@ function manifestFromV2(v2: LexiManifestV2Normalized): LexiPluginManifest {
   manifest.capabilities.network = v2.capabilities.network.slice();
   manifest.capabilities.fs = v2.capabilities.fs;
   manifest.capabilities.clipboard = v2.capabilities.clipboard;
+  // P2-001:细粒度视图穿透到执行面(paths/methods/quota/notifications 不再止步于解析器)。
+  manifest.v2 = v2.v2;
   return manifest;
 }
 

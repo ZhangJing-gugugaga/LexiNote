@@ -46,8 +46,8 @@ clipboard/notifications/editor 分级未接线；授权 UI 缺失（`grant/revok
 
 | ID | 任务 | 状态 | 优先级 | 依赖 | 涉及模块 | 验收标准 |
 |---|---|---|---|---|---|---|
-| P2-001 | `LexiPluginManifest` 携带 v2 细粒度视图（prerequisite） | TODO | P0 | — | LexiPluginManifest.ets | v2 paths/methods/quota/notifications 可在执行面读取 |
-| P2-002 | 能力标签唯一正典 `capabilityTagsOfV2Caps`（两份重复实现归一）+ 指纹 SCHEMA_VERSION 升级与已授权插件迁移 | TODO | P0 | P2-001 | LexiPluginRuntime.ets:1618, LexiPluginInstaller.ets:291, LexiPermissionStore | 权限扩张（editor/notify/quota/delete）改变指纹→触发重新授权；迁移不粗暴打回全部旧授权 |
+| P2-001 | `LexiPluginManifest` 携带 v2 细粒度视图（prerequisite） | VERIFIED | P0 | — | LexiPluginManifest.ets | V4.4/V5.1 断言+真机冷启无回归 ✔(Round 11) |
+| P2-002 | 能力标签唯一正典 `capabilityTagsOfV2Caps`（两份重复实现归一）+ 指纹 SCHEMA_VERSION 升级与已授权插件迁移 | VERIFIED | P0 | P2-001 | LexiPluginRuntime.ets, LexiPluginInstaller.ets, LexiPermissionStore | **Round 11 结案**:正典函数落 V2 文件,双副本归一;指纹变化天然触发 regrant(无需迁移代码,v1 插件零打扰,真机证实);V5/P5 行为门禁 39+28 全绿 ✔ |
 | P2-003 | Broker 授权泛化：role-only 的 kind 增加 capability 维度（vault-read/editor-*/notify/storage-write） | TODO | P0 | P2-001,002 | LexiPermissionBroker | 每个 RPC 绑定授权规则；authz-matrix 覆盖未声明→拒绝 |
 | P2-004 | Vault 路径级授权（read/write paths 前缀+glob 宿主端执行） | TODO | P1 | P2-003 | fsGate/handler 层 | 越路径读写被拒并有错误码（SEC-008/009） |
 | P2-005 | Editor 分级授权（readActive/writeSelection/writeDocument） | TODO | P1 | P2-003 | editor.* handlers | 未声明 editor.write* 不能改文档 |

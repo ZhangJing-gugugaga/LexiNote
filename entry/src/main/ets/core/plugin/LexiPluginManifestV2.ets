@@ -118,6 +118,44 @@ export function knownCapabilityKeys(): string[] {
   return CAPABILITY_KEYS.slice();
 }
 
+/**
+ * P2-002(RFC §4.4 粒度)·能力标签唯一正典:v2 细粒度能力视图 → '域:细节' 标签集。
+ * 该标签集是授权指纹(PermissionStore.fingerprintOf)与重授权 diff 的唯一输入;
+ * 宿主 runtime capabilityTagsOf 与 installer manifestCapabilityTags 都必须调本函数,
+ * 禁止再各自维护副本——此前两份粗粒度副本(vault.write/network:host/clipboard 三类)
+ * 使 editor/notification/storage/quota 的权限扩张不改变指纹,新增权限被静默继承
+ * (Round 7 审计确认的 P0-03 后果)。
+ * 细节逐条入标签且数字上限恒入标签:范围/配额扩大 ⇒ 指纹变化 ⇒ regrant-required;
+ * v1 清单不经过本函数(legacy 三标签语义保留,旧权限不自动细粒度化,§8.2)。
+ */
+export function capabilityTagsOfV2Caps(caps: LexiManifestV2Caps): string[] {
+  const tags: string[] = [];
+  if (caps.vault.read.enabled) {
+    tags.push('vault.read');
+    for (const path of caps.vault.read.paths) { tags.push('vault.read:' + path); }
+  }
+  if (caps.vault.write.enabled) {
+    tags.push('vault.write');
+    for (const path of caps.vault.write.paths) { tags.push('vault.write:' + path); }
+  }
+  if (caps.vault.delete) { tags.push('vault.delete'); }
+  if (caps.editor.readActive) { tags.push('editor.readActive'); }
+  if (caps.editor.writeSelection) { tags.push('editor.writeSelection'); }
+  if (caps.editor.writeDocument) { tags.push('editor.writeDocument'); }
+  if (caps.editor.extensions !== 'none') { tags.push('editor.extensions:' + caps.editor.extensions); }
+  if (caps.workspace.commands) { tags.push('workspace.commands'); }
+  if (caps.workspace.views) { tags.push('workspace.views'); }
+  for (const origin of caps.network.origins) { tags.push('network:' + origin); }
+  for (const method of caps.network.methods) { tags.push('netmethod:' + method.toUpperCase()); }
+  tags.push('netreq:' + caps.network.maxRequestBytes);
+  tags.push('netres:' + caps.network.maxResponseBytes);
+  if (caps.clipboard.read) { tags.push('clipboard.read'); }
+  if (caps.clipboard.write) { tags.push('clipboard.write'); }
+  tags.push('storage.quota:' + caps.storage.quotaBytes);
+  if (caps.notifications) { tags.push('notifications'); }
+  return tags;
+}
+
 function isPlainObject(value: Object | undefined | null): boolean {
   return value !== undefined && value !== null && typeof value === 'object' && !Array.isArray(value);
 }

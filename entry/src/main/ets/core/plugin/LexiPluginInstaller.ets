@@ -28,6 +28,7 @@ import {
   ERROR_MIN_API_UNSATISFIED,
   ERROR_DOWNGRADE_BLOCKED
 } from './LexiPluginManifest';
+import { capabilityTagsOfV2Caps } from './LexiPluginManifestV2';
 import { LexiArchiveEntry, LexiPackageDecision, LexiPackageVerifier } from './LexiPackageVerifier';
 import { LexiCapabilityDiffLite, LexiUpdateInput, LexiUpdatePolicy } from './LexiUpdatePolicy';
 
@@ -287,8 +288,11 @@ export class LexiPluginInstaller {
     } catch { return []; }
   }
 
-  /** 清单能力标签(与 T2.2 指纹同语义:vault.write / network:<host> / clipboard)。 */
+  /** 清单能力标签(P2-002:v2 走细粒度唯一正典,与 runtime capabilityTagsOf 同源;v1 保持 legacy 三标签)。 */
   private manifestCapabilityTags(manifest: LexiPluginManifest): string[] {
+    if (manifest.manifestVersion === 2) {
+      return capabilityTagsOfV2Caps(manifest.v2);
+    }
     const tags: string[] = [];
     if (manifest.capabilitiesDeclared) {
       if (manifest.capabilities.fs) { tags.push('vault.write'); }

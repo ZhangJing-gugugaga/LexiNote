@@ -131,6 +131,62 @@ ok('P4.5 指纹来自能力声明(清单驱动)', /capabilitiesFingerprint|finge
 ok('P4.6 持久化落盘', /plugin-permissions\.json/.test(runtimeSrc), '权限授予必须可持久化(重启保留)');
 ok('P4.7 v2 能力视图存在(细粒度基础)', /v2\.vault|manifestVersion/.test(v2Src));
 
+// --- P5 指纹级行为闭环(P2-002):真实正典标签 → fingerprintOf → decisionFor -------
+// 此前本门禁指纹输入是字面量('fp-1' 等),证明不了"权限扩张必然重问"。现在把宿主
+// 同款正典函数 capabilityTagsOfV2Caps 真跑进指纹链路(V2 模型零依赖,可直接转译)。
+section('P5 能力扩张 ⇒ 指纹变化 ⇒ regrant-required(真跑)');
+{
+  const tsPath = process.env.LEXI_TYPESCRIPT;
+  if (!tsPath) {
+    ok('P5.0 LEXI_TYPESCRIPT 已配置', false, '环境变量缺失,P5 行为断言跳过即失败');
+  } else {
+  const ts = require(tsPath);
+  const js = ts.transpileModule(fs.readFileSync(V2_ETS, 'utf8'),
+    { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 } }).outputText;
+  const v2mod = { exports: {} };
+  vm.runInThisContext('(function(require,module,exports){' + js + '\n})', { filename: 'LexiPluginManifestV2.ets' })(
+    () => { throw new Error('V2 模型必须零依赖'); }, v2mod, v2mod.exports);
+  const tagsOf = v2mod.exports.capabilityTagsOfV2Caps;
+  // fingerprintOf 是实例方法:借临时 store 实例做纯指纹计算。
+  const decisionFor = storeMod.LexiPermissionStore;
+  const fingerprintOf = (tags) => new decisionFor().fingerprintOf(tags);
+
+  const baseCaps = new v2mod.exports.LexiManifestV2Caps();
+  baseCaps.vault.write.enabled = true;
+  baseCaps.network.origins = ['api.example.com'];
+
+  const store = new decisionFor();
+  const oldFp = fingerprintOf(tagsOf(baseCaps));
+  store.grant('grow-plugin', '1.0.0', oldFp);
+  ok('P5.1 同能力同版本 = granted(自动延续)',
+    store.decisionFor('grow-plugin', '1.0.1', fingerprintOf(tagsOf(baseCaps))) === storeMod.PERMISSION_GRANTED,
+    '能力未变不折腾用户(RFC §9.5)');
+
+  const grownCaps = new v2mod.exports.LexiManifestV2Caps();
+  grownCaps.vault.write.enabled = true;
+  grownCaps.network.origins = ['api.example.com'];
+  grownCaps.editor.writeDocument = true; // 升级新增编辑器写权限
+  ok('P5.2 权限扩张 ⇒ regrant-required',
+    store.decisionFor('grow-plugin', '1.1.0', fingerprintOf(tagsOf(grownCaps))) === storeMod.PERMISSION_REGRANT_REQUIRED,
+    '新增 editor.writeDocument 必须改变指纹并触发重授权(旧粗标签下它曾静默继承,P0-03)');
+  const store2 = new decisionFor();
+  store2.grant('q-plugin', '1.0.0', fingerprintOf(tagsOf(baseCaps)));
+  const quotaCaps = new v2mod.exports.LexiManifestV2Caps();
+  quotaCaps.vault.write.enabled = true;
+  quotaCaps.network.origins = ['api.example.com'];
+  quotaCaps.storage.quotaBytes = 104857600; // 配额 1MiB → 100MiB
+  ok('P5.3 配额扩大 ⇒ 指纹变化 ⇒ regrant-required',
+    store2.decisionFor('q-plugin', '1.1.0', fingerprintOf(tagsOf(quotaCaps))) === storeMod.PERMISSION_REGRANT_REQUIRED,
+    '数字上限恒入标签:配额扩张必须被指纹捕获');
+  const revokeStore = new decisionFor();
+  revokeStore.grant('rv-plugin', '1.0.0', oldFp);
+  revokeStore.revoke('rv-plugin');
+  ok('P5.4 撤销后即使能力未变也拒绝(直到再授权)',
+    revokeStore.decisionFor('rv-plugin', '1.0.0', oldFp) === storeMod.PERMISSION_REVOKED,
+    '撤销立即生效(§16.2)');
+  }
+}
+
 console.log('\n[summary] 通过 ' + passed + ' 项 / 失败 ' + failures.length + ' 项');
 for (const f of failures) { console.log('  ✗ ' + f); }
 console.log(failures.length === 0

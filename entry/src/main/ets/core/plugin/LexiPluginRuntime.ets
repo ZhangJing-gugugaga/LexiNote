@@ -19,6 +19,7 @@ import {
   checkFsCapability,
   ERROR_CAPABILITY_DENIED
 } from './LexiPluginManifest';
+import { capabilityTagsOfV2Caps } from './LexiPluginManifestV2';
 import {
   LexiNetDeps,
   LexiNetOutcome,
@@ -1626,8 +1627,13 @@ export class LexiPluginManager {
     return record ? record.manifest : null;
   }
 
-  /** 从清单能力声明推导标签(v2 细粒度能力 → '域:细节' 标签集)。 */
+  /** 从清单能力声明推导标签(P2-002:v2 走细粒度唯一正典,v1 保持 legacy 三标签)。 */
   private capabilityTagsOf(manifest: LexiPluginManifest): string[] {
+    if (manifest.manifestVersion === 2) {
+      // 细粒度正典:editor/notification/storage/quota/paths 扩张 ⇒ 指纹变化 ⇒ regrant-required。
+      return capabilityTagsOfV2Caps(manifest.v2);
+    }
+    // v1(legacy):不自动细粒度化(§8.2 旧权限不继承 Native 权限)。
     const tags: string[] = [];
     if (manifest.capabilitiesDeclared) {
       if (manifest.capabilities.fs) { tags.push('vault.write'); }
