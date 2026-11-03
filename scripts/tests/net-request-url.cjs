@@ -217,6 +217,47 @@ async function main() {
     ok('8.4 body 透传', transport.calls[0].body === '{"n":1}');
   });
 
+  // --- P2-006(RFC §4.4):v2 网络方法白名单与请求/响应字节上限(真跑) -------------
+  await step('P2-006a v2 methods 白名单:声明 GET 发 POST → 拒且传输 0 次', async () => {
+    const v2get = manifest({ manifestVersion: 2, capabilities: { network: { origins: ['api.example.com'], methods: ['GET'] } } });
+    const transport = makeTransport(() => Promise.resolve(new probeMod.LexiNetResponse(200, {}, 'x')));
+    const deps = makeDeps(new Map([['tk-a', 'plug-a']]), new Map([['plug-a', v2get]]), transport, makeLog());
+    const outcome = await probeMod.executeNetRequest(
+      JSON.stringify({ url: 'https://api.example.com/x', method: 'POST' }), 'plug-a', 'tk-a', deps);
+    ok('8b.1 POST 被拒 code=capability_denied', !outcome.ok && outcome.code === 'capability_denied' &&
+      outcome.error.indexOf('network.methods') >= 0, outcome.error);
+    ok('8b.2 传输 0 次(拒绝即不留半发)', transport.calls.length === 0);
+  });
+
+  await step('P2-006b v2 空 methods = 只读默认(GET 过,POST 拒)', async () => {
+    const v2default = manifest({ manifestVersion: 2, capabilities: { network: { origins: ['api.example.com'] } } });
+    const transport = makeTransport(() => Promise.resolve(new probeMod.LexiNetResponse(200, {}, 'x')));
+    const deps = makeDeps(new Map([['tk-a', 'plug-a']]), new Map([['plug-a', v2default]]), transport, makeLog());
+    const okGet = await probeMod.executeNetRequest(JSON.stringify({ url: 'https://api.example.com/x' }), 'plug-a', 'tk-a', deps);
+    const denyPost = await probeMod.executeNetRequest(
+      JSON.stringify({ url: 'https://api.example.com/x', method: 'POST' }), 'plug-a', 'tk-a', deps);
+    ok('8b.3 GET 放行', okGet.ok === true, String(okGet.error));
+    ok('8b.4 POST 拒绝(空声明非全放)', !denyPost.ok && denyPost.code === 'capability_denied');
+  });
+
+  await step('P2-006c v2 请求体超限 → 拒发且传输 0 次', async () => {
+    const v2small = manifest({ manifestVersion: 2, capabilities: { network: { origins: ['api.example.com'], maxRequestBytes: 16 } } });
+    const transport = makeTransport(() => Promise.resolve(new probeMod.LexiNetResponse(200, {}, 'x')));
+    const deps = makeDeps(new Map([['tk-a', 'plug-a']]), new Map([['plug-a', v2small]]), transport, makeLog());
+    const outcome = await probeMod.executeNetRequest(
+      JSON.stringify({ url: 'https://api.example.com/x', body: '1234567890123456789' }), 'plug-a', 'tk-a', deps);
+    ok('8b.5 超限请求拒且说明上限', !outcome.ok && outcome.error.indexOf('maxRequestBytes') >= 0, outcome.error);
+    ok('8b.6 传输 0 次', transport.calls.length === 0);
+  });
+
+  await step('P2-006d v2 响应体超限 → 弃包不交付', async () => {
+    const v2resp = manifest({ manifestVersion: 2, capabilities: { network: { origins: ['api.example.com'], maxResponseBytes: 8 } } });
+    const transport = makeTransport(() => Promise.resolve(new probeMod.LexiNetResponse(200, {}, '1234567890123456789')));
+    const deps = makeDeps(new Map([['tk-a', 'plug-a']]), new Map([['plug-a', v2resp]]), transport, makeLog());
+    const outcome = await probeMod.executeNetRequest(JSON.stringify({ url: 'https://api.example.com/x' }), 'plug-a', 'tk-a', deps);
+    ok('8b.7 超限响应弃包 code=capability_denied', !outcome.ok && outcome.error.indexOf('maxResponseBytes') >= 0, outcome.error);
+  });
+
   await step('非 2xx 原样回传（不吞状态码、不当异常）', async () => {
     const transport = makeTransport(() => Promise.resolve(
       new probeMod.LexiNetResponse(503, { 'retry-after': '5' }, 'busy')
@@ -400,7 +441,9 @@ async function main() {
       /class LexiHttpTransport implements LexiNetTransport/.test(runtimeSource));
     ok('18.7 视图 boot payload 下发令牌',
       /'token': this\.runtime\.tokenForPlugin\(pluginId\) as Object/.test(runtimeSource));
-    ok('18.8 判定入口真的调 checkNetworkCapability', /checkNetworkCapability\(deps\.manifestFor\(identity\), url\)/.test(probeSource));
+    ok('18.8 判定入口真的调 checkNetworkCapability(单一 manifestFor)',
+      /const manifest: LexiPluginManifest \| null = deps\.manifestFor\(identity\);/.test(probeSource) &&
+      /checkNetworkCapability\(manifest, url\)/.test(probeSource));
     const execBody = probeSource.slice(probeSource.indexOf('export async function executeNetRequest'));
     ok('18.9 拒绝先判断后发送（判定与 deny 分支都在 sendWithTimeout 之前）',
       execBody.indexOf('checkNetworkCapability(') < execBody.indexOf('sendWithTimeout(') &&

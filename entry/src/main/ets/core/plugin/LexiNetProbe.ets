@@ -133,9 +133,23 @@ export async function executeNetRequest(payloadJson: string, identity: string, t
     deps.logError('net.requestUrl identity=' + who + ' allowed=false code=' + ERROR_INVALID_REQUEST + ' detail=缺少 url');
     return denied(ERROR_INVALID_REQUEST, 'net: 缺少 url');
   }
-  const method: string = probeString(request, 'method').toUpperCase() === 'POST' ? 'POST' : 'GET';
+  const rawMethod: string = probeString(request, 'method').toUpperCase();
+  const method: string = rawMethod === 'POST' ? 'POST' : 'GET';
   // manifestFor(identity) === null → checkNetworkCapability 直接 denied：认不出身份必须 fail-closed。
-  const decision: LexiCapabilityDecision = checkNetworkCapability(deps.manifestFor(identity), url);
+  const manifest: LexiPluginManifest | null = deps.manifestFor(identity);
+  // P2-006(RFC §4.4):v2 清单的 network.methods 白名单——空声明按只读默认(仅 GET);
+  // 声明了清单外方法一律拒绝。v1/legacy 保持既有 GET/POST 双法语义。
+  if (manifest !== null && manifest.manifestVersion === 2) {
+    const declared = manifest.v2.network.methods;
+    const effective: string[] = declared.length > 0
+      ? declared.map((entry: string): string => entry.toUpperCase()) : ['GET'];
+    if (effective.indexOf(method) < 0) {
+      deps.logError('capability.net identity=' + who + ' method=' + method + ' allowed=false code=capability_denied' +
+        ' detail=HTTP 方法不在 network.methods 白名单');
+      return denied('capability_denied', 'net: HTTP 方法 ' + method + ' 不在 network.methods 白名单');
+    }
+  }
+  const decision: LexiCapabilityDecision = checkNetworkCapability(manifest, url);
   const line: string = 'capability.net identity=' + who + ' host=' + decision.host + ' method=' + method +
     ' allowed=' + (decision.allowed ? 'true' : 'false') + ' detail=' + decision.detail;
   if (!decision.allowed) {
@@ -145,6 +159,14 @@ export async function executeNetRequest(payloadJson: string, identity: string, t
   deps.logInfo(line);
   const headers: Record<string, string> = probeHeaders(request);
   const body: string = probeString(request, 'body');
+  // P2-006:请求体字节上限(声明 maxRequestBytes 才约束;默认 65536 也生效——恒入指纹标签)。
+  if (manifest !== null && manifest.manifestVersion === 2 && manifest.v2.network.maxRequestBytes > 0 &&
+    body.length > manifest.v2.network.maxRequestBytes) {
+    deps.logError('capability.net identity=' + who + ' allowed=false code=capability_denied detail=请求体 ' +
+      body.length + ' 超出 maxRequestBytes ' + manifest.v2.network.maxRequestBytes);
+    return denied('capability_denied',
+      'net: 请求体 ' + body.length + ' 超出 maxRequestBytes ' + manifest.v2.network.maxRequestBytes);
+  }
   const startedAt: number = Date.now();
   let response: LexiNetResponse;
   try {
@@ -158,6 +180,14 @@ export async function executeNetRequest(payloadJson: string, identity: string, t
     deps.logError('net.requestUrl identity=' + who + ' host=' + decision.host + ' method=' + method + ' ok=false code=' +
       code + ' ms=' + (Date.now() - startedAt) + ' detail=' + message);
     return denied(code, timedOut ? 'net: 请求超时（' + deps.timeoutMs + 'ms）' : 'net: 传输失败 ' + message);
+  }
+  // P2-006:响应体字节上限——超限即弃包(不把超限内容交给插件),与请求上限同语义。
+  if (manifest !== null && manifest.manifestVersion === 2 && manifest.v2.network.maxResponseBytes > 0 &&
+    response.text.length > manifest.v2.network.maxResponseBytes) {
+    deps.logError('capability.net identity=' + who + ' allowed=false code=capability_denied detail=响应体 ' +
+      response.text.length + ' 超出 maxResponseBytes ' + manifest.v2.network.maxResponseBytes);
+    return denied('capability_denied',
+      'net: 响应体 ' + response.text.length + ' 超出 maxResponseBytes ' + manifest.v2.network.maxResponseBytes);
   }
   const outcome = new LexiNetOutcome();
   outcome.ok = true;

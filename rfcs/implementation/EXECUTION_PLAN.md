@@ -51,7 +51,7 @@ clipboard/notifications/editor 分级未接线；授权 UI 缺失（`grant/revok
 | P2-003 | Broker 授权泛化：role-only 的 kind 增加 capability 维度（vault-read/editor-*/notify/storage-write） | VERIFIED | P0 | P2-001,002 | LexiPermissionBroker.ets, LexiPluginRuntime.ets | **Round 12 结案**:capabilityGate 可选 seam(未注入=旧行为)+runtime 域映射;M2b 9 条+双 seam 独立性断言;data.* 解绑;delete 独立键 ✔ |
 | P2-004 | Vault 路径级授权（read/write paths 前缀+glob 宿主端执行） | VERIFIED | P1 | P2-003 | LexiPluginManifest.ets(vaultPathAllowed), fsGate/vaultReadGate | **Round 12 结案**:写 6 handler+rename 双端+读 2 handler 接线;V5b glob 语义 4 条;真机 v1 基线零扰动 ✔ |
 | P2-005 | Editor 分级授权（readActive/writeSelection/writeDocument） | TODO | P1 | P2-003 | editor.* handlers | 未声明 editor.write* 不能改文档 |
-| P2-006 | Network methods/请求响应字节上限执行 | TODO | P1 | P2-001 | LexiNetProbe | GET/POST 之外与超限请求拒绝 |
+| P2-006 | Network methods/请求响应字节上限执行 | VERIFIED | P1 | P2-001 | LexiNetProbe | **Round 15 结案**:方法白名单(空=只读默认)+请求/响应字节上限,拒发不留半发;net gate +7 断言(83 全绿);真机 v1 基线零扰动 ✔ |
 | P2-007 | Storage 配额、notifications、clipboard 面接线（含反向绑定修复：只声明 storage 的 v2 插件应可用 data.json） | VERIFIED | P1 | P2-003 | data.save, ui.notice(broker gate) | **Round 12/13**:notifications 经 broker gate ✔、data 解绑 ✔、**配额宿主端强制(P2-005, Round 13) ✔**;clipboard 无 RPC handler(不适用,登记) |
 | P2-008 | 用户权限管理 UI：安装权限清单、grant/revoke、regrant 通道（含 `optionsJson.grantApproved` 透传修复） | IMPLEMENTED | P1 | P2-002 | LexiPluginMarketSheet/Settings + Runtime | **Round 14**:grantApproved 落账+启用闭环、重授权确认行、权限标签展示、撤销授权按钮;dist-regression +4;真机 install 流 PASS。**正例(v2 权限增长)设备证据待 P4-005 v2 夹具** |
 | P2-009 | 生命周期状态机补全（verified/permission-pending/degraded/quarantined/revoked 可达且有转出原因） | TODO | P2 | P2-008 | LexiPluginLifecycleManager | 状态转换表+测试；quarantine 由安全事件触发 |
