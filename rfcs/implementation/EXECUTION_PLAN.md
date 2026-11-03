@@ -52,7 +52,7 @@ clipboard/notifications/editor 分级未接线；授权 UI 缺失（`grant/revok
 | P2-004 | Vault 路径级授权（read/write paths 前缀+glob 宿主端执行） | VERIFIED | P1 | P2-003 | LexiPluginManifest.ets(vaultPathAllowed), fsGate/vaultReadGate | **Round 12 结案**:写 6 handler+rename 双端+读 2 handler 接线;V5b glob 语义 4 条;真机 v1 基线零扰动 ✔ |
 | P2-005 | Editor 分级授权（readActive/writeSelection/writeDocument） | TODO | P1 | P2-003 | editor.* handlers | 未声明 editor.write* 不能改文档 |
 | P2-006 | Network methods/请求响应字节上限执行 | TODO | P1 | P2-001 | LexiNetProbe | GET/POST 之外与超限请求拒绝 |
-| P2-007 | Storage 配额、notifications、clipboard 面接线（含反向绑定修复：只声明 storage 的 v2 插件应可用 data.json） | TODO | P1 | P2-003 | data.save, ui.notice | 配额宿主端强制；未声明即拒 |
+| P2-007 | Storage 配额、notifications、clipboard 面接线（含反向绑定修复：只声明 storage 的 v2 插件应可用 data.json） | VERIFIED | P1 | P2-003 | data.save, ui.notice(broker gate) | **Round 12/13**:notifications 经 broker gate ✔、data 解绑 ✔、**配额宿主端强制(P2-005, Round 13) ✔**;clipboard 无 RPC handler(不适用,登记) |
 | P2-008 | 用户权限管理 UI：安装权限清单、grant/revoke、regrant 通道（含 `optionsJson.grantApproved` 透传修复） | TODO | P1 | P2-002 | LexiPluginMarketSheet/Settings + Runtime | 用户可视化增删授权；新增权限必须重问；撤销立即生效 |
 | P2-009 | 生命周期状态机补全（verified/permission-pending/degraded/quarantined/revoked 可达且有转出原因） | TODO | P2 | P2-008 | LexiPluginLifecycleManager | 状态转换表+测试；quarantine 由安全事件触发 |
 | P2-010 | 撤销立即生效：权限撤销/插件撤销后既有通道与注册资源失效 | TODO | P1 | P2-008, P1-008 | Broker, Registry | SEC 用例：撤销后 RPC 全拒 |

@@ -247,3 +247,30 @@
 - 下一轮：**P2-005（storage 配额执行）+ P2-008（权限 UI：授权清单/grant/revoke/regrant 通道）**。
 
 最近更新时间：2026-11-04（Round 12）。
+
+---
+
+## Round 13 — 2026-11-04（P2-005：storage 配额宿主端强制执行）
+
+**当前 Phase：** Phase 2。
+
+### 本轮完成
+
+1. **P2-005**：`storageQuotaGate`——data.save 落盘前按 `manifest.v2.storage.quotaBytes` 拒绝超限写入（`capability.quota` 审计行 + `ERR_PERMISSION_DENIED` 错误码）；v1/legacy 沿用无配额旧语义；字节账按 UTF-16 码元近似（注释声明，精确字节账随编码器接入校准）。RFC §10.1"配额必须由宿主强制执行，不能只在 manifest 声明"落地。
+2. **门禁**：dist-regression §6 +2 接线断言（gate 存在 + data.save 落盘前调用）。
+3. 附带修正：contract-matrix 2 锚点位移（+5/+5）手工再修。
+
+### 实际执行的测试
+
+| 命令 | 结果 |
+|---|---|
+| `plugin-dist-regression.cjs` | **PASS 19/19**（+2） |
+| `release-gate --ci` | **PASS 28/28** |
+| `hvigorw assembleHap` | **PASS** |
+| 真机冷启 | **PASS**：onload 2/2、quota 触发 0（v1 基线）、denied=1 与基线一致 |
+
+### 下一轮
+
+**P2-008 权限管理 UI**（授权清单展示 + grant/revoke/regrant 通道 + `optionsJson.grantApproved` 透传）——Phase 2 用户侧闭环的最大块；随后 P2-009/P2-010。
+
+最近更新时间：2026-11-04（Round 13）。

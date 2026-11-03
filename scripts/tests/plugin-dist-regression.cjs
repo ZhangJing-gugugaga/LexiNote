@@ -558,6 +558,10 @@ test('runtime 接线：能力门禁在处理器前面，卸载/回滚/严格索�
     'rename 的目标路径必须同样过白名单(防借改名把内容移出范围)');
   assert.match(text, /method === 'data\.load' \|\| method === 'data\.save'/,
     'data.* 必须与 vault.write 解绑(storage 归属,反向绑定修复 P2-003)');
+  // P2-005:配额宿主端强制执行(data.save 写入前按 manifest.v2.storage.quotaBytes 拒绝超限)。
+  assert.match(text, /private storageQuotaGate\(/, 'P2-005: 配额 gate 必须存在');
+  assert.match(text, /data\.save[\s\S]{0,300}storageQuotaGate\(identity, dataJson\.length\)/,
+    'data.save 必须在落盘前过配额检查');
   // 真机 KI-4:运行时安装的插件在 enablePlugin 前必须经 scanPluginDir 落 installed,
   // 否则生命周期表判 discovered→starting 非法迁移,"装得上却永不 onload"。
   const scan = text.slice(text.indexOf('private async scanPluginDir('), text.indexOf('private readTextFile('));

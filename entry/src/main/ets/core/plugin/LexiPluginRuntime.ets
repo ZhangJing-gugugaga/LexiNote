@@ -1195,9 +1195,14 @@ export class LexiPluginManager {
       const request = JSON.parse(payload) as RpcRequest;
       const gate = manager.fsGate(identity, 'data.save');
       if (gate) { return gate; }
+      const dataJson = rpcString(request, 'dataJson');
+      // P2-005(RFC §10.1):配额由宿主强制执行,不能只靠 manifest 声明。字节数按 UTF-16
+      // 码元近似(length)——配额语义为字符量级约束,精确字节账随编码器接入再校准。
+      const quotaGate = manager.storageQuotaGate(identity, dataJson.length);
+      if (quotaGate) { return quotaGate; }
       const dir = `${manager.pluginsRoot()}/${identity}`;
       if (!fs.accessSync(dir)) { fs.mkdirSync(dir, true); }
-      manager.writeTextFile(`${dir}/data.json`, rpcString(request, 'dataJson'));
+      manager.writeTextFile(`${dir}/data.json`, dataJson);
       return okResponse(null);
     });
     runtime.registerHandler('app.isDarkMode', async (_payload: string): Promise<string> => {
@@ -1808,8 +1813,7 @@ export class LexiPluginManager {
   }
 
   /** P2-004:v2 读路径白名单(vault.read.paths);v1/legacy 无此维度放行(域声明由 broker gate 判定)。 */
-  private vaultReadGate(identity: string, path: string): string {
-    const manifest: LexiPluginManifest | null = this.manifestFor(identity);
+  private vaultReadGate(identity: string, path: string): string {    const manifest: LexiPluginManifest | null = this.manifestFor(identity);
     if (manifest === null || manifest.manifestVersion !== 2) { return ''; }
     if (!manifest.v2.vault.read.enabled) {
       pluginError('capability.read method=vault.read identity=' + identity +
@@ -1822,6 +1826,21 @@ export class LexiPluginManager {
       return failResponseCode(ERROR_CAPABILITY_DENIED, 'fs: 路径不在 vault.read.paths 白名单: ' + path);
     }
     return '';
+  }
+
+  /**
+   * P2-005(RFC §4.4/§10.1):插件存储配额宿主端强制执行(不能只靠 manifest 声明)。
+   * v2 按清单 storage.quotaBytes 拒绝超限写入;v1/legacy 沿用无配额旧语义(存量不变)。
+   * 字节账按 UTF-16 码元近似(dataJson.length),配额语义为字符量级约束。
+   */
+  private storageQuotaGate(identity: string, dataLength: number): string {
+    const manifest: LexiPluginManifest | null = this.manifestFor(identity);
+    if (manifest === null || manifest.manifestVersion !== 2) { return ''; }
+    const quota = manifest.v2.storage.quotaBytes;
+    if (quota <= 0 || dataLength <= quota) { return ''; }
+    pluginError('capability.quota method=data.save identity=' + identity + ' bytes=' + dataLength +
+      ' quota=' + quota + ' allowed=false detail=写入超出 storage.quotaBytes');
+    return failResponseCode(ERROR_CAPABILITY_DENIED, 'storage: 数据量 ' + dataLength + ' 超出配额 ' + quota);
   }
 
   /**
