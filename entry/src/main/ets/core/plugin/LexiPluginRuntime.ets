@@ -49,7 +49,7 @@ import {
 import { LexiPluginLifecycleManager } from './LexiPluginLifecycleManager';
 import { LexiContextKind } from './LexiPluginExecutionContext';
 import { LexiExtensionRegistry } from './LexiExtensionRegistry';
-import { LexiPermissionStore, PERMISSION_GRANTED, PERMISSION_REGRANT_REQUIRED, PERMISSION_REVOKED } from './LexiPermissionStore';
+import { LexiPermissionStore, PERMISSION_GRANTED, PERMISSION_REGRANT_REQUIRED } from './LexiPermissionStore';
 import { LexiViewSessionTable } from './LexiViewSessionState';
 import { LexiInspectorInput, LexiInspectorReport, LexiPluginInspector } from './LexiPluginInspector';
 
@@ -1983,16 +1983,21 @@ export class LexiPluginManager {
       pluginError('插件版本不兼容: ' + pluginId + ' — ' + compatMessage);
       return false;
     }
-    // 授权决定门(T2.2):v2 清单的版本权限变化必须重新授权(§9.5);用户撤销后拒绝启用。
+    // 授权决定门(T2.2/P2-010):撤销状态对所有清单版本生效——用户明确"不许"不因 v1
+    // 而失效(此前 v1 撤销后仍可重新启用,撤销语义被版本门短路)。指纹级 regrant 与
+    // 首启落账仍只对声明型清单(v1 沿用启用即授权、无指纹折腾的存量语义)。
+    const storedGrant = this.permissionStore.grantOf(pluginId);
+    if (storedGrant !== null && storedGrant.state === 'revoked') {
+      record.errorState = '插件权限已被用户撤销,请在设置中重新授权';
+      pluginError('插件启用被拒 ' + pluginId + ': ' + record.errorState);
+      return false;
+    }
     if (record.manifest.capabilitiesDeclared) {
       const fingerprint = this.capabilityFingerprintOf(record.manifest);
       const decision = this.permissionStore.decisionFor(pluginId, record.manifest.version, fingerprint);
-      if (decision === PERMISSION_REGRANT_REQUIRED || decision === PERMISSION_REVOKED) {
-        const reason = decision === PERMISSION_REVOKED
-          ? '插件权限已被用户撤销,请在设置中重新授权'
-          : '插件升级引入权限变化,需要重新授权';
-        record.errorState = reason;
-        pluginError('插件启用被拒 ' + pluginId + ': ' + reason);
+      if (decision === PERMISSION_REGRANT_REQUIRED) {
+        record.errorState = '插件升级引入权限变化,需要重新授权';
+        pluginError('插件启用被拒 ' + pluginId + ': ' + record.errorState);
         return false;
       }
       if (decision !== PERMISSION_GRANTED) {

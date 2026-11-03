@@ -570,6 +570,9 @@ test('runtime 接线：能力门禁在处理器前面，卸载/回滚/严格索�
   assert.match(text, /installFromUrl\(url: string, expectedSha256: string = '', optionsJson: string = ''\)/,
     'installFromUrl 必须透传安装选项');
   assert.match(text, /permissionTagsOf\(pluginId: string\): string\[\]/, '授权展示面必须有权限标签查询');
+  // P2-010:撤销语义覆盖所有清单版本——revoked 检查必须在 capabilitiesDeclared 版本门之前。
+  assert.match(text, /const storedGrant = this\.permissionStore\.grantOf\(pluginId\);[\s\S]{0,200}state === 'revoked'[\s\S]{0,400}if \(record\.manifest\.capabilitiesDeclared\)/,
+    '撤销必须先于版本门短路启用(否则 v1 插件撤销后仍可重新启用,P2-010 缺口)');
   // 真机 KI-4:运行时安装的插件在 enablePlugin 前必须经 scanPluginDir 落 installed,
   // 否则生命周期表判 discovered→starting 非法迁移,"装得上却永不 onload"。
   const scan = text.slice(text.indexOf('private async scanPluginDir('), text.indexOf('private readTextFile('));

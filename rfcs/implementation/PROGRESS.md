@@ -330,3 +330,30 @@
 **P2-009/P2-010（生命周期状态机补全 + 撤销立即生效：token 吊销接线）**；随后 Phase 2 exit criteria 复核 → 进入 P1-003 沙箱主改造。
 
 最近更新时间：2026-11-04（Round 15）。
+
+---
+
+## Round 16 — 2026-11-04（P2-010：撤销立即生效——版本门短路修复）
+
+**当前 Phase：** Phase 2。
+
+### 本轮完成
+
+1. **P2-010 核心缺口修复**：审计确认 `enablePlugin` 授权门包在 `capabilitiesDeclared` 内——**v1 插件被用户撤销后仍可重新启用**（撤销语义被版本门短路）。修复：`revoked` 状态检查前置到版本门之前（`grantOf(pluginId).state === 'revoked'` → 拒绝启用 + errorState），对全部清单版本生效；指纹级 regrant 与首启落账仍只对声明型清单（v1 存量"启用即授权"语义不变）。
+2. **撤销通道现状盘点**（本轮核实）：撤销 → `permissionStore.revoke` + `disablePlugin` → **token 吊销已内建**（`revokePluginTokens` 在 disable 回收序中）→ 既有通道后续 RPC 按 anonymous fail-closed；扩展/视图/命令回收同链。UI 通道（撤销授权按钮）Round 14 已接。剩余待办：撤销后既有 MessagePort 的消息面清理——随 P1-003/005 沙箱通道收敛一并处理（已在本任务备注）。
+3. **门禁**：dist-regression §6 +1（revoked 检查必须先于版本门的顺序断言）；PERMISSION_REVOKED import 清理（改为直接状态查询）。
+
+### 实际执行的测试
+
+| 命令 | 结果 |
+|---|---|
+| `plugin-dist-regression.cjs` | **PASS 19/19**（+1） |
+| `release-gate --ci` | **PASS 28/28** |
+| `hvigorw assembleHap` | **PASS** |
+| 真机冷启 | **PASS**：onload 3、denied=1 基线、revoke-deny=0（设备无已撤销插件，负例待 v2/v1 撤销夹具 P4-005） |
+
+### 下一轮
+
+Phase 2 收尾复核（exit criteria 对照）→ **P1-002/P1-003 沙箱主改造启动**（执行上下文模型定案 ADR → Runtime 轨道 iframe 接入）。
+
+最近更新时间：2026-11-04（Round 16）。
