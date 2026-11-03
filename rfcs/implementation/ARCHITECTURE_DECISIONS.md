@@ -39,6 +39,7 @@
 - 假说（按验证成本排序）：①PoC 宿主页 CSP 缺 `frame-src`（改动最小,先证伪）；②ArkWeb 对 sandboxed iframe 的 src 解析限制（opaque origin 的 rawfile scheme 解析差异）；③页面早期 JS 异常（探针源注入 `window.LEXI_SANDBOX_PROBE_SOURCE` 若失败,建 iframe 代码是否整体跳过——PoC 的 `runtime.ready 被 fail-closed 拒绝` 真机日志提示初始化握手顺序可能相关）。
 - 决策规则：①③属实现缺陷,修后继续 iframe 路线；②属平台限制,则出 ADR 评估替代载体（多 Web 组件实例 + createWebMessagePorts 已有 workspace 轨道真机先例），并同步修订 RFC §3.2 与 ADR-002/003 的实施描述（RFC 更新规则 §19.3:插件执行模型变更须记录）。
 - 复审条件：P1-001a 完成即定案。
+- **Round 9 结案（ADR-R9-01，取代本条待定部分）**：三层根因（内联脚本被 CSP 拦杀 / 子→宿主消息缺协议标记 / 探针 frames[0] 假阳性）全部修复后，真机 `PoC verdict: PASS contexts=2/2, vectors 10/10 blocked, credentialHits=0`。**定案：iframe(sandbox=allow-scripts)+opaque origin+DOM MessageChannel 载体在 ArkWeb API 26 可行，RFC §3.2/§3.3 无需修订**。假说②(平台限制)证伪；`origin=null`、`sourceIsParent=true`、`ports=1` 为常驻真机见证。残余注意：正式运行时消除宿主 eval（P1-003）、ping/pong 见证与里程碑打点保留为巡检信号。
 
 ## 历史决策登记（迁移自既有代码语义,防遗失）
 

@@ -23,8 +23,8 @@
 
 | ID | 任务 | 状态 | 优先级 | 依赖 | 涉及模块 | 验收标准 |
 |---|---|---|---|---|---|---|
-| P1-001 | ArkWeb 沙箱能力真机验证（iframe sandbox=allow-scripts opaque origin、MessageChannel、postMessage 转移端口、CSP 'unsafe-eval' 移除可行性） | IN_PROGRESS | P0 | P1-001a | LexiSandboxHost, lexinote_sandbox_poc.html | 真机 hilog 证据：逃逸探针全拒 + 端口通道往返成功。**Round 8 首条证据为负面:API 26 上 PoC iframe 零加载、探针零输出(B-008)——设备已可用(B-001 解除)** |
-| P1-001a | 沙箱 PoC 静默根因插桩定位（假说序:CSP 缺 frame-src → ArkWeb sandboxed iframe 限制 → 早期 JS 异常）；产出隔离载体 ADR 复审（iframe vs 其他 ArkWeb 原语） | TODO | **P0** | — | lexinote_sandbox_poc.html(+CSP/onConsole), LexiSandboxHost | 真机定位结论 + ADR 定案;修复后探针 verdict 行在 hilog 可见 |
+| P1-001 | ArkWeb 沙箱能力真机验证（iframe sandbox=allow-scripts opaque origin、MessageChannel、postMessage 转移端口、CSP 'unsafe-eval' 移除可行性） | IN_PROGRESS | P0 | P1-001a | LexiSandboxHost, lexinote_* | 载体核心能力**已证（Round 9 verdict PASS 2/2×10 向量,ADR-R9-01）**；剩余项:'unsafe-eval' 移除可行性 + 性能驻留基准(poc-verdict) |
+| P1-001a | 沙箱 PoC 静默根因插桩定位 | **VERIFIED** | P0 | — | poc.html/js, sandbox.html, probe.js, context-isolation 门禁 | **Round 9 结案**：三根因(内联 CSP 拦杀/标记缺失/探针 frames[0] 假阳性)修复,真机 `verdict PASS contexts=2/2 vectors=20/20 blocked credentialHits=0` ✔ |
 | P1-002 | 正式执行上下文模型定案（contextId×kind、port↔身份绑定落点）+ ADR | TODO | P0 | P1-001 | LexiPluginExecutionContext, LexiPluginLifecycleManager | ADR 评审通过，字段与绑定职责明确 |
 | P1-003 | Runtime 轨道沙箱接入：每插件独立 iframe 取代共享 realm `new Function`；构建期 IIFE 优先 | TODO | P0 | P1-002 | lexinote_plugin_runtime.html, lexinote_plugin_shim.js, LexiPluginRuntime.ets | 业务插件在无 'unsafe-eval' 的独立上下文中加载运行；SEC 探针全过 |
 | P1-004 | Workspace 轨道收敛：插件执行面从编辑器页面剥离/同构接入 | TODO | P0 | P1-002, P1-003 | LexiWorkspacePage, WorkspaceBridge, lexinote_workspace_shim.js | 编辑器页不再直接求值第三方代码，或该面进入 Trusted 策略 |
@@ -107,10 +107,9 @@ clipboard/notifications/editor 分级未接线；授权 UI 缺失（`grant/revok
 
 ## 执行顺序裁定（当前, Round 8 后）
 
-1. ~~P5-001~~（Round 8 真机 VERIFIED）、~~P5-006 本地准备~~、~~KI-4/P2-012~~（VERIFIED）。设备可用，真机批次已重新排程为常规验收手段。
-2. **P1-001a**（沙箱 PoC 静默根因——Phase 1 的第一块基石，优先级 P0；假说 CSP frame-src 可在设备 10 分钟内证伪/证实）。
-3. **P1-006**（本地身份暴露面安全缺陷）。
-4. **P2-001+P2-002**（权限闭环先决两步）。
-5. **P5-004**（安装后不自动启用+授权 UI——真机回归链已可用，验收即可闭环）。
-6. 快速赢面：P0-005（generator 缺陷——Round 8 再次因锚点位移手工修 2 处，成本重复发生）、P0-003（CI，需把真机批次标注为可选 job）。
-7. 用户决策点：公开 `lexinote-releases` 仓库（建议维持不公开至 P5-002/P5-004 闭环）。
+1. ~~P5-001~~、~~P5-006 本地准备~~、~~KI-4/P2-012~~、~~P1-001a（Round 9：真机 verdict PASS,载体定案 iframe 路线）~~。
+2. **P1-006**（本地身份暴露面安全缺陷,优先级 P0——当前第一颗未拆的安全雷）。
+3. **P2-001+P2-002**（权限闭环先决两步）。
+4. **P5-004**（安装后不自动启用+授权 UI,真机回归链已可用）。
+5. 快速赢面：P0-003（CI）、P0-005（generator 缺陷,本轮又手工修锚点×1）。
+6. ~~公开发布决策~~：Round 9 起 `lexinote-releases` 公开仓已建立（**空严格索引,非开放市场**——无任何条目可安装,受 P5-002/004 完成前不得添加条目的纪律约束）。

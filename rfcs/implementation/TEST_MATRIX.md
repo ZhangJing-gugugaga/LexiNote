@@ -6,13 +6,14 @@
 | 能力 | 测试 | 层级 | 最近结果(Round 7) | 真机 | 缺口/备注 |
 |---|---|---|---|---|---|
 | 远程安装完整性闸门 (P5-001) | plugin-dist-regression §3（19/19）+ **真机 dist-flows 四流程** | 契约+接线+**集成(设备)** | PASS；**真机 PASS(Round 8,2in1)** | ✔ | 篡改包→UI integrity_mismatch 零残留、合法哈希安装/升级/回滚/卸载全绿(证据 20261103-213058..213656)；UI"缺哈希"分支仍离线断言(设备索引无此类条目)；authenticity 归 P5-002 |
-| 发布镜像=客户端=共享校验器 三方一致 (P5-006) | plugin-dist-regression 新用例 + 镜像仓 validate.mjs | 契约 | PASS 19/19 | ✘ | --remote 实测哈希待真实 zip 资产(发布决策 B-003) |
+| 发布镜像=客户端=共享校验器 三方一致 (P5-006) | plugin-dist-regression 新用例 + 镜像仓 validate.mjs | 契约 | PASS 19/19 | ✘ | --remote 实测哈希待真实 zip 条目（发布纪律：索引保持空至 P5-002/004 闭环） |
+| 默认市场 URL 可达性 (Round 9) | curl raw lexinote-releases/community-plugins.json | 集成 | **PASS**：`{"schemaVersion":1,"plugins":[]}`（公开仓+validate 工作流已建立） | ✔ | 设备市场页"市场为空"展示随下轮 flows 顺带确认 |
 | 生命周期安装记账 (KI-4/P2-012) | dist-regression §6 接线断言 + 真机 flows install | 接线+**设备** | **真机 PASS(Round 8)**：onload/命令注册/data.json 全达成 | ✔ | 教训:离线 28 步测不出该缺陷——设备批次纳入常规 |
 | 索引 schema 裁决 (ArkTS=Node 双实现一致) | plugin-dist-regression §3 + plugin-market-regression | 单元/契约 | PASS 4/4, parity ok | ✘ | 新增"旧版可展示但不可信"用例 |
 | 授权矩阵 (方法→kind) | plugin-authz-matrix | 契约 | PASS | ✘ | fsAuthorizer 为 stub——capability 真实注入未测(P2-011) |
 | 权限存储/指纹 | plugin-permission-store | 单元 | PASS | ✘ | 指纹输入是字面量非真实 tagsOf(P2-002 连带) |
 | Manifest v2 解析 | plugin-manifest-v2 | 契约 | PASS | ✘ | 证明解析,不证明执行面(P2-003..007) |
-| 沙箱隔离 | plugin-context-isolation | 安全(PoC 面) | PASS(离线) / **真机 FAIL：PoC 静默(B-008)** | ✘(证据为负面) | Round 8 双实例取证:API 26 上 PoC iframe 零加载零输出——隔离载体平台验证未通过,插桩归 P1-001a；业务轨道共享 realm 未覆盖(P1-003/009) |
+| 沙箱隔离 | plugin-context-isolation + **真机 PoC verdict** | 安全(PoC 面,离线 36 项+真机 hilog) | **PASS 36/36；真机 PASS(Round 9)**：contexts=2/2, vectors 20/20 blocked, credentialHits=0；origin=null/ports=1/ping-pong 为常驻见证 | ✔(载体级) | **B-008 关闭,ADR-R9-01 iframe 载体定案**；业务轨道共享 realm 未覆盖(P1-003/009);SEC 全表待接入 |
 | 身份面 | plugin-bridge-security | 安全(真实宿主) | PASS；**真机 hilog 佐证 fail-closed(Round 8)**：`identity.anonymous … fail_closed=true`、`authz.denied vault.files role=anonymous code=ERR_UNAUTHORIZED` 实测出现 | ✔(负面路径) | R5 未覆盖 currentToken 回落/__lexiToken 暴露(P1-006) |
 | 令牌下发一致性 | plugin-identity-delivery --strict | 静态审计 | PASS | ✘ | KNOWN_GAPS 台账 |
 | Registry 信任链 | plugin-registry-trust | 单元 | PASS | ✘ | 模块宿主零引用→需加接线断言(P5-002) |

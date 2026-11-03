@@ -18,6 +18,13 @@
 //   - 唯一宿主入口 = 宿主转移进来的 MessagePort；
 //   - 自检函数 __lexiSandboxSelfCheck 供设备 PoC 与离线门禁共用。
 (function () {
+  // P1-001a 插桩(Round 9,B-008 定位):子上下文逐里程碑打点,经组件级 onConsole 进 hilog。
+  // 定位完成后本段注释即证据链:bootstrap 未出现=CSP/执行问题;message 未出现=宿主→子通道问题;
+  // init port=MISSING=端口转移在 ArkWeb sandboxed iframe 失效;boot posted 而宿主无收到=回程通道问题。
+  function slog(line) {
+    try { console.log('[lexinote][sandbox] child[' + location.pathname.slice(-24) + '] ' + line); } catch (err) { /* noop */ }
+  }
+  slog('bootstrap executed');
   var protocolVersion = 1;
   var port = null;
   var contextId = '';
@@ -27,8 +34,12 @@
 
   function postToHost(message) {
     if (!port) { return; }
+    // B-008 根因二:沙箱→宿主消息必须带协议标记——onSandboxMessage 首行按标记过滤,
+    // 缺标记的 boot/request 会被静默丢弃(Round 8 真机 reports=0 的直接原因)。
+    message.__lexiSandbox = true;
     message.protocolVersion = protocolVersion;
-    try { port.postMessage(message); } catch (err) { /* 端口关闭后静默 */ }
+    try { port.postMessage(message); }
+    catch (err) { slog('port post THREW: ' + String((err && err.message) || err)); }
   }
 
   function request(method, params) {
@@ -103,6 +114,7 @@
 
   function onPortMessage(event) {
     var data = event.data || {};
+    if (data.type === 'sandbox.ping') { postToHost({ type: 'sandbox.pong', contextId: contextId }); return; }
     if (data.type === 'sandbox.response') { finish(data.requestId, data); return; }
     if (data.type === 'sandbox.run' && typeof data.source === 'string') {
       try {
@@ -116,6 +128,9 @@
   }
 
   window.addEventListener('message', function (event) {
+    var data0 = event.data || {};
+    slog('message: type=' + String(data0.type) + ' marked=' + (data0.__lexiSandbox === true) +
+      ' sourceIsParent=' + (event.source === window.parent) + ' ports=' + ((event.ports || []).length));
     // 只认父窗口、且必须带沙箱协议标记：别的窗口（含兄弟 iframe）的消息一律忽略。
     if (event.source !== window.parent) { return; }
     var data = event.data || {};
@@ -125,10 +140,13 @@
       contextId = typeof data.contextId === 'string' ? data.contextId : '';
       window.lexiSandbox.contextReady = true;
       port = event.ports && event.ports[0] ? event.ports[0] : null;
+      slog('init consumed: port=' + (port ? 'transferred' : 'MISSING'));
       if (port) {
+        // 单通道注册(poc5 双注册见证:两通道各投递一次,单通道即可且恰好一次)。
         port.onmessage = onPortMessage;
       }
       postToHost({ type: 'sandbox.boot', contextId: contextId, selfCheck: window.__lexiSandboxSelfCheck() });
+      slog('sandbox.boot posted (port ' + (port ? 'up' : 'absent') + ')');
     }
   });
 

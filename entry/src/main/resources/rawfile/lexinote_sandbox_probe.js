@@ -49,12 +49,24 @@ function __lexiSandboxEscapeProbe() {
   }));
 
   // V3 兄弟插件上下文
-  vectors.push(attempt('sibling-iframe', '经 window.parent.frames[0] 触达兄弟插件上下文', function () {
+  vectors.push(attempt('sibling-iframe', '枚举 window.parent.frames 触达兄弟插件上下文（排除自身）', function () {
+    // Round 9 真机修正：旧实现只测 frames[0]——对第一个沙箱上下文 frames[0] 是**自己**，
+    // 读自己的 document 必然成功,被误报成"兄弟泄漏"（假阳性 LEAKED,ArkWeb 真机 20261103-220706）。
+    // 现在全量枚举、`f === window` 排除自身；只有读到他上下文 document 才算泄漏。
     var frames = window.parent && window.parent.frames;
-    var sibling = frames && frames.length > 0 ? frames[0] : null;
-    if (!sibling) { throw new Error('无兄弟句柄'); }
-    var doc = sibling.document;
-    return '兄弟上下文 DOM 可读: ' + ((doc && doc.title) || '(title)');
+    if (!frames || frames.length === 0) { throw new Error('无兄弟句柄'); }
+    var reached = [];
+    for (var i = 0; i < frames.length; i++) {
+      var f = null;
+      try { f = frames[i]; } catch (errIndex) { continue; }
+      if (!f || f === window) { continue; }
+      try {
+        var doc = f.document;
+        reached.push('frames[' + i + '] DOM 可读: ' + ((doc && doc.title) || '(title)'));
+      } catch (errSibling) { /* SecurityError = 该兄弟被正确隔离 */ }
+    }
+    if (reached.length === 0) { throw new Error('所有他上下文均被阻断(共 ' + frames.length + ' frames,已排除自身)'); }
+    return reached.join('; ');
   }));
 
   // V4 opener

@@ -20,6 +20,7 @@ const vm = require('node:vm');
 const ROOT = path.resolve(__dirname, '..', '..');
 const RAWFILE = path.join(ROOT, 'entry/src/main/resources/rawfile');
 const POC_HTML = path.join(RAWFILE, 'lexinote_sandbox_poc.html');
+const POC_JS = path.join(RAWFILE, 'lexinote_sandbox_poc.js');
 const SANDBOX_HTML = path.join(RAWFILE, 'lexinote_plugin_sandbox.html');
 const PROBE_JS = path.join(RAWFILE, 'lexinote_sandbox_probe.js');
 const HOSTS = [
@@ -49,7 +50,21 @@ function cspOf(html) {
 }
 
 if (fs.existsSync(POC_HTML)) {
-  const poc = fs.readFileSync(POC_HTML, 'utf8');
+  const pocHtml = fs.readFileSync(POC_HTML, 'utf8');
+  // B-008 根因固化(2026-11-03 真机):宿主页 CSP script-src 'self' 拦杀内联脚本,
+  // 引导逻辑必须外置;此前所有结构断言只扫 html,逻辑内联时恰好"全绿却静默失效"。
+  ok('S20 宿主页不含内联可执行脚本(真机 B-008 根因一)', !((pocHtml.match(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi) || [])
+    .some((tag) => tag.replace(/^<script[^>]*>/i, '').replace(/<\/script>$/i, '').trim().length > 0)),
+    'script-src \'self\' 下内联脚本必被 CSP 拦杀——引导逻辑必须放 lexinote_sandbox_poc.js');
+  {
+    const jsExists = fs.existsSync(POC_JS);
+    ok('S20b 引导逻辑外置文件存在', jsExists, '缺少 lexinote_sandbox_poc.js');
+    const cspForFrame = cspOf(pocHtml);
+    ok('S21 宿主页 CSP 放行 iframe 文档(真机 B-008 根因二)',
+      /child-src[^;]*'self'/.test(cspForFrame) || /frame-src[^;]*'self'/.test(cspForFrame),
+      'default-src none 下无 child-src/frame-src 则沙箱文档根本不会被请求');
+    var poc = pocHtml + (jsExists ? '\n' + fs.readFileSync(POC_JS, 'utf8') : '');
+  }
   const sandboxAttrs = [...poc.matchAll(/setAttribute\(\s*'sandbox'\s*,\s*'([^']*)'\s*\)/g)].map((m) => m[1]);
   ok('S4 iframe 必须带 sandbox=allow-scripts', sandboxAttrs.length >= 1 &&
     sandboxAttrs.every((a) => a === 'allow-scripts'),
@@ -82,6 +97,9 @@ if (fs.existsSync(SANDBOX_HTML)) {
     '沙箱页是全新上下文，不允许引用宿主 shim 的全局对象');
   ok('S15 沙箱页有自检函数', /__lexiSandboxSelfCheck/.test(sandbox),
     '启动自检必须存在（供设备 PoC 与本门禁共用）');
+  ok('S22 沙箱→宿主端口消息必须带协议标记（真机 B-008 根因二）',
+    /function postToHost[\s\S]{0,300}__lexiSandbox\s*=\s*true/.test(sandbox),
+    '宿主 onSandboxMessage 按 __lexiSandbox 标记过滤,postToHost 缺赋值则 boot/request 全被静默丢弃(真机 reports=0)');
 }
 {
   const runtimeHtml = fs.readFileSync(path.join(RAWFILE, 'lexinote_plugin_runtime.html'), 'utf8');
