@@ -562,6 +562,14 @@ test('runtime 接线：能力门禁在处理器前面，卸载/回滚/严格索�
   assert.match(text, /private storageQuotaGate\(/, 'P2-005: 配额 gate 必须存在');
   assert.match(text, /data\.save[\s\S]{0,300}storageQuotaGate\(identity, dataJson\.length\)/,
     'data.save 必须在落盘前过配额检查');
+  // P2-008:grantApproved 通道从 UI 可达(审计确认的死端修复)。
+  assert.match(text, /installZip\(zipSource: string, expectedSha256: string = '', optionsJson: string = ''\)/,
+    'installZip 必须能接收安装选项(grantApproved)');
+  assert.match(text, /grantApproved[\s\S]{0,400}permissionStore\.grant\(manifest\.id, manifest\.version, this\.capabilityFingerprintOf\(manifest\)\)/,
+    'grantApproved 安装必须按新清单落账授权,否则 enablePlugin 授权门仍会打回 regrant(死端)');
+  assert.match(text, /installFromUrl\(url: string, expectedSha256: string = '', optionsJson: string = ''\)/,
+    'installFromUrl 必须透传安装选项');
+  assert.match(text, /permissionTagsOf\(pluginId: string\): string\[\]/, '授权展示面必须有权限标签查询');
   // 真机 KI-4:运行时安装的插件在 enablePlugin 前必须经 scanPluginDir 落 installed,
   // 否则生命周期表判 discovered→starting 非法迁移,"装得上却永不 onload"。
   const scan = text.slice(text.indexOf('private async scanPluginDir('), text.indexOf('private readTextFile('));
@@ -572,7 +580,7 @@ test('runtime 接线：能力门禁在处理器前面，卸载/回滚/严格索�
   assert.match(text, /parseMarketIndexResult\(/, '严格解析函数必须被真正调用');
   assert.match(text, /code: string = ''/, 'RpcResponse 必须能携带错误码');
   // 默认值 '' 只是签名兼容；空哈希已被 installFromUrl 的信任闸门拒绝(见上面的接线用例)。
-  assert.match(text, /installFromUrl\(url: string, expectedSha256: string = ''\)/, 'installFromUrl 必须能收 sha256');
+  assert.match(text, /installFromUrl\(url: string, expectedSha256: string = '', optionsJson: string = ''\)/, 'installFromUrl 必须能收 sha256 与安装选项');
   assert.match(text, /private wasUninstalled\(/, '卸载记录必须能挡住内置资源重装');
   assert.match(text, /if \(this\.wasUninstalled\(entryName\)\) \{ return; \}/, '内置插件落盘前必须先查卸载记录');
 });

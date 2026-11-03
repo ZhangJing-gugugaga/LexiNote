@@ -54,6 +54,8 @@ export struct LexiPluginMarketSheet {
   @State private busy: boolean = false;
   @State private marketUrl: string = DEFAULT_MARKET_URL;
   @State private demoMode: boolean = false;
+  // P2-008:权限增长被拒后暂存的待确认条目(渲染"重新授权并安装"按钮)。
+  @State private pendingGrantEntry: LexiPluginMarketEntry | null = null;
 
   aboutToAppear(): void {
     this.load();
@@ -99,7 +101,7 @@ export struct LexiPluginMarketSheet {
     this.load();
   }
 
-  private async install(entry: LexiPluginMarketEntry): Promise<void> {
+  private async install(entry: LexiPluginMarketEntry, grantApproved: boolean = false): Promise<void> {
     const manager = LexiPluginManager.shared;
     if (!manager || this.busy) { return; }
     if (!entry.zipUrl) {
@@ -112,9 +114,10 @@ export struct LexiPluginMarketSheet {
       return;
     }
     this.busy = true;
-    this.status = `正在安装 ${entry.name}…`;
+    this.status = grantApproved ? `正在按用户确认的新权限安装 ${entry.name}…` : `正在安装 ${entry.name}…`;
     try {
-      const pluginId = await manager.installFromUrl(entry.zipUrl, entry.sha256);
+      const options = grantApproved ? '{"grantApproved":true}' : '';
+      const pluginId = await manager.installFromUrl(entry.zipUrl, entry.sha256, options);
       // 安装完不等于装载成功:回读该插件的 errorState,别把"装上了但 onload 炸了"报成已启用。
       const fresh = manager.installedPlugins()
         .find((plugin: LexiInstalledPlugin): boolean => plugin.manifest.id === pluginId);
@@ -122,10 +125,32 @@ export struct LexiPluginMarketSheet {
       this.status = failure.length > 0
         ? `已安装但加载失败：${entry.name} — ${failure}`
         : `已安装并启用：${entry.name}`;
+      this.pendingGrantEntry = null;
       this.onInstalled(pluginId);
       this.refreshInstalled();
     } catch (error) {
-      this.status = `安装失败：${String(error)}`;
+      const message = String(error);
+      if (message.indexOf('ERR_PERMISSION_REGRANT_REQUIRED') >= 0) {
+        // P2-008:升级引入新权限 → 不再是死端,给出显式确认通道(RFC §4.5)。
+        this.pendingGrantEntry = entry;
+        this.status = `${entry.name}：升级引入新权限，需要重新授权——请确认下方权限说明后安装`;
+      } else {
+        this.status = `安装失败：${message}`;
+      }
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  /** P2-008:撤销授权(§16.2)——立即停用,后续启用被拒直到再次授权。 */
+  private async revokePermissions(pluginId: string): Promise<void> {
+    const manager = LexiPluginManager.shared;
+    if (!manager || this.busy) { return; }
+    this.busy = true;
+    try {
+      const ok = await manager.revokePluginPermissions(pluginId);
+      this.status = ok ? `已撤销授权并停用：${pluginId}` : `撤销失败（未授权或插件不存在）：${pluginId}`;
+      this.refreshInstalled();
     } finally {
       this.busy = false;
     }
@@ -155,6 +180,14 @@ export struct LexiPluginMarketSheet {
     } finally {
       this.busy = false;
     }
+  }
+
+  /** P2-008:已安装行的权限标签行;空集显示"未声明能力"。 */
+  private permissionTagsLine(plugin: LexiInstalledPlugin): string {
+    const manager = LexiPluginManager.shared;
+    if (!manager) { return ''; }
+    const tags = manager.permissionTagsOf(plugin.manifest.id);
+    return tags.length > 0 ? '权限: ' + tags.join(' · ') : '权限: 未声明能力';
   }
 
   private versionLabel(plugin: LexiInstalledPlugin): string {
@@ -209,6 +242,23 @@ export struct LexiPluginMarketSheet {
       }
       .width('100%')
 
+      if (this.pendingGrantEntry !== null && !this.busy) {
+        // P2-008:重授权确认行——用户确认后以 grantApproved 重新安装(RFC §4.5)。
+        Column({ space: 6 }) {
+          Text(`「${this.pendingGrantEntry.name}」升级引入新权限，确认前请核对来源与权限`)
+            .fontSize(11).fontColor($r('app.color.error')).width('100%')
+          Button('重新授权并安装', { type: ButtonType.Normal })
+            .height(34).fontSize(12).borderRadius(10)
+            .backgroundColor($r('app.color.brand')).fontColor($r('app.color.inverse_text'))
+            .onClick((): void => {
+              const entry = this.pendingGrantEntry;
+              if (entry !== null) { this.install(entry, true); }
+            })
+        }
+        .width('100%').alignItems(HorizontalAlign.Start)
+        .padding(10).backgroundColor($r('app.color.soft_surface')).borderRadius(10)
+      }
+
       if (this.installed.length > 0) {
         Column({ space: 8 }) {
           Text('已安装').fontSize(12).fontWeight(FontWeight.Medium).fontColor($r('app.color.text_primary'))
@@ -220,6 +270,10 @@ export struct LexiPluginMarketSheet {
                   .fontSize(10)
                   .fontColor(pluginFailureKind(plugin.errorState) === 'normal'
                     ? $r('app.color.text_secondary') : $r('app.color.error'))
+                // P2-008:权限标签展示(授权可读性;空标签=未声明能力)。
+                Text(this.permissionTagsLine(plugin))
+                  .fontSize(9).fontColor($r('app.color.text_secondary'))
+                  .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
                 if (pluginFailureKind(plugin.errorState) !== 'normal') {
                   // 单行摘要(maxLines=1 + 80 字符上限);完整原因留在 errorState 原文里
                   Text(pluginFailureSummary(plugin.errorState))
@@ -232,6 +286,14 @@ export struct LexiPluginMarketSheet {
               }
               .layoutWeight(1)
               .alignItems(HorizontalAlign.Start)
+              Button('撤销授权', { type: ButtonType.Normal })
+                .height(30)
+                .fontSize(11)
+                .borderRadius(8)
+                .enabled(!this.busy)
+                .backgroundColor($r('app.color.soft_surface'))
+                .fontColor($r('app.color.error'))
+                .onClick((): void => { this.revokePermissions(plugin.manifest.id); })
               Button('回滚', { type: ButtonType.Normal })
                 .height(30)
                 .fontSize(11)

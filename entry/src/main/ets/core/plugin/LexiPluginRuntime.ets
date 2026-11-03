@@ -632,16 +632,30 @@ export class LexiPluginManager {
   }
 
   /** Installs a plugin from a local zip (path or file URI), rescans and enables it. */
-  async installZip(zipSource: string, expectedSha256: string = ''): Promise<string> {
-    const manifest = await this.ensureInstaller().installZip(zipSource, expectedSha256);
+  async installZip(zipSource: string, expectedSha256: string = '', optionsJson: string = ''): Promise<string> {
+    // P2-008(§9.5):optionsJson.grantApproved = 用户已在 UI 确认本次权限变化。
+    // 此前该缝从 UI 不可达(审计确认的死端):grantApproved 安装后 enablePlugin 的
+    // 授权门仍会按新指纹打回 regrant-required。现在确认过的权限变化直接落账再启用。
+    let grantApproved = false;
+    if (optionsJson.length > 0) {
+      try {
+        grantApproved = (JSON.parse(optionsJson) as Record<string, Object>)['grantApproved'] === true;
+      } catch { /* 非法 options 视为未批准 */ }
+    }
+    const manifest = await this.ensureInstaller().installZip(zipSource, expectedSha256, optionsJson);
     await this.scanPluginDir();
     pluginLog('插件安装完成: ' + manifest.id + ' v' + manifest.version);
+    if (grantApproved) {
+      this.permissionStore.grant(manifest.id, manifest.version, this.capabilityFingerprintOf(manifest));
+      this.persistPermissions();
+      pluginLog('权限已按用户确认落账: ' + manifest.id + ' v' + manifest.version);
+    }
     await this.enablePlugin(manifest.id);
     return manifest.id;
   }
 
   /** Downloads a plugin zip and installs it. expectedSha256 comes from the index entry. */
-  async installFromUrl(url: string, expectedSha256: string = ''): Promise<string> {
+  async installFromUrl(url: string, expectedSha256: string = '', optionsJson: string = ''): Promise<string> {
     // 信任闸门(LEXI-RFC-PLUGIN-001 P0-04/§8.5/§18.4):远程安装必须携带受信任哈希。
     // 空哈希在 verifyPackageHash 里会跳过比对(fail-open),必须在下载之前就挡掉;
     // 自述哈希尚不等于来源可信(TUF Targets 接线是后续任务),但没有哈希连完整性都无从谈起。
@@ -669,7 +683,7 @@ export class LexiPluginManager {
     } finally {
       client.destroy();
     }
-    return this.installZip(cachePath, expectedSha256);
+    return this.installZip(cachePath, expectedSha256, optionsJson);
   }
 
   /** 卸载:先走 disablePlugin 的回收序,再把目录移进 .trash(data.json 一并保留)。 */
@@ -1718,6 +1732,12 @@ export class LexiPluginManager {
       this.capabilityFingerprintOf(record.manifest));
     if (ok) { this.persistPermissions(); }
     return ok;
+  }
+
+  /** P2-008:已安装插件当前能力标签(UI 授权展示面;未安装返回空)。 */
+  permissionTagsOf(pluginId: string): string[] {
+    const record = this.plugins.get(pluginId);
+    return record ? this.capabilityTagsOf(record.manifest) : [];
   }
 
   /** 用户撤销授权(§16.2):立即停用插件并拒绝后续启用。 */

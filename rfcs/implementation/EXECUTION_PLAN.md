@@ -53,7 +53,7 @@ clipboard/notifications/editor 分级未接线；授权 UI 缺失（`grant/revok
 | P2-005 | Editor 分级授权（readActive/writeSelection/writeDocument） | TODO | P1 | P2-003 | editor.* handlers | 未声明 editor.write* 不能改文档 |
 | P2-006 | Network methods/请求响应字节上限执行 | TODO | P1 | P2-001 | LexiNetProbe | GET/POST 之外与超限请求拒绝 |
 | P2-007 | Storage 配额、notifications、clipboard 面接线（含反向绑定修复：只声明 storage 的 v2 插件应可用 data.json） | VERIFIED | P1 | P2-003 | data.save, ui.notice(broker gate) | **Round 12/13**:notifications 经 broker gate ✔、data 解绑 ✔、**配额宿主端强制(P2-005, Round 13) ✔**;clipboard 无 RPC handler(不适用,登记) |
-| P2-008 | 用户权限管理 UI：安装权限清单、grant/revoke、regrant 通道（含 `optionsJson.grantApproved` 透传修复） | TODO | P1 | P2-002 | LexiPluginMarketSheet/Settings + Runtime | 用户可视化增删授权；新增权限必须重问；撤销立即生效 |
+| P2-008 | 用户权限管理 UI：安装权限清单、grant/revoke、regrant 通道（含 `optionsJson.grantApproved` 透传修复） | IMPLEMENTED | P1 | P2-002 | LexiPluginMarketSheet/Settings + Runtime | **Round 14**:grantApproved 落账+启用闭环、重授权确认行、权限标签展示、撤销授权按钮;dist-regression +4;真机 install 流 PASS。**正例(v2 权限增长)设备证据待 P4-005 v2 夹具** |
 | P2-009 | 生命周期状态机补全（verified/permission-pending/degraded/quarantined/revoked 可达且有转出原因） | TODO | P2 | P2-008 | LexiPluginLifecycleManager | 状态转换表+测试；quarantine 由安全事件触发 |
 | P2-010 | 撤销立即生效：权限撤销/插件撤销后既有通道与注册资源失效 | TODO | P1 | P2-008, P1-008 | Broker, Registry | SEC 用例：撤销后 RPC 全拒 |
 | P2-011 | RPC↔权限矩阵 100% 对账测试进门禁（RFC §17.1） | TODO | P1 | P2-003 | plugin-authz-matrix.cjs | 每个公开方法有正/负授权用例 |

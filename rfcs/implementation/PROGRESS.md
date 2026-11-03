@@ -274,3 +274,33 @@
 **P2-008 权限管理 UI**（授权清单展示 + grant/revoke/regrant 通道 + `optionsJson.grantApproved` 透传）——Phase 2 用户侧闭环的最大块；随后 P2-009/P2-010。
 
 最近更新时间：2026-11-04（Round 13）。
+
+---
+
+## Round 14 — 2026-11-04（P2-008：权限管理 UI 与 grantApproved 通道闭环）
+
+**当前 Phase：** Phase 2。
+
+### 本轮完成
+
+1. **grantApproved 死端修复（审计 Round 7 确认的缝）**：`installZip(zipSource, expectedSha256, optionsJson)` 与 `installFromUrl(..., optionsJson)` 透传安装选项；**grantApproved 安装按新清单落账授权再启用**（`permissionStore.grant(manifest.id, version, capabilityFingerprintOf(manifest))` + persist）——否则 enablePlugin 授权门仍会打回 regrant-required（此前 UI 永远无法确认，§9.5 通道死端）。
+2. **MarketSheet UI 闭环**：升级遇 `ERR_PERMISSION_REGRANT_REQUIRED` 不再只是失败文案——`pendingGrantEntry` 暂存 + 显式"重新授权并安装"确认行（点击后以 grantApproved 重装）；已安装行新增**权限标签展示**（`manager.permissionTagsOf` → '权限: vault.write · network:api.example.com …'，空集显示"未声明能力"）与**撤销授权按钮**（`revokePluginPermissions` → 立即停用）。
+3. **门禁**：dist-regression §6 +4 接线断言（installZip/installFromUrl 三参、grantApproved→grant 落账锚、permissionTagsOf）；旧锚 installFromUrl 双参签名同步更新。
+4. 过程记录：多行正则锚的转义改用一次性 node 脚本处理（shell 内联转义易错）。
+
+### 实际执行的测试
+
+| 命令 | 结果 |
+|---|---|
+| `plugin-dist-regression.cjs` | **PASS 19/19**（+4） |
+| `plugin-error-visible.cjs` / `plugin-update-policy.cjs` | PASS（UI 文案与更新策略不回归） |
+| `release-gate --ci` | **PASS 28/28**（锚点修正后） |
+| `hvigorw assembleHap` | **PASS** |
+| 真机 `flows --flow install` | **PASS**（新 UI 下市场自动化不回归；无 regrant 场景确认行不渲染） |
+
+### 尚存风险 / 下一轮
+
+- grantApproved 正例（真实 v2 权限增长安装）需 v2 探针夹具——P4-005 夹具轮补设备证据；离线链路已由接线断言+update-policy 真跑覆盖。
+- 下一轮：**P2-006（network methods/字节上限执行）+ P2-009/P2-010（生命周期状态机补全 + 撤销立即生效）**。
+
+最近更新时间：2026-11-04（Round 14）。
