@@ -50,6 +50,18 @@
 - 残余风险(登记)：同 realm 下 `window.lexiRuntime.__receive` 仍可被他插件调用以触发 `invoke.command`(跨插件回调执行)——修复需 dispatch 通道鉴权(涉及 .ets 协议面),列 **P1-006b**;`setSessionToken` 仍可被他插件乱写(DoS 宿主回话,非提权),同场登记。
 - 复审:P1-003 沙箱落地后 __receive 面自然消失,本 ADR 残余风险随之关闭。
 
+## ADR-R18-01 执行上下文模型定案（P1-002）与 P1-003 实施切分
+
+- 依据：ADR-R9-01（iframe+opaque origin+MessageChannel 载体真机可行，`origin=null`/`ports=1`/ping-pong 见证）、P1-006 身份面收口（WeakMap/手工入口删除）、Round 7 审计两轨事实。
+- **定案 1·身份四元组**：`PluginExecutionIdentity { pluginId, activationId, contextId, contextKind }`（RFC §3.1 原样），宿主侧唯一记账点 = `LexiPluginLifecycleManager.createContext`（已存在，kind 全集补齐）；插件侧永不可见。
+- **定案 2·传输与身份绑定**：每上下文一条 DOM MessageChannel；宿主侧新建 `contextRegistry: Map<contextId, HostContextRecord{contextId, pluginId, activationId, kind, port, createdAt, revoked}>`（RFC §3.3 HostContextRecord），port1 留宿主、port2 转移进 iframe；iframe init 载荷只含 contextId（PoC 已验证形态）。**身份 = 宿主端口表反查，不信任任何载荷字段**——取代 shim 内 WeakMap 令牌栈成为沙箱上下文的身份真源；WeakMap 机制保留给非沙箱过渡面。
+- **定案 3·RPC 形态**：沙箱内 `request(method, params)` 经 port → contextRegistry 反查 → 喂给**既有 broker.authorize + 矩阵**（零新授权逻辑）；capability/fsGate/路径门全部原样生效。
+- **定案 4·两轨策略**：P1-003 只动 Track1（runtime 页）；Track2（workspace 容器）现状保留、P1-004 收敛。Track1 的宿主页面移除 `unsafe-eval`，插件求值迁入 iframe；iframe 自身 CSP 保留 `unsafe-eval` 作为过渡（构建期 CommonJS→IIFE 由 CLI 模板承接，P1-003c 落地后收口）。
+- **备选回退**：若真机性能基准（poc-verdict 判据）显示 iframe 内 port 双向投递不达标，回退为每插件独立 Web 组件 + native createWebMessagePorts（workspace 轨道已验证的形态）——已记录为设计内备选，不另开决策。
+- **P1-003 子任务切分**：P1-003a contextRegistry+端口 RPC 网关（宿主侧，纯 ArkTS+js 可离线测）；P1-003b 沙箱页插件 API 面（obsidian namespace 的端口化重建）；P1-003c 构建期 IIFE + 宿主 CSP 收紧；P1-003d 真实业务插件（lexi-sample/calendar）真机迁移验收 + SEC 探针进业务路径（P1-009 的载体）。
+- 兼容性：过渡期双轨并存（沙箱插件与共享 realm 插件可共存），旧插件无感；Track1 迁移完成前不删除任何现有路径。
+- 复审条件：P1-003a/b 落地后若发现 broker 身份来源需二次抽象（端口表 vs 凭据表），回本 ADR 增补。
+
 ## 历史决策登记（迁移自既有代码语义,防遗失）
 
 - Manifest v1 无 capabilities → `capabilitiesDeclared=false` → 跳过 T2.2 授权门且 legacy 分支放行 fs。此为兼容策略,但等于"旧插件默认高权"——P2 权限闭环须将其收敛为显式兼容权限集（RFC §18.1）。

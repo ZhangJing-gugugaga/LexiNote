@@ -27,10 +27,13 @@
 |---|---|---|---|---|---|---|
 | P1-001 | ArkWeb 沙箱能力真机验证（iframe sandbox=allow-scripts opaque origin、MessageChannel、postMessage 转移端口、CSP 'unsafe-eval' 移除可行性） | IN_PROGRESS | P0 | P1-001a | LexiSandboxHost, lexinote_* | 载体核心能力**已证（Round 9 verdict PASS 2/2×10 向量,ADR-R9-01）**；剩余项:'unsafe-eval' 移除可行性 + 性能驻留基准(poc-verdict) |
 | P1-001a | 沙箱 PoC 静默根因插桩定位 | **VERIFIED** | P0 | — | poc.html/js, sandbox.html, probe.js, context-isolation 门禁 | **Round 9 结案**：三根因(内联 CSP 拦杀/标记缺失/探针 frames[0] 假阳性)修复,真机 `verdict PASS contexts=2/2 vectors=20/20 blocked credentialHits=0` ✔ |
-| P1-002 | 正式执行上下文模型定案（contextId×kind、port↔身份绑定落点）+ ADR | TODO | P0 | P1-001 | LexiPluginExecutionContext, LexiPluginLifecycleManager | ADR 评审通过，字段与绑定职责明确 |
-| P1-003 | Runtime 轨道沙箱接入：每插件独立 iframe 取代共享 realm `new Function`；构建期 IIFE 优先 | TODO | P0 | P1-002 | lexinote_plugin_runtime.html, lexinote_plugin_shim.js, LexiPluginRuntime.ets | 业务插件在无 'unsafe-eval' 的独立上下文中加载运行；SEC 探针全过 |
-| P1-004 | Workspace 轨道收敛：插件执行面从编辑器页面剥离/同构接入 | TODO | P0 | P1-002, P1-003 | LexiWorkspacePage, WorkspaceBridge, lexinote_workspace_shim.js | 编辑器页不再直接求值第三方代码，或该面进入 Trusted 策略 |
-| P1-005 | 宿主端 port↔PluginExecutionIdentity 绑定；废弃 credential 第四参经页面传递的形态 | TODO | P0 | P1-003 | LexiWebRuntime.call, WorkspaceBridge | 插件侧报文不含任何身份字段；身份仅由端口解析 |
+| P1-002 | 正式执行上下文模型定案（contextId×kind、port↔身份绑定落点）+ ADR | VERIFIED | P0 | P1-001 | LexiPluginExecutionContext, LexiPluginLifecycleManager | **Round 18 定案(ADR-R18-01)**:身份四元组+contextRegistry 端口表+既有 broker 复用+两轨策略+回退备选 ✔ |
+| P1-003a | contextRegistry + 端口 RPC 网关（宿主侧:HostContextRecord/反查/喂既有 broker;离线可测） | TODO | P0 | P1-002 | LexiPluginRuntime.ets 或新模块, rawfile runtime 页 | 端口 RPC 与 javaScriptProxy 并存;身份=端口表反查;离线门禁覆盖 |
+| P1-003b | 沙箱页插件 API 面（obsidian namespace 端口化重建;CSP 'unsafe-eval' 仅 iframe） | TODO | P0 | P1-003a | rawfile lexinote_plugin_sandbox.html, shim 拆分 | 业务插件在 iframe 内以端口身份完成 onload+注册 |
+| P1-003c | 构建期 CommonJS→IIFE + 宿主页面 CSP 收紧（移除 unsafe-eval） | TODO | P0 | P1-003b | tools/lexi-cli, template, runtime.html CSP | 宿主页面无 eval;S20 类断言覆盖 runtime 页 |
+| P1-003d | 真实业务插件迁移验收（lexi-sample/calendar 真机 + SEC 探针进业务路径） | TODO | P0 | P1-003a..c | 设备批次 | RFC §3.6 验收表通过;旧共享 realm 路径停用 |
+| P1-004 | Workspace 轨道收敛：插件执行面从编辑器页面剥离/同构接入 | TODO | P0 | P1-002, P1-003a, P1-003b | LexiWorkspacePage, WorkspaceBridge, lexinote_workspace_shim.js | 编辑器页不再直接求值第三方代码，或该面进入 Trusted 策略 |
+| P1-005 | 宿主端 port↔PluginExecutionIdentity 绑定；废弃 credential 第四参经页面传递的形态 | TODO | P0 | P1-003a | LexiWebRuntime.call, WorkspaceBridge | 插件侧报文不含任何身份字段；身份仅由端口解析 |
 | P1-006 | **移除插件可及身份暴露面**（方案见 ADR-R10-01；含 restore-leaf 会话凭据修复） | VERIFIED | P0 | — | lexinote_plugin_shim.js, cap-probe fixtures, bridge-security/identity-model/delivery | bridge-security 34/34、identity-delivery 30/30 traced、真机四流程链全 PASS(230728-231445)+冷启 denied 无新模式 ✔(Round 10) |
 | P1-006b | 残余暴露面(ADR-R10-01 登记):①`window.lexiRuntime.__receive` 可被他插件调用触发 invoke.command 跨插件回调执行——需 dispatch 通道鉴权(.ets 协议面,技术论证先行);②`setSessionToken` 他插件可乱写(DoS 回话,非提权) | TODO | P1 | — | LexiWebRuntime.dispatch + shim __receive 门卫 | SEC-007 负向用例进门禁;dispatch 携带不可读的一次性通道凭据 |
 | P1-007 | RPC 入口归一：两 broker 实例（runtime+bridge）合并到单一 Gateway；未知方法/payload schema 校验 | TODO | P1 | P1-005 | LexiPluginRuntime, WorkspaceBridge, LexiPermissionBroker | 100% RPC 经同一入口；契约测试对账 |
