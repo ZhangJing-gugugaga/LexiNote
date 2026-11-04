@@ -138,6 +138,15 @@
     try { manifest = JSON.parse(plugin.manifestJson || '{}'); } catch (err) { manifest = {}; }
     slog('bootPlugin: ' + String(manifest.id || '?'));
     var request = window.lexiSandbox.request;
+    var sandboxCommands = new Map();   // fullId → { callback }（P1-003b 命令回环的沙箱侧表）
+    function makeNotice(message) {
+      // Notice → ui.notice 域(未声明 notifications 的清单会被 broker gate 拒,与旧轨语义一致)。
+      return request('ui.notice', { message: String(message) }).catch(function () {});
+    }
+    function normalizeSandboxPath(value) {
+      var path = String(value || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+      return path;
+    }
     function SandboxPlugin(appRef) {
       this.app = appRef;
       this.manifest = manifest;
@@ -153,7 +162,74 @@
       return null;
     };
     SandboxPlugin.prototype.register = function (fn) { this._cleanups.push(fn); };
-    var obsidian = { Plugin: SandboxPlugin };
+    SandboxPlugin.prototype.loadData = function () {
+      return request('data.load', {}).then(function (raw) {
+        if (raw === null || raw === undefined) { return null; }
+        var text = typeof raw === 'string' ? raw : JSON.stringify(raw);
+        try { return JSON.parse(text); } catch (err) { return null; }
+      });
+    };
+    SandboxPlugin.prototype.saveData = function (data) {
+      return request('data.save', { dataJson: JSON.stringify(data === undefined ? {} : data) });
+    };
+    SandboxPlugin.prototype.addCommand = function (command) {
+      var fullId = manifest.id + ':' + String(command.id || '');
+      if (typeof command.editorCallback === 'function') {
+        // 编辑器命令需沙箱内 editor 面(P1-003b 后续切片);当前仅注册元数据供宿主命令面板展示。
+        sandboxCommands.set(fullId, { callback: function () { return Promise.resolve(); } });
+      } else {
+        sandboxCommands.set(fullId, { callback: command.callback || function () { return Promise.resolve(); } });
+      }
+      return request('commands.add', {
+        command: { id: command.id, name: command.name || command.id, icon: command.icon || '',
+          editorOnly: typeof command.editorCallback === 'function' }
+      }).then(function () { return Object.assign({}, command, { id: fullId }); });
+    };
+    SandboxPlugin.prototype.registerEvent = function () { return { unregister: function () {} }; };
+    SandboxPlugin.prototype.registerInterval = function (id) { return id; };
+    SandboxPlugin.prototype.registerView = function () { return {}; };
+    SandboxPlugin.prototype.addSettingTab = function () { return {}; };
+    SandboxPlugin.prototype.addRibbonIcon = function () { return {}; };
+    SandboxPlugin.prototype.registerMarkdownCodeBlockProcessor = function () { return {}; };
+    var obsidian = {
+      Plugin: SandboxPlugin,
+      // 最小面(本轮切片):view/settings/codeblock/ribbon 属 UI 域,宿主面就绪后在后续切片提供。
+      Notice: function Notice(message) { this.show = function () { makeNotice(String(message)); }; },
+      normalizePath: normalizeSandboxPath,
+      moment: function () {
+        var d = new Date();
+        function pad(n) { return n < 10 ? '0' + n : String(n); }
+        return { format: function (fmt) { return fmt.replace('YYYY', String(d.getFullYear()))
+          .replace('MM', pad(d.getMonth() + 1)).replace('DD', pad(d.getDate()))
+          .replace('HH', pad(d.getHours())).replace('mm', pad(d.getMinutes())); } };
+      }
+    };
+    function makeVaultApi() {
+      var filesCache = [];
+      return {
+        getMarkdownFiles: function () {
+          return request('vault.files', {}).then(function (files) {
+            filesCache = Array.isArray(files) ? files : [];
+            return filesCache;
+          });
+        },
+        getAbstractFileByPath: function (path) {
+          return request('vault.getByPath', { path: normalizeSandboxPath(path) }).then(function (node) { return node; });
+        },
+        create: function (path, data) {
+          return request('vault.create', { path: normalizeSandboxPath(path), data: String(data) });
+        },
+        modify: function (pathOrFile, data) {
+          var path = pathOrFile && pathOrFile.path ? pathOrFile.path : pathOrFile;
+          return request('vault.modify', { path: normalizeSandboxPath(path), data: String(data) });
+        },
+        read: function (pathOrFile) {
+          var path = pathOrFile && pathOrFile.path ? pathOrFile.path : pathOrFile;
+          return request('vault.read', { path: normalizeSandboxPath(path) });
+        }
+      };
+    }
+    var sandboxVault = makeVaultApi();
     var moduleObj = { exports: {} };
     var factory = new Function('require', 'module', 'exports',
       plugin.code + '\n//# sourceURL=lexi-sandbox-plugin.js');
@@ -175,7 +251,9 @@
       postToHost({ type: 'sandbox.evalError', message: 'main.js 必须导出插件类(default)' });
       return;
     }
-    var instance = new Ctor({ request: parentRequest }, manifest);
+    var instance = new Ctor({ request: parentRequest, vault: sandboxVault,
+      metadataCache: { getFileCache: function (f) { return parentRequest('metadata.get', { path: f && f.path ? f.path : '' }); } },
+      workspace: {} }, manifest);
     try {
       var result = instance.load();
       if (result && typeof result.then === 'function') {
@@ -198,6 +276,16 @@
 
   function onPortMessage(event) {    var data = event.data || {};
     if (data.type === 'sandbox.ping') { postToHost({ type: 'sandbox.pong', contextId: contextId }); return; }
+    if (data.type === 'sandbox.command') {
+      var cmdEntry = sandboxCommands.get(String(data.fullId || ''));
+      if (!cmdEntry) { slog('命令不存在: ' + String(data.fullId)); return; }
+      slog('命令执行: ' + String(data.fullId));
+      Promise.resolve().then(function () { return cmdEntry.callback(); }).catch(function (err) {
+        slog('命令执行失败: ' + String(err));
+        request('ui.notice', { message: '插件命令出错: ' + String(err) }).catch(function () {});
+      });
+      return;
+    }
     if (data.type === 'sandbox.response') { finish(data.requestId, data); return; }
     if (data.type === 'sandbox.run' && typeof data.source === 'string') {
       try {

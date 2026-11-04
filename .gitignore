@@ -33,6 +33,7 @@ local.properties
 /entry/src/main/resources/rawfile/plugins/compat-probe/
 /entry/src/main/resources/rawfile/plugins/cap-probe-open/
 entry/src/main/resources/rawfile/plugins/sandbox-probe/
+entry/src/main/resources/rawfile/plugins/sandbox-sample-min/
 /entry/src/main/resources/rawfile/plugins/cap-probe-unauth/
 *.log
 

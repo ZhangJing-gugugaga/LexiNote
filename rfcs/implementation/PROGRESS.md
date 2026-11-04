@@ -471,7 +471,25 @@ Phase 2 收尾复核（exit criteria 对照）→ **P1-002/P1-003 沙箱主改�
 
 **Round 22：方案 B——独立沙箱容器 Web 组件**（LexiSandboxHost 同构形态新建容器页/组件，迁移容器脚本与网关对接，探针真机 onload 闭环）。**P1-003b 整体 BLOCKED 于 B-009**（随方案 B 解除）。
 
-最近更新时间：2026-11-04（Round 22）。
+最近更新时间：2026-11-05（Round 23）。
+
+---
+
+## Round 23 — 2026-11-05（P1-003b 续：容器页命令回环 + obsidian 面扩容第一组 + 新平台发现 B-009b）
+
+### 本轮完成
+
+1. **沙箱内面扩容第一组**：Plugin.loadData/saveData（data 帧）、addCommand（callback 型：沙箱命令表 + 宿主 commands.add 元数据注册）、Notice→ui.notice、vault 最小集（getMarkdownFiles/getAbstractFileByPath/create/modify/read）、normalizePath/moment 最小实现；编辑器命令元数据注册（执行面后续切片）。
+2. **宿主命令回环分流**：invokePluginCommand 按插件轨分流——沙箱轨插件经容器页 `window.lexiSandboxCommand` 回推（容器按 pluginId 路由进对应 iframe 的 window 通道）。
+3. **新验收夹具 sandbox-sample-min**（v2：vault.read+workspace.commands+storage；真实业务插件形态：CJS Plugin 子类+异步 onload+两命令+数据往返）。
+4. **真机结果**：probe 全链再次闭环（->arkts data.save→<-arkts ok→data.json 落盘铁证）；**sample-min 装载至 bootPlugin 后其帧静默丢失**——立案 **B-009b**：容器页上第二个及之后的 iframe 的 postMessage 不达容器（首 iframe 全链正常；无丢弃日志无异常）。证据链 /tmp/r23d.log。
+5. 过程修正：invokePluginCommand 的 ArkTS undefined 收窄；BUNDLED 列表/首启块/.gitignore 登记夹具。
+
+### 下一轮
+
+**B-009b 定位或绕行**（优先方向：单 iframe 串行队列——一次仅一个沙箱上下文，排队装载；或定位 ArkWeb 多 iframe 投递限制）。P1-003c/d 验收可用单插件模式推进。
+
+最近更新时间：2026-11-05（Round 23）。
 
 ---
 

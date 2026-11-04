@@ -9,7 +9,7 @@
 // 身份语义不变:contextId 由宿主网关分配并经 init 载荷告知本页;iframe 请求帧由本页按
 // event.source 反查绑定并覆写 contextId——插件侧永远无法自报身份。
 (function () {
-  var pendingContexts = new Map();   // contextId → { iframe, win }
+  var pendingContexts = new Map();   // contextId → { iframe, win, pluginId }
   var proxyReady = false;
 
   function log(line) {
@@ -81,7 +81,7 @@
     iframe.style.width = '0px';
     iframe.style.height = '0px';
     iframe.style.border = '0';
-    pendingContexts.set(contextId, { iframe: iframe, win: iframe.contentWindow });
+    pendingContexts.set(contextId, { iframe: iframe, win: iframe.contentWindow, pluginId: String(boot.pluginId || '') });
     iframe.addEventListener('load', function () {
       wireChannel(contextId, boot);
     });
@@ -117,8 +117,22 @@
     }
   } catch (err) { /* 由 ping 兜底 */ }
 
-  window.sandboxHostPing = function () {
-    proxyReady = true;
-    log('sandboxHost ping received; proxyReady=true');
+  // P1-003b:宿主命令执行回推(容器按 pluginId 路由进对应 iframe 的 window 通道)。
+  window.lexiSandboxCommand = function (bodyJson) {
+    let body = null;
+    try { body = JSON.parse(String(bodyJson || '{}')); } catch (err) { log('命令帧解析失败'); return; }
+    const pluginId = String(body.pluginId || '');
+    let targetContextId = '';
+    let target = null;
+    pendingContexts.forEach((context, cid) => {
+      if (!target && context.pluginId === pluginId) { target = context; targetContextId = cid; }
+    });
+    if (!target) { log('命令回推找不到上下文: ' + pluginId); return; }
+    try {
+      target.win.postMessage({
+        __lexiSandbox: true, type: 'sandbox.command', fullId: String(body.fullId || '')
+      }, '*');
+      log('命令已回推沙箱: ' + String(body.fullId || ''));
+    } catch (err) { log('命令回推失败: ' + String(err)); }
   };
 })();

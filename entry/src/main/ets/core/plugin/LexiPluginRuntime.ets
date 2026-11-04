@@ -71,7 +71,9 @@ const BUNDLED_PLUGIN_DIRS: Array<string> = [
   'plugins/cap-probe-unauth',
   'plugins/cap-probe-open',
   // P1-003b:沙箱装载探针(entrypoints.service='sandbox:' 声明式 opt-in 的最小面)。
-  'plugins/sandbox-probe'
+  'plugins/sandbox-probe',
+  // P1-003b:最小业务面验收夹具(命令注册回环+数据往返真机验收对象)。
+  'plugins/sandbox-sample-min'
 ];
 const HI_DOMAIN: number = 0x1051;
 const HI_TAG: string = 'LexiPlugin';
@@ -825,6 +827,7 @@ export class LexiPluginManager {
       this.enabledIds.add('lexi-sample-plugin');
       // P1-003b 方案 B:沙箱探针随首启启用(容器页就绪即走沙箱轨;失败仅 errorState 无系统影响)。
       if (this.plugins.has('sandbox-probe')) { this.enabledIds.add('sandbox-probe'); }
+      if (this.plugins.has('sandbox-sample-min')) { this.enabledIds.add('sandbox-sample-min'); }
       await LexiStorageService.setSetting('lexiPluginBundledInit', 'true');
       pluginLog('首次运行:自动启用官方示范插件');
     }
@@ -2058,7 +2061,19 @@ export class LexiPluginManager {
 
   private async invokePluginCommand(pluginId: string, fullId: string): Promise<void> {
     const body: Record<string, Object> = { 'fullId': fullId as Object, 'pluginId': pluginId as Object };
+    // P1-003b:沙箱轨插件的命令回调在沙箱 iframe 内——经容器页回推;旧轨保持原通道。
+    const record = this.plugins.get(pluginId);
+    if (record && record.manifest.sandboxService && this.sandboxController !== null) {
+      await this.dispatchSandboxCommand(body);
+      return;
+    }
     await this.runtime.dispatchWithTimeout('invoke.command', JSON.stringify(body), LOAD_TIMEOUT_MS).catch((): void => {});
+  }
+
+  /** P1-003b:命令执行回推沙箱容器(容器按 pluginId 路由进对应 iframe)。 */
+  private async dispatchSandboxCommand(body: Record<string, Object>): Promise<void> {
+    if (!this.sandboxController) { throw new Error('沙箱容器未就绪'); }
+    await this.sandboxController.runJavaScript('window.lexiSandboxCommand(' + JSON.stringify(JSON.stringify(body)) + ');');
   }
 
   private editorStateJson(): Record<string, Object> {
@@ -2206,6 +2221,7 @@ export class LexiPluginManager {
         const contextRecord = this.contextRegistry.ensureService(pluginId, activationId);
         const sandboxBoot: Record<string, Object> = {
           'contextId': contextRecord.contextId as Object,
+          'pluginId': pluginId as Object,
           'code': code as Object,
           'manifestJson': JSON.stringify(record.manifest) as Object
         };

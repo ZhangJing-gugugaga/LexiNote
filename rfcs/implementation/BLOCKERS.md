@@ -12,6 +12,8 @@
 | B-008 | ~~沙箱 PoC 在 ArkWeb API 26 静默~~ **RESOLVED(Round 9)**:三层根因——①宿主页内联脚本被自家 CSP script-src 'self' 拦杀(引导逻辑外置 poc.js,门禁 S20/S21 固化);②子→宿主 postToHost 缺 __lexiSandbox 协议标记被宿主过滤静默丢(修复,S22 固化);③探针 frames[0] 对首上下文即自身,致假阳性 LEAKED(改全量枚举+排除自身)。终验:真机 verdict PASS contexts=2/2,20/20 vectors blocked,credentialHits=0;origin=null(opaque origin)+ports=1 转移+双向投递=平台可行性坐结(ADR-R9-01) | — | **RESOLVED** | — | 真机巡检信号保留:ping/pong+里程碑打点 | 否 |
 | B-009 | ~~runtime 宿主页跨 frame 事件投递缺陷~~ **BYPASSED→RESOLVED(Round 22)**：方案 B 独立沙箱容器 Web 组件（LexiSandboxHost 同构形态）落地，全部通道真机验证；runtime 页缺陷保留记录（不再依赖该页跨帧通道） | — | **RESOLVED** | — | 沙箱轨=容器就绪即用；旧轨保留为回落 | 否 |
 
+| B-009b | **新(Round 23)**:容器页(方案 B)上**第二个及之后**的 per-plugin iframe 的 postMessage(ready/data.load)静默丢帧——首个 iframe(probe)全链闭环(->arkts/<-arkts/data.json 落盘铁证),sample-min 同代码同页零到达(无丢弃日志、无异常)。证据链 /tmp/r23d.log | P1-003b 多插件并发装载;单 iframe 模式不受影响 | OPEN | 定位方向:①ArkWeb 对同页多 sandboxed iframe 的 message 投递限制;②容器 listener 注册时序;③逐插件串行化(单 iframe 队列)作为工程绕行 | 单插件模式已可用(P1-003b 第一验收点达成) | 部分——多插件并发沙箱延后,单插件沙箱已可支撑 P1-003c/d 验收 |
+
 ## 历史真机问题（tools/plugin-dist/known-issues.md 台账,未闭环即不得遗忘）
 
 - KI-1 市场 Sheet 已安装列表挤占致远程条目不可达 → 任务 P5-007,验收 `plugin-dist-flows --market-repro` N=3..8 reachable=true。
