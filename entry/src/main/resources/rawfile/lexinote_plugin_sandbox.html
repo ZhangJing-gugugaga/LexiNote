@@ -33,10 +33,14 @@
   var inited = false;
 
   function postToHost(message) {
-    if (!port) { return; }
-    // B-008 根因二:沙箱→宿主消息必须带协议标记——onSandboxMessage 首行按标记过滤,
-    // 缺标记的 boot/request 会被静默丢弃(Round 8 真机 reports=0 的直接原因)。
+    // B-008 根因二:沙箱→宿主消息必须带协议标记——宿主端首行按标记过滤。
     message.__lexiSandbox = true;
+    if (!port) {
+      // B-009b 复盘:容器轨(方案 B)init 不转移 port,port 路帧在此终结。
+      // 此前为静默 return,把"API 面接错通道"伪装成"平台丢帧"——丢弃必须留痕。
+      slog('port 缺失,丢弃 ' + String(message && message.type || '?') + '(容器轨应走 window 通道)');
+      return;
+    }
     message.protocolVersion = protocolVersion;
     slog('req -> ' + String(message.type || message.method || '?'));
     try { port.postMessage(message); }
@@ -44,6 +48,12 @@
   }
 
   function request(method, params) {
+    if (!port) {
+      // B-009b 复盘:容器轨(方案 B)无 port,统一回落页内 window 通道(parentRequest,
+      // 经容器 event.source 反查 → javaScriptProxy 网关,身份仍由宿主覆写,语义不变)。
+      // 此前回落缺失 → loadData/saveData/addCommand 的 Promise 永不 settle,插件 onload 挂起。
+      return parentRequest(method, params);
+    }
     return new Promise(function (resolve, reject) {
       requestSeq += 1;
       var requestId = 'r' + requestSeq;
@@ -117,10 +127,23 @@
   // parentRequest:bootPlugin 面的宿主请求走 window 通道(Round 21:容器页 MessageChannel
   // 回路不投递;window.postMessage 双向有真机证据)——响应经下方 listener 的 response 分支。
   var pendingWindow = new Map();
+  // 沙箱命令表(fullId → { callback }):port 轨与容器 window 轨共用。
+  // 曾误置于 bootPlugin 函数作用域内,onPortMessage 跨作用域引用必 ReferenceError(B-009b 复盘)。
+  var sandboxCommands = new Map();
+  function runSandboxCommand(fullId) {
+    var cmdEntry = sandboxCommands.get(String(fullId || ''));
+    if (!cmdEntry) { slog('命令不存在: ' + String(fullId)); return; }
+    slog('命令执行: ' + String(fullId));
+    Promise.resolve().then(function () { return cmdEntry.callback(); }).catch(function (err) {
+      slog('命令执行失败: ' + String(err));
+      request('ui.notice', { message: '插件命令出错: ' + String(err) }).catch(function () {});
+    });
+  }
   function parentRequest(method, params) {
     return new Promise(function (resolve, reject) {
       var requestId = 'w' + (++requestSeq);
       pendingWindow.set(requestId, { resolve: resolve, reject: reject });
+      slog('req(win) -> ' + String(method || '?'));
       try {
         window.parent.postMessage({ __lexiSandbox: true, type: 'sandbox.request',
           requestId: requestId, method: method, params: params || {} }, '*');
@@ -138,7 +161,6 @@
     try { manifest = JSON.parse(plugin.manifestJson || '{}'); } catch (err) { manifest = {}; }
     slog('bootPlugin: ' + String(manifest.id || '?'));
     var request = window.lexiSandbox.request;
-    var sandboxCommands = new Map();   // fullId → { callback }（P1-003b 命令回环的沙箱侧表）
     function makeNotice(message) {
       // Notice → ui.notice 域(未声明 notifications 的清单会被 broker gate 拒,与旧轨语义一致)。
       return request('ui.notice', { message: String(message) }).catch(function () {});
@@ -276,16 +298,7 @@
 
   function onPortMessage(event) {    var data = event.data || {};
     if (data.type === 'sandbox.ping') { postToHost({ type: 'sandbox.pong', contextId: contextId }); return; }
-    if (data.type === 'sandbox.command') {
-      var cmdEntry = sandboxCommands.get(String(data.fullId || ''));
-      if (!cmdEntry) { slog('命令不存在: ' + String(data.fullId)); return; }
-      slog('命令执行: ' + String(data.fullId));
-      Promise.resolve().then(function () { return cmdEntry.callback(); }).catch(function (err) {
-        slog('命令执行失败: ' + String(err));
-        request('ui.notice', { message: '插件命令出错: ' + String(err) }).catch(function () {});
-      });
-      return;
-    }
+    if (data.type === 'sandbox.command') { runSandboxCommand(String(data.fullId || '')); return; }
     if (data.type === 'sandbox.response') { finish(data.requestId, data); return; }
     if (data.type === 'sandbox.run' && typeof data.source === 'string') {
       try {
@@ -310,10 +323,26 @@
       var entry = pendingWindow.get(String(data.requestId || ''));
       if (!entry) { return; }
       pendingWindow.delete(String(data.requestId));
-      if (data.ok === true) { entry.resolve(data.result); }
-      else { entry.reject(new Error((data.error && data.error.message) || 'sandbox request failed')); }
+      if (data.ok === true) {
+        // 容器网关 frame.data = call() 的 RPC 响应封套字符串 {ok,result,error,code};
+        // 旧轨宿主页在 result 里放的是内层数据——此处解一层封套使两轨语义一致
+        // (B-009b 复盘附带发现:不解封套则 loadData 会把封套当数据体,跨重启埋没真实字段)。
+        var inner = data.result;
+        if (typeof inner === 'string') {
+          try { inner = JSON.parse(inner); } catch (err) { /* 非 JSON 保真回传 */ }
+        }
+        if (inner && typeof inner === 'object' && ('ok' in inner) && ('result' in inner)) {
+          inner = inner.result;
+        }
+        entry.resolve(inner === undefined ? null : inner);
+      } else {
+        entry.reject(new Error((data.error && data.error.message) || 'sandbox request failed'));
+      }
       return;
     }
+    // 容器轨命令回推:宿主 invokePluginCommand → 容器页 lexiSandboxCommand → 本通道
+    // (port 轨等价分支在 onPortMessage;两路共用 runSandboxCommand,表同源)。
+    if (data.type === 'sandbox.command') { runSandboxCommand(String(data.fullId || '')); return; }
     if (data.type === 'sandbox.init' && !inited) {
       inited = true;
       contextId = typeof data.contextId === 'string' ? data.contextId : '';
@@ -325,7 +354,7 @@
         port.onmessage = onPortMessage;
       }
       postToHost({ type: 'sandbox.boot', contextId: contextId, selfCheck: window.__lexiSandboxSelfCheck() });
-      slog('sandbox.boot posted (port ' + (port ? 'up' : 'absent') + ')');
+      if (port) { slog('sandbox.boot posted'); }
       // P1-003b:容器通道的插件装载载荷(PoC 通道无此字段,向后兼容)。
       if (data.plugin && typeof data.plugin.code === 'string') {
         bootPlugin(data.plugin);

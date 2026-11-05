@@ -1,5 +1,57 @@
 # PROGRESS — 逐轮工程进展
 
+## Round 24 — 2026-11-06（B-009b 复盘定案：**误诊证伪 + 三缺陷修复 + 双插件并发沙箱真机验收**）
+
+**当前 Phase：** Phase 1。P1-003b 多插件并发装载解锁。
+
+### 本轮完成
+
+1. **B-009b 证伪（核心成果）**：重审 Round 23 证据日志（/tmp/r23d.log 幸存）+ 双夹具源码对比，判定"第二个及之后 iframe postMessage 丢帧"为**误诊**——
+   - 日志铁证：两个 iframe 的 init 均 `port=MISSING`（容器轨对**任何** iframe 都不转移 port）；`bootPlugin: sandbox-sample-min` 已执行（宿主→容器→iframe 装载链对第二 iframe 完好）；probe 成功用帧是 `id=w1`（=parentRequest window 通道前缀），与其"第一/第二"序位无关。
+   - 真根因①（主因）：`SandboxPlugin.loadData/saveData/addCommand/Notice/vault` 全走 port 路 `request()`，而 `postToHost` 在 `port` 缺失时**先静默 return 再打日志** → 帧从未发出、`await loadData()` 挂死 onload → "零帧零日志"假象。probe 正常纯因其夹具直接调 `app.request`(=parentRequest)。
+   - 真根因②：容器网关把 `call()` 的 RPC 响应封套 `{ok,result,error,code}` 整个塞进 frame.data，iframe 未解封套 → `loadData` 把封套当数据体（磁盘铁证：data.json 出现 `{"runCount":0,"ok":true,"result":null,...}` 噪声）。
+   - 真根因③：`sandboxCommands` 误置于 `bootPlugin` 函数作用域（跨作用域引用必 ReferenceError）+ window listener 缺 `sandbox.command` 分支（容器轨命令回环必断）。
+2. **修复（单文件 `lexinote_plugin_sandbox.html`，5 处）**：①`request()` port 缺失回落 `parentRequest`（window 通道，身份仍由容器 event.source 反查覆写，语义不变）；②`postToHost` port 缺失留痕丢弃（不再静默）；③window 响应分支解一层 RPC 封套（两轨语义对齐，loadData/vault/metadata 全部消费者受益）；④命令表提升 IIFE 级 + 双通道共用 `runSandboxCommand`；⑤parentRequest 发送留痕 + 假 "sandbox.boot posted" 日志改诚实。
+3. **门禁固化**：plugin-context-isolation.cjs +S23（回落语义）/S24（丢弃留痕）/S25（命令表两通道共用）→ 40/40；symbols.json 修复 Round 23 遗留 2 处行号锚点（LexiPluginRuntime.ets 1538→1540、1345→1348，invokePluginCommand 收窄位移所致，非本轮引入）。
+4. **真机验收（lexi_2in1，全链 hilog + 磁盘铁证）**：
+   - **双 iframe 并发**：probe(ctx-2) 与 sample-min(ctx-3) 帧交错双向零丢失（`->arkts ctx-2/ctx-3` 交错出现、各自 `<-arkts id=wN ok=true` 独立配对）——**"ArkWeb 同页多 sandboxed iframe 丢帧"命题被正面证伪**；
+   - sample-min 全链：data.load→data.save→commands.add×2（宿主注册 `record-run`/`create-log`）→vault.files→onload done；
+   - **命令回环端到端**：命令面板点击 → 容器 `命令已回推沙箱` → iframe **window 通道新分支** `命令执行: sandbox-sample-min:record-run` → 回调 saveData → 插件自证 `record-run: count=1`；
+   - 磁盘铁证：sample-min data.json = `{"runCount":1,"bootOk":true,"lastRunAt":…}`（封套修复后契约形状精确）；probe data.json = `{"marker":"sandbox-probe-ok"}` 回归无污染。
+
+### 修改文件
+
+`entry/src/main/resources/rawfile/lexinote_plugin_sandbox.html`、`scripts/tests/plugin-context-isolation.cjs`、`tools/contract/symbols.json`（2 锚点）、rfcs/implementation 四记录。
+
+### 实际执行的测试
+
+| 命令 | 结果 |
+|---|---|
+| `plugin-context-isolation.cjs` ×2（每次修改后） | **PASS 40/40** |
+| `plugin-contract-matrix.cjs --fixtures-required` | 首轮 2 锚点脱节（Round 23 遗留）→修正后 **PASS** |
+| `release-gate --ci` ×2（含封套修复后复跑） | **PASS 29/29** |
+| `hvigorw assembleHap` ×2 | **BUILD SUCCESSFUL** |
+| 真机双插件并发链+命令回环（2in1） | **PASS**（铁证见上；首轮 MCP install 未替换，改 `bm install -r` 后正常——设备流程记入 quirk） |
+
+### 兼容性影响
+
+- 沙箱轨 API 面行为修复，旧轨（PoC port 通道）路径零改动；宿主 ArkTS/网关零改动；夹具零改动。
+- `loadData` 语义修正为返回内层数据（与旧轨宿主页行为一致）——沙箱轨尚无第三方存量，无迁移负担。
+
+### 尚存风险
+
+- 容器网关响应仍以封套字符串过 runJavaScript（双编码形态）——已在 iframe 侧对齐,若后续扩 RPC 面（流式/二进制）需重估该契约。
+- 命令回环的编辑器命令执行面（editorCallback）未实现（Round 23 登记,后续切片）。
+- sample-min `vault.files=0` 为空库真值,路径级 vault 授权（P2-004）未在沙箱轨专项验证。
+
+### 下一轮
+
+**P1-003c**：构建期 CommonJS→IIFE + 宿主页面 CSP 收紧（移除 unsafe-eval）——沙箱轨已可承载验收。备选并行：P2-009 生命周期状态机补全。
+
+最近更新时间：2026-11-06（Round 24）。
+
+---
+
 ## Round 7 — 2026-11-03（基线 `main @ c1863ff`）
 
 **当前 Phase：** Phase 0 完成（P0-001/P0-002 交付）；进入 Phase 1/5 安全任务流。

@@ -100,6 +100,16 @@ if (fs.existsSync(SANDBOX_HTML)) {
   ok('S22 沙箱→宿主端口消息必须带协议标记（真机 B-008 根因二）',
     /function postToHost[\s\S]{0,300}__lexiSandbox\s*=\s*true/.test(sandbox),
     '宿主 onSandboxMessage 按 __lexiSandbox 标记过滤,postToHost 缺赋值则 boot/request 全被静默丢弃(真机 reports=0)');
+  ok('S23 沙箱请求无 port 必须回落 window 通道（真机 B-009b 复盘）',
+    /function request\(method, params\) \{[\s\S]{0,120}if \(!port\) \{[\s\S]{0,400}return parentRequest\(method, params\)/.test(sandbox),
+    '容器轨 init 不转移 port:回落缺失则 loadData/saveData/addCommand 静默蒸发,插件 onload 永久挂起(误诊为多 iframe 丢帧)');
+  ok('S24 port 路丢弃必须留痕', /if \(!port\) \{[\s\S]{0,300}slog\('port 缺失,丢弃 /.test(sandbox),
+    'port 缺失静默 return 曾把"API 面接错通道"伪装成"平台丢帧"(B-009b 误诊的直接成因)');
+  ok('S25 沙箱命令表两通道共用且 window listener 可执行命令',
+    /var sandboxCommands = new Map\(\);/.test(sandbox) &&
+    /function runSandboxCommand\(/.test(sandbox) &&
+    (sandbox.match(/runSandboxCommand\(/g) || []).length >= 3,
+    '命令表若置于 bootPlugin 作用域内,port/window 两路 listener 跨作用域引用必 ReferenceError;window listener 缺 sandbox.command 分支则容器轨命令回环不工作');
 }
 {
   const runtimeHtml = fs.readFileSync(path.join(RAWFILE, 'lexinote_plugin_runtime.html'), 'utf8');

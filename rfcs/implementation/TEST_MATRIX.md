@@ -13,7 +13,8 @@
 | 授权矩阵 (方法→kind) | plugin-authz-matrix | 契约 | PASS | ✘ | fsAuthorizer 为 stub——capability 真实注入未测(P2-011) |
 | 权限存储/指纹 | plugin-permission-store | 单元 | PASS | ✘ | 指纹输入是字面量非真实 tagsOf(P2-002 连带) |
 | Manifest v2 解析 | plugin-manifest-v2 | 契约 | PASS | ✘ | 证明解析,不证明执行面(P2-003..007) |
-| 沙箱隔离 | plugin-context-isolation + **真机 PoC verdict** | 安全(PoC 面,离线 36 项+真机 hilog) | **PASS 36/36；真机 PASS(Round 9)**：contexts=2/2, vectors 20/20 blocked, credentialHits=0；origin=null/ports=1/ping-pong 为常驻见证 | ✔(载体级) | **B-008 关闭,ADR-R9-01 iframe 载体定案**；业务轨道共享 realm 未覆盖(P1-003/009);SEC 全表待接入 |
+| 沙箱隔离 | plugin-context-isolation + **真机 PoC verdict** | 安全(PoC 面,离线 40 项+真机 hilog) | **PASS 40/40(Round 24 +S23/24/25 回落/留痕/命令表断言)；真机 PASS(Round 9)**：contexts=2/2, vectors 20/20 blocked, credentialHits=0；origin=null/ports=1/ping-pong 为常驻见证 | ✔(载体级) | **B-008 关闭,ADR-R9-01 iframe 载体定案**；业务轨道共享 realm 未覆盖(P1-003/009);SEC 全表待接入 |
+| 业务插件沙箱执行(P1-003b) | 真机双插件并发链(容器页 hilog + data.json 落盘) | 集成(设备) | **PASS(Round 24)**：probe+sample-min 双 iframe 并发装载,帧交错双向零丢失;sample-min 全链(loadData/saveData/addCommand×2/vault.files/onload.done);命令面板→容器→iframe window 通道回环 `record-run count=1`;data.json `{"runCount":1,"bootOk":true,"lastRunAt":…}` 铁证;probe 回归 `{"marker":"sandbox-probe-ok"}` 不变 | ✔ | **B-009b 关闭(误诊)**;view/settings/editor 执行面后续切片 |
 | 身份面 | plugin-bridge-security | 安全(真实宿主) | **PASS 34/34(Round 10,+8 断言:R6f-h 行为级 vm、R7a-d WeakMap/fail-closed/显式凭据)**;真机佐证见下 | ✔(负面路径 Round 8/10) | P1-006 收口:currentToken/withToken/hostCall 入口删除、WeakMap 归属令牌、栈空 anonymous;残余 `__receive` 面登记 P1-006b |
 | 身份投递静态对账 | plugin-identity-delivery --strict | 静态审计 | **PASS 30/30 traced 0 gaps(Round 10,分类器识别 objectToken 包装形态)** | ✘ | KNOWN_GAPS 台账机制保留 |
 | 令牌下发一致性 | plugin-identity-delivery --strict | 静态审计 | PASS | ✘ | KNOWN_GAPS 台账 |
