@@ -113,29 +113,73 @@ function swipe(x1, y1, x2, y2, ms) {
   return sh('uitest uiInput swipe ' + x1 + ' ' + y1 + ' ' + x2 + ' ' + y2 + ' ' + (ms || 600), 60000);
 }
 
-// 市场面板/已安装列表都可能比一屏长:滚动直到目标文本出现(最多 max 次,每次记录一次 layout)。
+// P0-012:市场窗格的可滚动容器。2in1 宽布局走的是设置窗口(不是 bindSheet):授权面板、
+// 已安装列表、市场条目全部躺在外层 Scroll 里;dumpLayout 只见可见节点,盲滑面板外的坐标
+// (R8 时代的 y=1650/1700)会落到底层窗口甚至把面板关掉。所以滑动前先从布局里把容器找出来:
+// 以「演示源/刷新」按钮中心为锚点,取包含该点、高度>300 的最小 Scroll/List/Grid。
+let marketScrollCache = null;
+function marketScrollBox(list) {
+  const scrolls = list.filter((attrs) => /^(Scroll|List|Grid)$/.test(attrs.type || '')
+    && bounds(attrs) && (bounds(attrs).y2 - bounds(attrs).y1) > 300);
+  for (const label of [/^演示源/, /^刷新$/]) {
+    const anchor = findByText(list, label, null);
+    if (!anchor) { continue; }
+    const p = bounds(anchor);
+    const hits = scrolls.filter((attrs) => {
+      const b = bounds(attrs);
+      return p.cx >= b.x1 && p.cx <= b.x2 && p.cy >= b.y1 && p.cy <= b.y2;
+    }).sort((a, b) => (bounds(a).x2 - bounds(a).x1) * (bounds(a).y2 - bounds(a).y1)
+      - (bounds(b).x2 - bounds(b).x1) * (bounds(b).y2 - bounds(b).y1));
+    if (hits.length > 0) { marketScrollCache = bounds(hits[0]); return marketScrollCache; }
+  }
+  return marketScrollCache; // 滚动后锚点可能出视口:退回上次找到的(窗口几何在一次运行内稳定)
+}
+// 在市场容器内滑一屏:'down'=露出更下方内容(手指自下而上),'up'=露出更上方内容。返回滑动前的 dump。
+function swipeMarket(dir, tag, way) {
+  const list = dumpLayout(dir, tag);
+  const box = marketScrollBox(list);
+  if (!box) { return list; }
+  const x = Math.round((box.x1 + box.x2) / 2);
+  if (way === 'up') { swipe(x, box.y1 + 120, x, box.y2 - 80, 500); }
+  else { swipe(x, box.y2 - 80, x, box.y1 + 120, 500); }
+  return list;
+}
+// 市场窗格/已安装列表都可能比一屏长:滚动直到目标文本出现(最多 max 次,每次记录一次 layout)。
 function reveal(dir, tag, pattern, options) {
   const max = (options && options.max) || 6;
-  const filter = options && options.filter;
+  const way = (options && options.way) || 'down';
   let list = dumpLayout(dir, tag);
-  let hit = findByText(list, pattern, filter);
+  let hit = findByText(list, pattern, null);
   if (hit) { return { list, hit, scrolls: 0 }; }
   for (let i = 1; i <= max; i++) {
-    swipe(1700, 1650, 1700, 900, 500);
+    swipeMarket(dir, tag + '-w' + i, way);
     list = dumpLayout(dir, tag + '-s' + i);
-    hit = findByText(list, pattern, filter);
+    hit = findByText(list, pattern, null);
     if (hit) { return { list, hit, scrolls: i }; }
   }
   return { list, hit: null, scrolls: max };
 }
-// 列表行的动作按钮没有稳定 id:取文本匹配、y 与目标行最近的那个。
+// 列表行的动作按钮没有稳定 id:在可见节点里把"目标行名"与"动作按钮"按 y 就近配对。
+// 同名文本会出现两次(已安装行 + 市场条目行),跨行按钮的 y 距离 ≈ 行高 132px,配对上限取 70px。
+// 每步先在当前视口找配对,找不到再滑:已安装行在前、市场行在后,点「安装」必须滑过已安装列表,
+// 所以 reveal 停在第一处同名行是不够的。
 function clickRowAction(dir, tag, label, action) {
-  const found = reveal(dir, tag, new RegExp(label));
-  if (!found.hit) { return false; }
-  const rowY = bounds(found.hit).cy;
-  const buttons = found.list.filter((attrs) => bounds(attrs) && action.test(attrs.text || ''));
-  buttons.sort((a, b) => Math.abs(bounds(a).cy - rowY) - Math.abs(bounds(b).cy - rowY));
-  return buttons.length > 0 && clickNode(buttons[0]);
+  const pattern = new RegExp(label);
+  for (let step = 0; step < 9; step++) {
+    const list = dumpLayout(dir, tag + (step > 0 ? '-p' + step : ''));
+    const rows = list.filter((attrs) => bounds(attrs) && pattern.test(attrs.text || ''));
+    const buttons = list.filter((attrs) => bounds(attrs) && action.test(attrs.text || ''));
+    let best = null;
+    for (const button of buttons) {
+      for (const row of rows) {
+        const d = Math.abs(bounds(button).cy - bounds(row).cy);
+        if (d <= 70 && (best === null || d < best.d)) { best = { button, d }; }
+      }
+    }
+    if (best !== null) { return clickNode(best.button); }
+    swipeMarket(dir, tag + '-p' + step + '-w', step < 5 ? 'down' : 'up');
+  }
+  return false;
 }
 
 async function pollState(label, probe, expect, options) {
@@ -360,21 +404,20 @@ async function marketIndex(dir, label, pattern) {
       await sleep(3000);
       continue;
     }
-    // 面板可能被"点在遮罩上"的点击关掉:先确认它还开着,再等条目渲染。
-    // 点过演示源之后按钮文案会变成「演示源（使用中）」,所以只匹配前缀。
-    const alive = await pollText(dir, 'layout-market-' + label + '-alive' + attempt, /^演示源/, { timeoutMs: 6000 });
+    // 面板可能被"点在遮罩上"的点击关掉、或演示源没切成功:只认「演示源（使用中）」。
+    // 用前缀 /^演示源/ 会在默认源卡死时假绿(面板开着但条目永远不会来)。
+    const alive = await pollText(dir, 'layout-market-' + label + '-alive' + attempt, /^演示源（使用中）$/, { timeoutMs: 15000 });
     if (!alive.ok) {
-      console.log('  第 ' + attempt + ' 次面板被关掉了,重开:可见文本=' + alive.texts.slice(0, 6).join(' | '));
+      console.log('  第 ' + attempt + ' 次演示源未生效/面板被关,重开:可见文本=' + alive.texts.slice(0, 6).join(' | '));
       continue;
     }
-    listed = await pollText(dir, 'layout-market-' + label + '-a' + attempt, pattern, { timeoutMs: 20000 });
+    listed = await pollText(dir, 'layout-market-' + label + '-a' + attempt, pattern, { timeoutMs: 8000 });
     if (listed.ok) { return listed; }
     // P0-012/KI-1:已安装列表把远程条目挤出视口(R8 时代夹具少无需滚动,dumpLayout 只见可见节点)。
-    // 轮询未中则向上滑动市场列表再等,最多 4 屏。
-    for (let scroll = 1; scroll <= 4 && !listed.ok; scroll++) {
-      sh('uitest uiInput swipe 1400 1700 1400 800 600', 60000);
-      await sleep(900);
-      listed = await pollText(dir, 'layout-market-' + label + '-a' + attempt + '-s' + scroll, pattern, { timeoutMs: 8000 });
+    // 轮询未中则在市场容器内滑动再等,最多 6 屏(滑动坐标取自容器 bounds,不再用面板外的盲滑)。
+    for (let scroll = 1; scroll <= 6 && !listed.ok; scroll++) {
+      swipeMarket(dir, 'layout-market-' + label + '-a' + attempt + '-w' + scroll, 'down');
+      listed = await pollText(dir, 'layout-market-' + label + '-a' + attempt + '-s' + scroll, pattern, { timeoutMs: 6000 });
     }
     if (listed.ok) { return listed; }
     console.log('  第 ' + attempt + ' 次没渲染出目标条目,可见文本=' + listed.texts.slice(0, 8).join(' | '));
@@ -394,6 +437,8 @@ async function marketAction(dir, label, fn) {
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       await openMarketSheet(dir);
+      // 切演示源让 busy 尽快清零(默认源在模拟器上要等 TCP 超时,行内按钮 disabled 期间点击被吞)。
+      await loadDemoSource(dir);
       await waitIdle(dir, 'layout-' + label);
     } catch (err) {
       console.log('  打开市场面板失败(第 ' + attempt + ' 次): ' + err.message);
@@ -407,13 +452,23 @@ async function marketAction(dir, label, fn) {
   return false;
 }
 
-// 演示源 + 刷新:让应用从本地 8099 拉索引。
+// 演示源 + 刷新:让应用从本地 8099 拉索引。面板刚打开时默认源(github)还在加载,模拟器上要等
+// TCP 超时(20s+),busy 期间按钮 disabled、点击被静默吞掉:先等空闲,再反复点「演示源」直到
+// 文案翻成「演示源（使用中）」,每次落空后回等到空闲再试。
 async function loadDemoSource(dir) {
-  const panel = dumpLayout(dir, 'layout-market-source');
-  clickText(panel, /^演示源$/);
-  await sleep(1200);
+  await waitIdle(dir, 'layout-market-busy');
+  for (let i = 0; i < 6; i++) {
+    const panel = dumpLayout(dir, 'layout-market-source' + i);
+    const demo = findByText(panel, /^演示源$/, null);
+    if (!demo) { break; }
+    clickNode(demo);
+    await sleep(1500);
+    const after = dumpLayout(dir, 'layout-market-source-on' + i);
+    if (findByText(after, /^演示源（使用中）$/, null)) { break; }
+    await waitIdle(dir, 'layout-market-busy' + i);
+  }
   const again = dumpLayout(dir, 'layout-market-refresh');
-  clickText(again, /^刷新$/);
+  clickText(again, /^刷新$/, null);
   await sleep(1200);
 }
 
@@ -423,6 +478,45 @@ function resetProbe() {
   sh('rm -rf ' + PLUGIN_DIR);
   const trash = sh('ls -d ' + PLUGINS_DIR + '/.trash/dist-flow-probe-* 2>/dev/null || true');
   if (trash.trim().length > 0) { sh('rm -rf ' + PLUGINS_DIR + '/.trash/dist-flow-probe-*'); }
+  return sh('ls -a ' + PLUGINS_DIR + ' 2>&1');
+}
+
+// --- 已安装列表收纳(P0-012)------------------------------------------------
+// 市场窗格的根 Column 是 height('100%')(LexiPluginMarketSheet.ets build 尾部):在 2in1 设置
+// 窗口的外层 Scroll 里,它被钉成视口高(1179px);已安装 8+ 行一溢出,layoutWeight(1) 的市场
+// 条目 Scroll 就被压到 0 高 —— 探针行不是"滚出视口"而是根本没被渲染(实测:容器内滑 6 屏
+// 前后 dump 逐字节相同,dump 里连内层 Scroll 节点都不存在)。内置夹具 9 个、每次冷启动都会
+// 重新解包(installBundledSamples),删目录没用;wasUninstalled 只认 .trash/<id>* 墓碑
+// (LexiPluginRuntime.ets:951),而 hdc shell(uid 2000)在该目录下 rm 可以、mkdir/touch/file send
+// 全部 EACCES —— 墓碑只能由应用自己建。所以收纳走真机 UI:逐个点目标夹具行上的「卸载」
+// (应用把目录移进 .trash = 墓碑,行也少一行);跑后(finally)rm 掉墓碑再重启应用,夹具原样回来。
+const PARK_IDS = ['cap-probe-open', 'cap-probe-unauth', 'compat-probe', 'sandbox-probe', 'sandbox-sample-min', 'sandbox-editor-min'];
+function pluginDirExists(id) {
+  return sh('ls -d ' + PLUGINS_DIR + '/' + id + ' 2>&1').indexOf('No such file') < 0;
+}
+async function parkFixturesViaUi(dir) {
+  const rows = [];
+  for (const id of PARK_IDS) {
+    if (!pluginDirExists(id)) { rows.push('SKIP ' + id + ' (目录不存在)'); continue; }
+    let ok = false;
+    for (let attempt = 1; attempt <= 2 && !ok; attempt++) {
+      ok = await marketAction(dir, 'park-' + id + '-a' + attempt, (tag) => clickRowAction(dir, tag, id, /^卸载$/));
+      if (ok) {
+        const gone = await pollState('收纳 ' + id, () => sh('ls -d ' + PLUGINS_DIR + '/' + id + ' 2>&1'),
+          (t) => t.indexOf('No such file') >= 0, { timeoutMs: 30000 });
+        ok = gone.ok;
+      }
+    }
+    rows.push((ok ? 'PARK ' : 'MISS ') + id);
+    console.log('  收纳 ' + id + ': ' + (ok ? '已卸载入 .trash' : '失败(继续)'));
+  }
+  return rows;
+}
+function unparkFixtures() {
+  for (const id of PARK_IDS) { sh('rm -rf ' + PLUGINS_DIR + '/.trash/' + id + '-* 2>/dev/null || true'); }
+  // 立刻重启一次应用让 installBundledSamples 把夹具解包回来,设备留在"什么都齐"的状态。
+  sh('aa force-stop ' + BUNDLE, 60000);
+  sh('aa start -a ' + ABILITY + ' -b ' + BUNDLE, 60000);
   return sh('ls -a ' + PLUGINS_DIR + ' 2>&1');
 }
 
@@ -457,19 +551,28 @@ async function flowInstall(dir, check, ctx) {
   console.log('  清空上一轮残留 → ' + before.split(/\r?\n/).filter((line) => line.trim().length > 0).join(' '));
   const install = hdc(['-t', DEVICE, 'install', '-r', HAP], 240000);
   check.check('安装 HAP', install.out.indexOf('successfully') >= 0, install.out.trim().slice(-120));
+  // P0-012:实测 install -r 后应用数据可能被重置(墓碑全没),收纳统一放在 install 之后、
+  // 市场操作之前;已收纳过的目标(目录不存在)会被自动跳过。
+  const parked = await parkFixturesViaUi(dir);
+  fs.writeFileSync(path.join(dir, 'park.txt'), parked.join('\n') + '\n');
+  check.check('内置夹具收纳(市场行可见性前提)', parked.every((row) => row.indexOf('MISS ') < 0), parked.join(' '));
 
   const log = startHilog(path.join(dir, 'hilog.log'));
   try {
-    const listed = await marketIndex(dir, 'install', new RegExp(PROBE_NAME));
-    check.check('v1 索引被接受(列表出现探针)', listed.ok, listed.ok ? listed.hit : '可见文本=' + listed.texts.slice(0, 12).join(' | '));
+    // P0-012:锚定市场行特有的「哈希已校验」标签 —— 探针安装后已安装行也叫「分发探针」,
+    // 用名字匹配会在条目没渲染时被已安装行假绿(Run5 integrity 根因)。
+    const listed = await marketIndex(dir, 'install', /哈希已校验/);
+    check.check('v1 索引被接受(市场行渲染)', listed.ok, listed.ok ? listed.hit : '可见文本=' + listed.texts.slice(0, 12).join(' | '));
 
-    clickRowAction(dir, 'layout-install', PROBE_NAME, /^安装$/);
+    const installClicked = clickRowAction(dir, 'layout-install', PROBE_NAME, /^安装$/);
+    check.check('市场行「安装」按钮已点击', installClicked, '');
     // P5-004:安装不再自动 enable——先停在授权面板(已安装未启用),再显式同意启用。
     const pending = await pollText(dir, 'layout-installed-pending', /已安装（未启用）：/, { timeoutMs: 40000 });
     check.check('UI 显示已安装(未启用,待授权)', pending.ok, pending.hit);
-    const consent = dumpLayout(dir, 'layout-consent');
-    const consentBtn = findByText(consent, /^同意并启用$/);
-    check.check('授权面板同意按钮可见', Boolean(consentBtn), consentBtn ? 'y=' + bounds(consentBtn).cy : texts(consent).slice(0, 12).join(' | '));
+    // P0-012:授权面板渲染在滚动内容的顶部,而点「安装」时视口已被滚到列表底部:向上滑回顶部再找同意按钮。
+    const consentFound = reveal(dir, 'layout-consent', /^同意并启用$/, { way: 'up', max: 4 });
+    const consentBtn = consentFound.hit;
+    check.check('授权面板同意按钮可见', Boolean(consentBtn), consentBtn ? 'y=' + bounds(consentBtn).cy : texts(consentFound.list).slice(0, 12).join(' | '));
     if (consentBtn) { clickNode(consentBtn); }
     const done = await pollText(dir, 'layout-installed', /已安装并启用：/, { timeoutMs: 40000 });
     check.check('UI 显示已安装并启用(同意后)', done.ok, done.hit);
@@ -489,9 +592,10 @@ async function flowInstall(dir, check, ctx) {
 
     // --- sha256 反例:字节被改一个,声明 sha 还是好的 → 必须 integrity_mismatch 且不留半装目录
     ctx.server.corrupt(ctx.zips.v2);
-    const listed2 = await marketIndex(dir, 'integrity', new RegExp(PROBE_NAME));
-    check.check('坏包前索引仍列出探针', listed2.ok, listed2.ok ? listed2.hit : '可见文本=' + listed2.texts.slice(0, 12).join(' | '));
-    clickRowAction(dir, 'layout-integrity', PROBE_NAME, /^安装$/);
+    const listed2 = await marketIndex(dir, 'integrity', /哈希已校验/);
+    check.check('坏包前市场行仍渲染', listed2.ok, listed2.ok ? listed2.hit : '可见文本=' + listed2.texts.slice(0, 12).join(' | '));
+    const integrityClicked = clickRowAction(dir, 'layout-integrity', PROBE_NAME, /^安装$/);
+    check.check('坏包行「安装」按钮已点击', integrityClicked, '');
     const denied = await pollText(dir, 'layout-integrity-result', /安装失败|integrity_mismatch|完整性/, { timeoutMs: 40000 });
     check.check('错误 sha256 → UI 报失败', denied.ok, denied.hit);
     const afterBad = readFile(PLUGIN_DIR + '/current.json');
@@ -524,10 +628,22 @@ async function flowUpgrade(dir, check, ctx) {
   const log = startHilog(path.join(dir, 'hilog.log'));
   try {
     const mark = log.mark();
-    const listed = await marketIndex(dir, 'upgrade', new RegExp(PROBE_NAME));
-    check.check('v2 索引被接受', listed.ok, listed.ok ? listed.hit : listed.texts.slice(0, 12).join(' | '));
+    const listed = await marketIndex(dir, 'upgrade', /哈希已校验/);
+    check.check('v2 索引被接受(市场行渲染)', listed.ok, listed.ok ? listed.hit : listed.texts.slice(0, 12).join(' | '));
 
-    clickRowAction(dir, 'layout-upgrade', PROBE_NAME, /^安装$/);
+    const upgradeClicked = clickRowAction(dir, 'layout-upgrade', PROBE_NAME, /^安装$/);
+    check.check('市场行「安装」按钮已点击(升级)', upgradeClicked, '');
+    // P5-004/R26:升级同样 fail-closed —— 装完停在待授权,授权面板重新出现;同意后才算完成。
+    const landed = await pollText(dir, 'layout-upgraded-landing',
+      /已安装并启用：|已升级|已安装（未启用）：/, { timeoutMs: 60000 });
+    if (landed.ok && landed.hit.indexOf('已安装（未启用）') === 0) {
+      check.check('升级落在待授权(授权面板复现)', true, landed.hit);
+      const consentFound = reveal(dir, 'layout-upgrade-consent', /^同意并启用$/, { way: 'up', max: 4 });
+      const consentBtn = consentFound.hit;
+      check.check('升级后授权面板同意按钮可见', Boolean(consentBtn),
+        consentBtn ? 'y=' + bounds(consentBtn).cy : texts(consentFound.list).slice(0, 12).join(' | '));
+      if (consentBtn) { clickNode(consentBtn); }
+    }
     const done = await pollText(dir, 'layout-upgraded', /已安装并启用：|已升级/, { timeoutMs: 60000 });
     check.check('UI 完成升级', done.ok, done.hit);
 
@@ -558,7 +674,9 @@ async function flowRollback(dir, check, ctx) {
   const log = startHilog(path.join(dir, 'hilog.log'));
   try {
     const mark = log.mark();
-    const clicked = await marketAction(dir, 'rollback', (tag) => clickRowAction(dir, tag, PROBE_NAME, /^回滚$/));
+    // 回滚/卸载锚定 stateLine 里的插件 id(「已启用 · vX.Y.Z · dist-flow-probe」):已安装行独有,
+    // 与市场条目行的同名「分发探针」区分开。
+    const clicked = await marketAction(dir, 'rollback', (tag) => clickRowAction(dir, tag, PLUGIN_ID, /^回滚$/));
     check.check('找到并点击回滚', clicked, '');
     const done = await pollText(dir, 'layout-rolledback', /已回滚/, { timeoutMs: 40000 });
     check.check('UI 显示已回滚', done.ok, done.hit);
@@ -613,7 +731,7 @@ async function flowUninstall(dir, check, ctx) {
   const log = startHilog(path.join(dir, 'hilog.log'));
   try {
     const mark = log.mark();
-    const clicked = await marketAction(dir, 'uninstall', (tag) => clickRowAction(dir, tag, PROBE_NAME, /^卸载$/));
+    const clicked = await marketAction(dir, 'uninstall', (tag) => clickRowAction(dir, tag, PLUGIN_ID, /^卸载$/));
     check.check('找到并点击卸载', clicked, '');
     const gone = await pollState('插件目录消失', () => lsPlugin(), (t) => t.indexOf('No such file') >= 0, { timeoutMs: 40000 });
     check.check('插件目录已删除', gone.ok, gone.last);
@@ -710,26 +828,41 @@ function printPlan() {
   const server = await startServer(zips);
   const dir = path.join(OUT_ROOT, stamp(), 'flows');
   fs.mkdirSync(dir, { recursive: true });
+  // P0-012:收纳多余内置夹具(否则市场条目被挤出渲染树,见 parkFixturesViaUi 注释)。
+  // install 流程内部在 install -r 之后还会再跑一遍(数据被重置时兜底),已收纳的自动跳过。
   const flows = FLOW === 'all' ? ['install', 'upgrade', 'rollback', 'uninstall'] : [FLOW];
   const ctx = { zips, server };
   let failed = 0;
-  for (const name of flows) {
-    const flowDir = path.join(dir, name);
-    fs.mkdirSync(flowDir, { recursive: true });
-    const check = makeChecker(flowDir);
-    console.log('\n## ' + name);
-    try {
-      if (name === 'install') { await flowInstall(flowDir, check, ctx); }
-      else if (name === 'upgrade') { await flowUpgrade(flowDir, check, ctx); }
-      else if (name === 'rollback') { await flowRollback(flowDir, check, ctx); }
-      else if (name === 'uninstall') { await flowUninstall(flowDir, check, ctx); }
-      else { console.log('未知流程: ' + name); failed++; }
-    } catch (error) {
-      check.check(name + ' 流程未走完', false, (error && error.stack) || error);
-      failed++;
+  try {
+    if (flows.indexOf('install') < 0) {
+      // 非全流程运行(单跑 upgrade/rollback/uninstall)也必须有收纳,否则行数照样溢出。
+      const parkedEarly = await parkFixturesViaUi(dir);
+      fs.writeFileSync(path.join(dir, 'park.txt'), parkedEarly.join('\n') + '\n');
+      console.log('夹具收纳: ' + parkedEarly.join(' '));
     }
-    check.save();
-    if (check.lines.some((line) => line.indexOf('FAIL ') === 0)) { failed++; }
+    for (const name of flows) {
+      const flowDir = path.join(dir, name);
+      fs.mkdirSync(flowDir, { recursive: true });
+      const check = makeChecker(flowDir);
+      console.log('\n## ' + name);
+      try {
+        if (name === 'install') { await flowInstall(flowDir, check, ctx); }
+        else if (name === 'upgrade') { await flowUpgrade(flowDir, check, ctx); }
+        else if (name === 'rollback') { await flowRollback(flowDir, check, ctx); }
+        else if (name === 'uninstall') { await flowUninstall(flowDir, check, ctx); }
+        else { console.log('未知流程: ' + name); failed++; }
+      } catch (error) {
+        check.check(name + ' 流程未走完', false, (error && error.stack) || error);
+        failed++;
+      }
+      check.save();
+      if (check.lines.some((line) => line.indexOf('FAIL ') === 0)) { failed++; }
+    }
+  } finally {
+    // 无论跑成什么样,撤墓碑 + 重启应用:内置夹具原样回来,不把状态破坏留给别的用例。
+    const restored = unparkFixtures();
+    fs.writeFileSync(path.join(dir, 'unpark.txt'), restored + '\n');
+    console.log('夹具已还原(墓碑撤除,应用重启重解包)');
   }
   server.close();
   console.log('\nplugin-dist-flows: ' + (failed === 0 ? 'PASS' : failed + ' 处失败') + '  证据=' + dir);

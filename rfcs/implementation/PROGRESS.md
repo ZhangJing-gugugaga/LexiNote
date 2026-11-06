@@ -639,3 +639,7 @@ P1-003b 继续（沙箱内 obsidian 面扩容→sample 完整迁移）；观测�
 **R27 = P1-003b 编辑器切片 + P2-005**（editorCallback 进沙箱 + editor readActive/writeSelection/writeDocument 分级门禁，互锁同轮）。P0-012（flows 重标定）进并行快速赢面池。
 
 最近更新时间：2026-11-07（Round 26）。
+
+### Round 26 追记（同日,P0-012 收口 + P5-004 设备证据回填）
+
+P0-012 并行工人以 6 次流程运行收口：**四流程真机全 PASS**（install 19/0、upgrade 11/0、rollback 7/0、uninstall 6/0，evidence `20261107-041154`，断言零弱化）。重标定内容：滚动容器发现+容器内滑动（替代硬编码 y 坐标——原 y=1700 在 sheet 底 1675 之外）、rowAction 最近行配对（|Δcy|≤70px,行距 132px）、授权面板 reveal（R26 面板在视口顶部而安装点击后视口在底部）、演示源 busy 竞态等待（默认源占 busy 20-30s,点击被静默吞）、市场行锚点改 /哈希已校验/（避免已安装行同名假阳）、**夹具收纳法**（市场条目 Scroll 因产品塌陷 bug 高度归零——用真实 UI 卸载 6 个内置夹具腾位,finally 复原）。**P5-004 设备全链证据回填**：install→"已安装（未启用）：分发探针 — 请确认权限清单后启用"→授权面板同意→"已安装并启用：分发探针" 全 PASS;升级路径同样落在待授权+面板复现。产品发现（仅登记）：①市场条目区在已安装列表溢出时整体塌陷（`LexiPluginMarketSheet.ets:556` height('100%')+layoutWeight(1) 负空间→条目 Scroll 不渲染,归 P5-007/KI-1 机制面）;②`hdc install -r` 间歇重置应用数据（模拟器 quirk）;③升级在权限不变时仍要求重新同意（fail-closed 下可辩护,UX 决策入 HUMAN_QUEUE#3 附注）。
