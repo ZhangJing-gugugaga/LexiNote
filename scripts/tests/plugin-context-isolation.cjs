@@ -116,6 +116,22 @@ if (fs.existsSync(SANDBOX_HTML)) {
   ok('S29 沙箱页按设计保留 unsafe-eval(P1-003c/ADR-R18-01 定案4)', /unsafe-eval/.test(sandboxCsp) &&
     /P1-003c/.test(sandbox),
     'unsafe-eval 只属于沙箱 iframe 内部;宿主页面一律不得开放(S10/S26);删沙箱保留必须连同 ADR 一起复审');
+  // R27(P1-003b 编辑器切片):沙箱 editor 执行面 = editorCallback 进共用命令表,Editor 写
+  // 通道只有宿主 RPC 一条(editor.replace/selection/applyChanges,档位门禁在宿主)。
+  ok('S30 沙箱 editor 面:editorCallback 进命令表且写通道走宿主 RPC',
+    /editorCallback: command\.editorCallback/.test(sandbox) &&
+    /function SandboxEditor\(/.test(sandbox) &&
+    /'editor\.replace'/.test(sandbox) && /'editor\.selection'/.test(sandbox) &&
+    /'editor\.applyChanges'/.test(sandbox),
+    '编辑器命令回调必须经命令表+既有 request 链路由;缺失任一写通道即编辑器切片回退');
+  ok('S30b 沙箱页不引用宿主编辑器桥(无本地 CM6 面,写只能经端口 RPC)',
+    !/__lexiEditor|CodeMirror/.test(sandbox),
+    'opaque origin iframe 不存在 window.__lexiEditor/CM6——Editor 必须快照读+RPC 写');
+  ok('S30c 编辑器命令回推不带身份字段(身份永不进 iframe)',
+    !/pluginId|activationId|token/.test(
+      (sandbox.match(/type: 'sandbox\.command'[\s\S]{0,200}/) || [''])[0]) &&
+    /data\.editor/.test(sandbox),
+    'sandbox.command 帧只允许 fullId/editor;pluginId 等身份字段必须留在容器/宿主侧');
 }
 {
   const runtimeHtml = fs.readFileSync(path.join(RAWFILE, 'lexinote_plugin_runtime.html'), 'utf8');

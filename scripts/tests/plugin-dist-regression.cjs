@@ -684,7 +684,7 @@ test('P5-004 内置夹具白名单：首启显式落账授权,沙箱探针冷启
   assert.ok(start > 0 && end > start, '首启自动启用块必须存在');
   const block = text.slice(start, end);
   assert.match(block, /bundledAllowList/, '必须存在显式白名单(代码闭合,不接受数据驱动)');
-  for (const id of ['lexi-sample-plugin', 'sandbox-probe', 'sandbox-sample-min']) {
+  for (const id of ['lexi-sample-plugin', 'sandbox-probe', 'sandbox-sample-min', 'sandbox-editor-min']) {
     assert.ok(block.indexOf("'" + id + "'") >= 0, '内置白名单必须包含 ' + id);
   }
   assert.match(block, /permissionStore\.grant\(bundledId/, '白名单启用必须先落账授权(否则 enablePlugin 授权门拒绝)');
@@ -692,6 +692,57 @@ test('P5-004 内置夹具白名单：首启显式落账授权,沙箱探针冷启
     '首启块只允许经白名单循环启用一次(不得为绕过授权门私开通道)');
   // 沙箱探针链路仍随首启启用(容器页就绪即走沙箱轨)。
   assert.ok(block.indexOf('sandbox-probe') >= 0, 'sandbox-probe 冷启动链不得回归(Round 22)');
+});
+
+test('P2-005/P1-003b 编辑器切片：editor 分级档位接线(域映射+精判+脱敏+沙箱路由)', () => {
+  const text = runtimeEts();
+  // broker capabilityGate 域映射(方法→档位):state→readActive;selection→writeSelection;
+  // applyChanges→writeDocument;replace→任一写档位(选区等值精判在 handler,broker 看不到载荷)。
+  assert.match(text, /method === 'editor\.state'\) \{ return caps\.editor\.readActive; \}/,
+    'editor.state 的 capability 域 = editor.readActive');
+  assert.match(text, /method === 'editor\.replace'\) \{ return caps\.editor\.writeSelection \|\| caps\.editor\.writeDocument; \}/,
+    'editor.replace 的 capability 域 = writeSelection||writeDocument(writeSelection-only 插件由此可用 replaceSelection)');
+  assert.match(text, /method === 'editor\.selection'\) \{ return caps\.editor\.writeSelection; \}/,
+    'editor.selection 的 capability 域 = editor.writeSelection');
+  assert.match(text, /method === 'editor\.applyChanges'\) \{ return caps\.editor\.writeDocument; \}/,
+    'editor.applyChanges 的 capability 域 = editor.writeDocument');
+  // editor.replace 档位精判 gate:必须先于 mutation(no half-writes)。
+  assert.match(text, /private editorReplaceGate\(/, 'P2-005: editor.replace 档位精判 gate 必须存在');
+  const replace = text.slice(text.indexOf("registerHandler('editor.replace'"),
+    text.indexOf("registerHandler('editor.selection'"));
+  assert.ok(replace.length > 0, 'editor.replace handler 必须存在');
+  assert.match(replace, /editorReplaceGate\(identity,/, 'editor.replace handler 必须过档位精判 gate');
+  assert.ok(replace.indexOf('editorReplaceGate') < replace.indexOf('controller.replaceRange'),
+    '档位精判必须先于 replaceRange(未声明档位不得产生半次写入)');
+  // 回包脱敏:未声明 readActive 的插件不得借写回包读全文(三处写回包统一走 editorResponseFor)。
+  assert.match(text, /private editorResponseFor\(/, 'P2-005: editor 写回包脱敏必须存在');
+  assert.ok((text.match(/editorResponseFor\(identity\)/g) || []).length >= 3,
+    'editor.replace/selection/applyChanges 三处回包都必须经脱敏(实际 ' +
+    (text.match(/editorResponseFor\(identity\)/g) || []).length + ' 处)');
+  // 编辑器命令帧快照脱敏 + 沙箱轨编辑器命令经容器回推(与普通命令同通道)。
+  assert.match(text, /private editorStateForManifest\(/, 'P2-005: 命令帧快照档位脱敏必须存在');
+  const invokePos = text.indexOf('private async invokeEditorCommand(');
+  assert.ok(invokePos > 0, 'invokeEditorCommand 必须存在');
+  const invoke = text.slice(invokePos, text.indexOf('static async tryExecuteCommand('));
+  assert.match(invoke, /editorStateForManifest\(/, 'invokeEditorCommand 必须用档位脱敏快照(未声明 readActive 不带正文)');
+  assert.match(invoke, /record\.manifest\.sandboxService && this\.sandboxController !== null/,
+    '沙箱轨插件的编辑器命令必须按 sandboxService 路由');
+  assert.match(invoke, /dispatchSandboxCommand\(body\)/, '沙箱轨编辑器命令必须经容器回推(与普通命令同通道)');
+  // 夹具对账:沙箱编辑器夹具(在库时)必须声明沙箱轨入口 + editor 三档,才能正面行使三条通道;
+  // 未声明档位的对照由 authz-matrix M2b-2 的 broker 层逐档拒绝覆盖。
+  const fixturePath = path.join(REPO_ROOT, 'entry', 'src', 'main', 'resources', 'rawfile', 'plugins',
+    'sandbox-editor-min', 'manifest.json');
+  if (fs.existsSync(fixturePath)) {
+    const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+    assert.equal(fixture.manifestVersion, 2, '编辑器夹具必须是 manifestVersion 2');
+    assert.equal(fixture.entrypoints && fixture.entrypoints.service, 'sandbox:',
+      '编辑器夹具必须声明沙箱轨入口');
+    assert.deepEqual([
+      fixture.capabilities.editor.readActive,
+      fixture.capabilities.editor.writeSelection,
+      fixture.capabilities.editor.writeDocument], [true, true, true],
+      '编辑器夹具必须声明 editor 三档(readActive/writeSelection/writeDocument)');
+  }
 });
 
 test('P5-004 分级呈现(§4.5 必需/可选/高风险)：capabilityTagsOfV2Caps 标签三档分类真跑', () => {

@@ -643,3 +643,36 @@ P1-003b 继续（沙箱内 obsidian 面扩容→sample 完整迁移）；观测�
 ### Round 26 追记（同日,P0-012 收口 + P5-004 设备证据回填）
 
 P0-012 并行工人以 6 次流程运行收口：**四流程真机全 PASS**（install 19/0、upgrade 11/0、rollback 7/0、uninstall 6/0，evidence `20261107-041154`，断言零弱化）。重标定内容：滚动容器发现+容器内滑动（替代硬编码 y 坐标——原 y=1700 在 sheet 底 1675 之外）、rowAction 最近行配对（|Δcy|≤70px,行距 132px）、授权面板 reveal（R26 面板在视口顶部而安装点击后视口在底部）、演示源 busy 竞态等待（默认源占 busy 20-30s,点击被静默吞）、市场行锚点改 /哈希已校验/（避免已安装行同名假阳）、**夹具收纳法**（市场条目 Scroll 因产品塌陷 bug 高度归零——用真实 UI 卸载 6 个内置夹具腾位,finally 复原）。**P5-004 设备全链证据回填**：install→"已安装（未启用）：分发探针 — 请确认权限清单后启用"→授权面板同意→"已安装并启用：分发探针" 全 PASS;升级路径同样落在待授权+面板复现。产品发现（仅登记）：①市场条目区在已安装列表溢出时整体塌陷（`LexiPluginMarketSheet.ets:556` height('100%')+layoutWeight(1) 负空间→条目 Scroll 不渲染,归 P5-007/KI-1 机制面）;②`hdc install -r` 间歇重置应用数据（模拟器 quirk）;③升级在权限不变时仍要求重新同意（fail-closed 下可辩护,UX 决策入 HUMAN_QUEUE#3 附注）。
+
+---
+
+## Round 27 — 2026-11-07（P1-003b 编辑器切片 + P2-005 分级授权 → **VERIFIED**（离线全绿+真机全链铁证））
+
+**当前 Phase：** Phase 1 收口推进。P1-003b 剩余面=view/settings（editor 切片本轮完成）。
+
+### 本轮完成
+
+1. **沙箱 editor 执行面**：`SandboxEditor`（逐方法对齐旧轨 EditorProxy 的宿主 RPC 形状，无自造 API；读=命令帧快照、写=既有 request 链）；`addCommand({editorCallback})` 双轨命令表；`runSandboxCommand(fullId, editorState)` 组装 Editor 调回调——链路 ArkTS `invokeEditorCommand`→容器 `lexiSandboxCommand`（身份字段绝不进 iframe）→iframe `sandbox.command`。
+2. **P2-005 三档授权**：tags→tier→broker capabilityGate（`editor.state→readActive;editor.selection→writeSelection;editor.applyChanges→writeDocument;editor.replace→writeSelection||writeDocument`）；`editorReplaceGate` 选区等值精判（writeSelection-only 插件获 replaceSelection,任意区间仍拒,no half-writes）；**两条防读旁路脱敏**——命令帧快照脱敏（未声明 readActive 不携带正文/仅 writeSelection 给偏移不给文本/两者皆无 `active:false`）+写回包脱敏（未声明 readActive 只回 active/selection,写选区≠免费读全文）；v1 旧语义零扰动。
+3. **新夹具 sandbox-editor-min**（v2 声明 editor 三档;`editor-snapshot`/`editor-write` 两条 editorCallback 命令,结果落 data.json）入 BUNDLED+白名单+gitignore。
+4. **门禁扩容**：authz-matrix +M2.50-54 档位行（**70 项**）、context-isolation +S30/S30b/S30c（**51 项**）、manifest-v2 +V5.10/11（**50 项**）、dist-regression +接线+白名单（**27/27**）、shim-regression 9 保持绿（legacy 零回归）、contract-matrix 绿（symbols.json 手修 2 处锚点）。
+5. **真机铁证（lexi_2in1）**：面板过滤→两条命令执行——`派发编辑器命令: sandbox-editor-min:editor-write 编辑器=5af482b9`→`命令已回推沙箱`→`命令执行: ...(editor)`→`req(win) -> editor.replace`→`identity.token method=editor.replace`→`<-arkts ok=true`→`data.save ok=true`；**data.json 落盘** `{"snapshots":1,"writes":1,"lastWrite":{"textAfter":"〔〕","selectionAfter":[...]}}`；**宿主文档真实变更 0→2 字符**（沙箱插件经端口写改宿主文档的直接证据）；快照命令同链执行成功。负例（未声明档位拒绝）由 authz-matrix 70 项离线覆盖。
+
+### 实际执行的测试
+
+| 命令 | 结果 |
+|---|---|
+| `release-gate --ci`（主线独立复跑） | **PASS 29/29** |
+| `plugin-authz-matrix` / `context-isolation` / `manifest-v2` / `dist-regression` | **70 / 51 / 50 / 27-27 全 PASS** |
+| `hvigorw assembleHap` | PASS（HAP 新鲜度核实） |
+| 真机编辑器命令回环 | **PASS（铁证如上）** |
+
+### 并行：P0-012 四流程全绿收口（8d331f4）
+
+install 19/0、upgrade 11/0、rollback 7/0、uninstall 6/0（evidence `20261107-041154`，断言零弱化）；**P5-004 设备全链证据回填**（未授权待定→面板同意→启用，升级路径复现）。产品发现登记：市场条目区塌陷（P5-007）、`hdc install -r` 间歇重置数据（KI）、升级重复同意 UX（HUMAN_QUEUE#3b）。
+
+### 下一轮
+
+**R28 = P1-003d（范围修正版）**：lexi-sample 沙箱轨真机验收 + SEC 探针进业务路径 + 旧共享 realm 停用开关（calendar 归 P4-005）。
+
+最近更新时间：2026-11-07（Round 27）。

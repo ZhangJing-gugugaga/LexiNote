@@ -118,6 +118,8 @@
   } catch (err) { /* 由 ping 兜底 */ }
 
   // P1-003b:宿主命令执行回推(容器按 pluginId 路由进对应 iframe 的 window 通道)。
+  // R27 编辑器切片:编辑器命令帧额外携带 editor 快照(宿主 invokeEditorCommand 已按清单
+  // 档位脱敏);只透传 editor 字段,pluginId 等身份字段仍绝不进 iframe(身份语义不变)。
   window.lexiSandboxCommand = function (bodyJson) {
     let body = null;
     try { body = JSON.parse(String(bodyJson || '{}')); } catch (err) { log('命令帧解析失败'); return; }
@@ -128,10 +130,12 @@
       if (!target && context.pluginId === pluginId) { target = context; targetContextId = cid; }
     });
     if (!target) { log('命令回推找不到上下文: ' + pluginId); return; }
+    const frame = {
+      __lexiSandbox: true, type: 'sandbox.command', fullId: String(body.fullId || '')
+    };
+    if (body.editor && typeof body.editor === 'object') { frame.editor = body.editor; }
     try {
-      target.win.postMessage({
-        __lexiSandbox: true, type: 'sandbox.command', fullId: String(body.fullId || '')
-      }, '*');
+      target.win.postMessage(frame, '*');
       log('命令已回推沙箱: ' + String(body.fullId || ''));
     } catch (err) { log('命令回推失败: ' + String(err)); }
   };

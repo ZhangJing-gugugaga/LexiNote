@@ -286,6 +286,35 @@ if (!tsPath5) { throw new Error('需要 LEXI_TYPESCRIPT'); }
     pathAllowed('any/deep/file.md', true, []),
     'enabled=false 优先;空白名单=全库(与旧 fs 布尔语义一致)');
 
+  // --- V5c R27 P2-005 editor 分级档位:readActive/writeSelection/writeDocument 三档标签 ---
+  // 三档是独立授权单元:声明↔标签一一对应(未声明不产出),任何一档扩张都改变指纹(regrant)。
+  ok('V5.10 editor 三档标签逐档产出(声明才入标签,未声明=没有能力)', (() => {
+    const mk = (flags) => {
+      const caps = new v2mod.LexiManifestV2Caps();
+      caps.editor.readActive = flags.readActive === true;
+      caps.editor.writeSelection = flags.writeSelection === true;
+      caps.editor.writeDocument = flags.writeDocument === true;
+      return tagsOf(caps);
+    };
+    const none = mk({});
+    const all = mk({ readActive: true, writeSelection: true, writeDocument: true });
+    return none.indexOf('editor.readActive') < 0 && none.indexOf('editor.writeSelection') < 0 &&
+      none.indexOf('editor.writeDocument') < 0 &&
+      all.indexOf('editor.readActive') >= 0 && all.indexOf('editor.writeSelection') >= 0 &&
+      all.indexOf('editor.writeDocument') >= 0;
+  })(), 'P2-005:editor 档位标签缺失/错档都会让授权面板与指纹失真');
+  ok('V5.11 editor 单档扩张改变标签集(writeSelection ↔ writeDocument 同级替换可对账)', (() => {
+    const sortJoin = (a) => a.slice().sort().join('|');
+    const mk = (readActive, writeSelection, writeDocument) => {
+      const caps = new v2mod.LexiManifestV2Caps();
+      caps.editor.readActive = readActive;
+      caps.editor.writeSelection = writeSelection;
+      caps.editor.writeDocument = writeDocument;
+      return tagsOf(caps);
+    };
+    return sortJoin(mk(true, false, true)) !== sortJoin(mk(true, true, false));
+  })(), '档位互换必须可被授权指纹捕获(升级新增写档位 ⇒ regrant-required)');
+
   // --- V6 P5-004 分级呈现(RFC §4.5 必需/可选/高风险,真跑) ------------------
   const classify = v2mod.classifyCapabilityTags;
   const fineView = classify(baseTags);

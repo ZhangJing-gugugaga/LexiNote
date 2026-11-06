@@ -130,14 +130,150 @@
   // parentRequest:bootPlugin 面的宿主请求走 window 通道(Round 21:容器页 MessageChannel
   // 回路不投递;window.postMessage 双向有真机证据)——响应经下方 listener 的 response 分支。
   var pendingWindow = new Map();
-  // 沙箱命令表(fullId → { callback }):port 轨与容器 window 轨共用。
+  // 沙箱命令表(fullId → { callback, editorCallback }):port 轨与容器 window 轨共用。
   // 曾误置于 bootPlugin 函数作用域内,onPortMessage 跨作用域引用必 ReferenceError(B-009b 复盘)。
   var sandboxCommands = new Map();
-  function runSandboxCommand(fullId) {
+  // P1-003b 编辑器切片:bootPlugin 装载完成后登记本上下文的 app 面(RFC §3.1 一 iframe 一
+  // 上下文,同帧内只会有一个插件实例——编辑器命令的 ctx.app 复用它,与旧轨 ctx={app} 同形)。
+  var sandboxAppRef = null;
+  // ---- 偏移/行列换算(与旧轨 shim EditorProxy 同语义的本地拷贝;纯函数,读快照算,不触宿主)。
+  function lineOffsets(text) {
+    var offsets = [0];
+    for (var i = 0; i < text.length; i++) {
+      if (text.charAt(i) === '\n') { offsets.push(i + 1); }
+    }
+    return offsets;
+  }
+  function offsetToPos(text, offset) {
+    var safe = Math.max(0, Math.min(text.length, offset));
+    var offsets = lineOffsets(text);
+    var line = 0;
+    while (line + 1 < offsets.length && offsets[line + 1] <= safe) { line++; }
+    return { line: line, ch: safe - offsets[line] };
+  }
+  function posToOffset(text, pos) {
+    if (typeof pos === 'number') { return Math.max(0, Math.min(text.length, pos)); }
+    var offsets = lineOffsets(text);
+    var line = Math.max(0, Math.min(offsets.length - 1, Math.floor(pos && pos.line ? pos.line : 0)));
+    var lineStart = offsets[line];
+    var lineEnd = line + 1 < offsets.length ? offsets[line + 1] - 1 : text.length;
+    var ch = Math.max(0, Math.min(pos && typeof pos.ch === 'number' ? pos.ch : 0, lineEnd - lineStart));
+    return lineStart + ch;
+  }
+  /**
+   * P1-003b 编辑器切片·沙箱 Editor:形状对齐旧轨 shim 的 EditorProxy 宿主 RPC 路径
+   * (plugin-shim-regression 的行为契约),差异只有一条——沙箱 iframe 是 opaque origin,
+   * 没有也不允许有本地编辑器桥(触不到真 CM6),读全部来自命令帧携带的快照,
+   * 写全部经宿主 RPC 回包刷新。
+   * 写通道与档位(P2-005):editor.replace(选区等值→writeSelection/其余→writeDocument)、
+   * editor.selection(writeSelection)、editor.applyChanges(writeDocument)——档位门禁在宿主。
+   */
+  function SandboxEditor(state) {
+    this._text = state && typeof state.text === 'string' ? state.text : '';
+    var selection = (state && state.selection) || { start: 0, end: 0 };
+    this._selection = {
+      start: Math.max(0, selection.start || 0),
+      end: Math.max(0, typeof selection.end === 'number' ? selection.end : (selection.start || 0))
+    };
+    this._noteId = (state && state.noteId) || '';
+  }
+  SandboxEditor.prototype._apply = function (method, payload) {
+    var self = this;
+    // 回包 = 宿主 editorResponseFor(identity):未声明 readActive 的清单不带正文(只回选区),
+    // 快照刷新按字段宽松合并(与旧轨 _apply 同形)。
+    return request(method, payload).then(function (state) {
+      if (state && typeof state.text === 'string') { self._text = state.text; }
+      if (state && state.selection) {
+        self._selection = {
+          start: Math.max(0, state.selection.start || 0),
+          end: Math.max(0, typeof state.selection.end === 'number' ? state.selection.end : (state.selection.start || 0))
+        };
+      }
+      return state;
+    });
+  };
+  SandboxEditor.prototype.getValue = function () { return this._text; };
+  SandboxEditor.prototype.setValue = function (content) {
+    var text = String(content === undefined ? '' : content);
+    return this._apply('editor.replace', { start: 0, end: this._text.length, text: text });
+  };
+  SandboxEditor.prototype.getSelection = function () {
+    return this._text.substring(this._selection.start, this._selection.end);
+  };
+  SandboxEditor.prototype.somethingSelected = function () { return this._selection.end > this._selection.start; };
+  SandboxEditor.prototype.replaceSelection = function (replacement) {
+    var text = String(replacement === undefined ? '' : replacement);
+    return this._apply('editor.replace', { start: this._selection.start, end: this._selection.end, text: text });
+  };
+  SandboxEditor.prototype.replaceRange = function (replacement, from, to) {
+    var start = posToOffset(this._text, from);
+    var end = to ? posToOffset(this._text, to) : start;
+    var text = String(replacement === undefined ? '' : replacement);
+    return this._apply('editor.replace', { start: start, end: Math.max(start, end), text: text });
+  };
+  SandboxEditor.prototype.getRange = function (from, to) {
+    return this._text.substring(posToOffset(this._text, from), posToOffset(this._text, to));
+  };
+  SandboxEditor.prototype.getLine = function (line) {
+    var lines = this._text.split('\n');
+    return line >= 0 && line < lines.length ? lines[line] : '';
+  };
+  SandboxEditor.prototype.lineCount = function () { return this._text.split('\n').length; };
+  SandboxEditor.prototype.lastLine = function () { return this.lineCount() - 1; };
+  SandboxEditor.prototype.getCursor = function (side) {
+    var offset = side === 'from' || side === 'anchor' ? this._selection.start : this._selection.end;
+    return offsetToPos(this._text, offset);
+  };
+  SandboxEditor.prototype.setCursor = function (pos, ch) {
+    var offset = posToOffset(this._text, typeof pos === 'number' ? { line: pos, ch: ch || 0 } : pos);
+    return this._apply('editor.selection', { start: offset, end: offset });
+  };
+  SandboxEditor.prototype.setSelection = function (anchor, head) {
+    var a = posToOffset(this._text, anchor);
+    var b = head ? posToOffset(this._text, head) : a;
+    return this._apply('editor.selection', { start: Math.min(a, b), end: Math.max(a, b) });
+  };
+  SandboxEditor.prototype.setSelections = function (ranges) {
+    if (!ranges || ranges.length === 0) { return Promise.resolve(); }
+    return this.setSelection(ranges[0].anchor, ranges[0].head);
+  };
+  SandboxEditor.prototype.listSelections = function () {
+    return [{ anchor: offsetToPos(this._text, this._selection.start), head: offsetToPos(this._text, this._selection.end) }];
+  };
+  SandboxEditor.prototype.posToOffset = function (pos) { return posToOffset(this._text, pos); };
+  SandboxEditor.prototype.offsetToPos = function (offset) { return offsetToPos(this._text, offset); };
+  SandboxEditor.prototype.transaction = function (transaction) {
+    if (!transaction) { return Promise.resolve(); }
+    var changes = (transaction.changes || []).map(function (change) {
+      return {
+        from: change.from,
+        to: change.to || change.from,
+        text: String(change.text === undefined ? '' : change.text)
+      };
+    });
+    var rawSelections = transaction.selections || (transaction.selection ? [transaction.selection] : []);
+    var selections = rawSelections.map(function (selection) {
+      var anchor = selection.anchor || selection.from;
+      var head = selection.head || selection.to || anchor;
+      return { anchor: anchor, head: head };
+    });
+    return this._apply('editor.applyChanges', { changes: changes, selections: selections });
+  };
+  function runSandboxCommand(fullId, editorState) {
     var cmdEntry = sandboxCommands.get(String(fullId || ''));
     if (!cmdEntry) { slog('命令不存在: ' + String(fullId)); return; }
-    slog('命令执行: ' + String(fullId));
-    Promise.resolve().then(function () { return cmdEntry.callback(); }).catch(function (err) {
+    slog('命令执行: ' + String(fullId) + (cmdEntry.editorCallback ? '(editor)' : ''));
+    var run = function () {
+      if (typeof cmdEntry.editorCallback === 'function' && editorState && typeof editorState === 'object') {
+        // 编辑器命令:Editor 由快照组装(身份/档位都在宿主侧判定;iframe 只见脱敏后的快照),
+        // ctx 形状对齐旧轨 shim invoke.editorCommand 分支:ctx = { app, file: null, editor }。
+        var editor = new SandboxEditor(editorState);
+        var ctx = { app: sandboxAppRef, file: null, editor: editor };
+        return Promise.resolve(cmdEntry.editorCallback(editor, ctx));
+      }
+      return Promise.resolve(cmdEntry.callback());
+    };
+    run().catch(function (err) {
       slog('命令执行失败: ' + String(err));
       request('ui.notice', { message: '插件命令出错: ' + String(err) }).catch(function () {});
     });
@@ -200,8 +336,10 @@
     SandboxPlugin.prototype.addCommand = function (command) {
       var fullId = manifest.id + ':' + String(command.id || '');
       if (typeof command.editorCallback === 'function') {
-        // 编辑器命令需沙箱内 editor 面(P1-003b 后续切片);当前仅注册元数据供宿主命令面板展示。
-        sandboxCommands.set(fullId, { callback: function () { return Promise.resolve(); } });
+        // P1-003b 编辑器切片:editorCallback 进命令表,宿主 invoke.editorCommand 经容器回推
+        // 时由 runSandboxCommand 组装沙箱 Editor(快照来自宿主档位脱敏后的载荷)。
+        sandboxCommands.set(fullId, { callback: function () { return Promise.resolve(); },
+          editorCallback: command.editorCallback });
       } else {
         sandboxCommands.set(fullId, { callback: command.callback || function () { return Promise.resolve(); } });
       }
@@ -276,9 +414,12 @@
       postToHost({ type: 'sandbox.evalError', message: 'main.js 必须导出插件类(default)' });
       return;
     }
-    var instance = new Ctor({ request: parentRequest, vault: sandboxVault,
+    var sandboxApp = { request: parentRequest, vault: sandboxVault,
       metadataCache: { getFileCache: function (f) { return parentRequest('metadata.get', { path: f && f.path ? f.path : '' }); } },
-      workspace: {} }, manifest);
+      workspace: {} };
+    var instance = new Ctor(sandboxApp, manifest);
+    // 编辑器命令的 ctx.app 复用本上下文 app 面(RFC §3.1 一 iframe 一上下文)。
+    sandboxAppRef = sandboxApp;
     try {
       var result = instance.load();
       if (result && typeof result.then === 'function') {
@@ -301,7 +442,8 @@
 
   function onPortMessage(event) {    var data = event.data || {};
     if (data.type === 'sandbox.ping') { postToHost({ type: 'sandbox.pong', contextId: contextId }); return; }
-    if (data.type === 'sandbox.command') { runSandboxCommand(String(data.fullId || '')); return; }
+    // P1-003b 编辑器切片:容器轨命令回推带 editor 快照(宿主按清单档位脱敏后的载荷)。
+    if (data.type === 'sandbox.command') { runSandboxCommand(String(data.fullId || ''), data.editor); return; }
     if (data.type === 'sandbox.response') { finish(data.requestId, data); return; }
     if (data.type === 'sandbox.run' && typeof data.source === 'string') {
       try {
@@ -343,9 +485,9 @@
       }
       return;
     }
-    // 容器轨命令回推:宿主 invokePluginCommand → 容器页 lexiSandboxCommand → 本通道
-    // (port 轨等价分支在 onPortMessage;两路共用 runSandboxCommand,表同源)。
-    if (data.type === 'sandbox.command') { runSandboxCommand(String(data.fullId || '')); return; }
+    // 容器轨命令回推:宿主 invokePluginCommand/invokeEditorCommand → 容器页 lexiSandboxCommand →
+    // 本通道(port 轨等价分支在 onPortMessage;两路共用 runSandboxCommand,表同源)。
+    if (data.type === 'sandbox.command') { runSandboxCommand(String(data.fullId || ''), data.editor); return; }
     if (data.type === 'sandbox.init' && !inited) {
       inited = true;
       contextId = typeof data.contextId === 'string' ? data.contextId : '';

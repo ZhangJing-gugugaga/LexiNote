@@ -73,7 +73,9 @@ const BUNDLED_PLUGIN_DIRS: Array<string> = [
   // P1-003b:沙箱装载探针(entrypoints.service='sandbox:' 声明式 opt-in 的最小面)。
   'plugins/sandbox-probe',
   // P1-003b:最小业务面验收夹具(命令注册回环+数据往返真机验收对象)。
-  'plugins/sandbox-sample-min'
+  'plugins/sandbox-sample-min',
+  // R27(P1-003b 编辑器切片 + P2-005):editorCallback 经沙箱 Editor 读写正文的验收夹具。
+  'plugins/sandbox-editor-min'
 ];
 const HI_DOMAIN: number = 0x1051;
 const HI_TAG: string = 'LexiPlugin';
@@ -852,6 +854,8 @@ export class LexiPluginManager {
       // P1-003b 方案 B:沙箱探针随首启启用(容器页就绪即走沙箱轨;失败仅 errorState 无系统影响)。
       if (this.plugins.has('sandbox-probe')) { bundledAllowList.push('sandbox-probe'); }
       if (this.plugins.has('sandbox-sample-min')) { bundledAllowList.push('sandbox-sample-min'); }
+      // R27:编辑器切片夹具随首启启用(编辑器命令需编辑器页面在场,回调无编辑器时自然空转)。
+      if (this.plugins.has('sandbox-editor-min')) { bundledAllowList.push('sandbox-editor-min'); }
       for (const bundledId of bundledAllowList) {
         this.enabledIds.add(bundledId);
         const bundledRecord = this.plugins.get(bundledId);
@@ -1488,23 +1492,29 @@ export class LexiPluginManager {
     const manager = this;
     const runtime = this.runtime;
     runtime.registerHandler('editor.state', async (_payload: string): Promise<string> => {
+      // readActive 档位门禁在 broker capabilityGate(P2-005:editor.state → editor.readActive)。
       return okResponse(manager.editorStateJson() as Object);
     });
-    runtime.registerHandler('editor.replace', async (payload: string): Promise<string> => {
+    runtime.registerHandler('editor.replace', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
       const controller = LexiEditorRegistry.activeController();
       if (!controller) { return failResponse('当前没有打开的编辑器'); }
+      // P2-005:档位精判先于任何 mutation(no half-writes)——broker 只见方法看不到载荷,
+      // 选区等值判定必须在 handler:区间==当前选区 → writeSelection 档,否则 → writeDocument 档。
+      const gate = manager.editorReplaceGate(identity, rpcNumber(request, 'start'), rpcNumber(request, 'end'));
+      if (gate) { return gate; }
       controller.replaceRange(rpcNumber(request, 'start'), rpcNumber(request, 'end'), rpcString(request, 'text'));
-      return okResponse(manager.editorStateJson() as Object);
+      return okResponse(manager.editorResponseFor(identity) as Object);
     });
-    runtime.registerHandler('editor.selection', async (payload: string): Promise<string> => {
+    runtime.registerHandler('editor.selection', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
       const controller = LexiEditorRegistry.activeController();
       if (!controller) { return failResponse('当前没有打开的编辑器'); }
+      // writeSelection 档位门禁在 broker capabilityGate(P2-005:editor.selection → writeSelection)。
       controller.setTextSelection(rpcNumber(request, 'start'), rpcNumber(request, 'end'));
-      return okResponse(manager.editorStateJson() as Object);
+      return okResponse(manager.editorResponseFor(identity) as Object);
     });
-    runtime.registerHandler('editor.applyChanges', async (payload: string): Promise<string> => {
+    runtime.registerHandler('editor.applyChanges', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
       const controller = LexiEditorRegistry.activeController();
       if (!controller) { return failResponse('当前没有打开的编辑器'); }
@@ -1547,7 +1557,7 @@ export class LexiPluginManager {
       controller.replaceRange(0, text.length, after);
       controller.setTextSelection(selStart, selEnd);
       pluginLog(`编辑器批量修改: changes=${starts.length} ${text.length}→${after.length} 字符, selection=${selStart}-${selEnd}`);
-      return okResponse(manager.editorStateJson() as Object);
+      return okResponse(manager.editorResponseFor(identity) as Object);
     });
   }
 
@@ -1999,7 +2009,11 @@ export class LexiPluginManager {
     if (method === 'vault.files' || method === 'vault.getByPath' || method === 'vault.read' ||
       method.indexOf('metadata.') === 0) { return caps.vault.read.enabled; }
     if (method === 'editor.state') { return caps.editor.readActive; }
-    if (method === 'editor.replace' || method === 'editor.applyChanges') { return caps.editor.writeDocument; }
+    // P2-005:editor.replace 是选区档与全文档档共用的写通道(broker 只见方法);域级放行 =
+    // 任一写档位已声明,选区等值精判在 handler 的 editorReplaceGate(writeSelection-only
+    // 插件由此获得 replaceSelection 能力,任意区间写仍被拒)。
+    if (method === 'editor.replace') { return caps.editor.writeSelection || caps.editor.writeDocument; }
+    if (method === 'editor.applyChanges') { return caps.editor.writeDocument; }
     if (method === 'editor.selection') { return caps.editor.writeSelection; }
     if (method === 'commands.add') { return caps.workspace.commands; }
     if (method === 'views.add') { return caps.workspace.views; }
@@ -2142,15 +2156,84 @@ export class LexiPluginManager {
     return body;
   }
 
+  /**
+   * P2-005(RFC §4.4 Editor 三档)·编辑器命令帧的快照脱敏:未声明 readActive 的 v2 插件
+   * 不得借命令载荷读全文。v1 清单沿用旧语义(整快照,存量不变);v2:readActive → 整快照;
+   * 仅 writeSelection → 只给选区偏移(选区写没有目标坐标就无法落地,偏移不披露正文);
+   * 两者皆无 → active=false(回调仍会发生,读得空串、写被档位门禁拒)。
+   */
+  private editorStateForManifest(manifest: LexiPluginManifest | null): Record<string, Object> {
+    const state = this.editorStateJson();
+    if (manifest === null || manifest.manifestVersion !== 2 || manifest.v2.editor.readActive) {
+      return state;
+    }
+    if (manifest.v2.editor.writeSelection) {
+      const body: Record<string, Object> = { 'active': state['active'] as Object };
+      if (state['selection'] !== undefined) { body['selection'] = state['selection'] as Object; }
+      return body;
+    }
+    const inactive: Record<string, Object> = { 'active': false as Object };
+    return inactive;
+  }
+
+  /**
+   * P2-005·editor 写方法回包脱敏:未声明 readActive 的 v2 插件不得借写回包读全文
+   * (replaceSelection 的回包若带 text,写选区就成了免费读全文)。回包只保留 active/selection,
+   * 沙箱 Editor 与旧轨 EditorProxy 的快照刷新按字段宽松合并,不破坏调用契约。
+   */
+  private editorResponseFor(identity: string): Record<string, Object> {
+    const state = this.editorStateJson();
+    const manifest = this.manifestFor(identity);
+    if (manifest === null || manifest.manifestVersion !== 2 || manifest.v2.editor.readActive) {
+      return state;
+    }
+    const body: Record<string, Object> = { 'active': state['active'] as Object };
+    if (state['selection'] !== undefined) { body['selection'] = state['selection'] as Object; }
+    return body;
+  }
+
+  /**
+   * P2-005·editor.replace 的档位精判(broker capabilityGate 只看方法,看不到载荷)。
+   * 载荷区间 == 当前选区 → writeSelection 档即可(选区范围写);否则是任意区间/全文写
+   * → 必须 writeDocument。判定先于任何 mutation(no half-writes);v1 清单保持旧语义。
+   */
+  private editorReplaceGate(identity: string, start: number, end: number): string {
+    const manifest = this.manifestFor(identity);
+    if (manifest === null) {
+      pluginError('capability.editor method=editor.replace identity=' +
+        (identity.length > 0 ? identity : '(none)') + ' allowed=false fail_closed=true' +
+        ' detail=调用方无法归属到已安装插件');
+      return failResponseCode(ERROR_CAPABILITY_DENIED, 'editor: 调用方无法归属到已安装插件（fail-closed）');
+    }
+    if (manifest.manifestVersion !== 2) { return ''; }
+    const controller = LexiEditorRegistry.activeController();
+    const selection = controller ? controller.getSelection() : null;
+    const selectionScoped = selection !== null && start === selection.start && end === selection.end;
+    const tierAllowed = selectionScoped ? manifest.v2.editor.writeSelection : manifest.v2.editor.writeDocument;
+    if (tierAllowed) { return ''; }
+    const tier: string = selectionScoped ? 'writeSelection' : 'writeDocument';
+    pluginError('capability.editor method=editor.replace identity=' + identity + ' tier=' + tier +
+      ' start=' + start + ' end=' + end + ' allowed=false detail=清单未声明 editor.' + tier);
+    return failResponseCode(ERROR_CAPABILITY_DENIED, 'editor: 清单未声明 editor.' + tier);
+  }
+
   private async invokeEditorCommand(pluginId: string, fullId: string): Promise<void> {
     const controller = LexiEditorRegistry.activeController();
     pluginLog('派发编辑器命令: ' + fullId + ' 编辑器=' + (controller !== null ? LexiEditorRegistry.activeNote() : '无'));
     if (!controller) { return; }
+    const record = this.plugins.get(pluginId);
     const body: Record<string, Object> = {
       'fullId': fullId as Object,
       'pluginId': pluginId as Object,
-      'editor': this.editorStateJson() as Object
+      // P2-005:命令载荷按清单档位脱敏(readActive 未声明不携带正文)。
+      'editor': this.editorStateForManifest(record ? record.manifest : null) as Object
     };
+    // P1-003b 编辑器切片:沙箱轨插件的编辑器命令回调在沙箱 iframe 内——与普通命令同通道
+    // 经容器页回推;旧轨保持 runtime 页派发(invoke.editorCommand → shim EditorProxy)。
+    if (record && record.manifest.sandboxService && this.sandboxController !== null) {
+      await this.dispatchSandboxCommand(body);
+      return;
+    }
     await this.runtime.dispatchWithTimeout('invoke.editorCommand', JSON.stringify(body), LOAD_TIMEOUT_MS).catch((error: Error): void => {
       pluginError('编辑器命令派发失败: ' + String(error));
     });

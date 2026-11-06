@@ -189,6 +189,41 @@ if (broker) {
   ok('M2.48 fs-write 仍走 fsAuthorizer(与 capabilityGate 两个 seam 互不干扰)',
     gverdict('fs-plugin', 'vault.modify').allowed && !gverdict('cap-ok', 'vault.modify').allowed);
 
+  // --- M2b-2 P2-005 editor 分级档位(readActive/writeSelection/writeDocument)逐档对账 ----
+  // tag→tier→broker seam:editor.state→readActive;editor.selection→writeSelection;
+  // editor.applyChanges→writeDocument;editor.replace→任一写档位(选区等值精判在宿主
+  // handler 的 editorReplaceGate,broker 层只见方法——该精判的接线由 dist-regression 钉)。
+  section('M2b-2 editor 分级档位(P2-005)');
+  const tierBroker = new brokerMod.LexiPermissionBroker(
+    (pluginId, method) => pluginId === 'fs-plugin',
+    (pluginId, method) => {
+      const tiers = {
+        'ed-none': {},
+        'ed-read': { 'editor.state': true },
+        'ed-sel': { 'editor.state': true, 'editor.selection': true, 'editor.replace': true },
+        'ed-doc': { 'editor.state': true, 'editor.replace': true, 'editor.applyChanges': true }
+      };
+      return !!(tiers[pluginId] && tiers[pluginId][method]);
+    });
+  const tverdict = (pluginId, method) => tierBroker.authorize(ctxOf('plugin', pluginId), method);
+  ok('M2.50 未声明任何 editor 档 → editor.* 四方法全拒',
+    !tverdict('ed-none', 'editor.state').allowed && !tverdict('ed-none', 'editor.replace').allowed &&
+    !tverdict('ed-none', 'editor.selection').allowed && !tverdict('ed-none', 'editor.applyChanges').allowed);
+  ok('M2.51 仅 readActive → editor.state 过,三写通道全拒(未声明 editor.write* 不能改文档)',
+    tverdict('ed-read', 'editor.state').allowed && !tverdict('ed-read', 'editor.replace').allowed &&
+    !tverdict('ed-read', 'editor.selection').allowed && !tverdict('ed-read', 'editor.applyChanges').allowed);
+  ok('M2.52 writeSelection-only → replace/selection 域级过,applyChanges 拒',
+    tverdict('ed-sel', 'editor.replace').allowed && tverdict('ed-sel', 'editor.selection').allowed &&
+    !tverdict('ed-sel', 'editor.applyChanges').allowed);
+  ok('M2.53 writeDocument-only → replace/applyChanges 过,selection 拒',
+    tverdict('ed-doc', 'editor.replace').allowed && tverdict('ed-doc', 'editor.applyChanges').allowed &&
+    !tverdict('ed-doc', 'editor.selection').allowed);
+  ok('M2.54 editor 档位拒绝码=ERR_PERMISSION_DENIED 且原因点明 capability',
+    !tverdict('ed-read', 'editor.replace').allowed &&
+    tverdict('ed-read', 'editor.replace').code === 'ERR_PERMISSION_DENIED' &&
+    tverdict('ed-read', 'editor.replace').reason.indexOf('capability:') === 0,
+    tverdict('ed-read', 'editor.replace').reason);
+
   // --- M2c P2-011:全方法×全角色矩阵扫描(行为级 100% 对账,RFC §17.1) -------------
   // 不再逐条手写场景:对每个登记方法 × 角色真跑 authorize,结果必须符合 kind 语义表。
   // capability gate 未注入(既有 broker)——插件角色按纯角色语义判定(fs-write 见特例)。
