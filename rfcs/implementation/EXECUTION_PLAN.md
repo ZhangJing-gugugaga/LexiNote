@@ -18,6 +18,8 @@
 | P0-008 | **新(Round 10)**:手工门禁 bit-rot 修复——`plugin-shim-regression.cjs` 在 HEAD 上即红(harness 缺 document/DOM 链 stub,ViewShim 构造 ReferenceError;非本轮引入,stash 对照证实)。同类:手动批次 15 个脚本无 CI 覆盖,bit-rot 无人知 | **VERIFIED**(Round 25:harness 补 DOM stub+host-first 顺序+启动预热,8/8 确定性绿×2;根因含 267ad04 后契约漂移) | P2 | P0-003 | scripts/tests/plugin-shim-regression.cjs | harness 补 DOM stub 后全绿;或明确退役并入现有 CI 门禁 ✔(修复本体);CI 纳管归 P0-003 |
 | P4-007 | **新(Round 25,P0-008 修复中发现,仅登记未修)**:shim vault 同步索引两缺陷——①rename 分支 `knownFiles.delete(rawFile.path)` 误删(主机发的是重命名后路径,与 payload.file.path 相同,`lexinote_plugin_shim.js:301-304`+`LexiVaultFacade.ets:67-78`),重命名文件直到下一 vault 事件前对 getAbstractFileByPath/getMarkdownFiles 不可见;②注释承诺"启动拉一次 vault.files"(`:815-816`)但无启动拉取,冷启首调 getMarkdownFiles 返回 `[]`(惰性拉取仅在全空时触发) | TODO | P2 | — | lexinote_plugin_shim.js | rename 后索引可见性回归用例;启动拉取补齐(或注释修正)+getMarkdownFiles 首调语义定案 |
 | P0-009 | **新(Round 10)**:`plugin-dist-flows.cjs` 单进程 `--flow all` 在默认市场源上线后首步即失联(演示源列表空;独立进程链式 install→upgrade→rollback→uninstall 同构建全绿,23:07-23:09 证据)。怀疑 server/状态机跨流程复用或时序缺陷;需最小复现定位 | TODO | P3 | — | scripts/tests/plugin-dist-flows.cjs | `--flow all` 单进程四流程 PASS,或文档化"必须分进程链式运行"并改 --ci 计划 |
+| P0-010 | **新(Round 25)**:`plugin-route-coverage.cjs` 门禁在 HEAD 即红——vault.getByPath 登记为"未登记孤儿"(调用点在 `lexinote_plugin_view_shim.js:339`,该门禁不扫 view_shim;shim 本体 0 引用)。处置:要么门禁纳管 view_shim,要么显式登记该孤儿(停用/保留理由) | TODO | P2 | — | scripts/tests/plugin-route-coverage.cjs | 门禁回到绿(纳管或显式登记),并给 release-gate 议席评估 |
+| P0-011 | **新(Round 25)**:`workspace-tools-regression.cjs` 模块加载即崩(HEAD 即红;断言 .ets 源码形状,工作树未动 .ets 也崩)——手工批次 bit-rot 第二例(P0-008 同类) | TODO | P2 | — | scripts/tests/workspace-tools-regression.cjs | 崩溃根因定位+修复,恢复可运行 |
 
 ## Phase 1 — 安全执行环境（RFC P0-01/P0-02，总目标 3.1）
 
@@ -31,7 +33,7 @@
 | P1-002 | 正式执行上下文模型定案（contextId×kind、port↔身份绑定落点）+ ADR | VERIFIED | P0 | P1-001 | LexiPluginExecutionContext, LexiPluginLifecycleManager | **Round 18 定案(ADR-R18-01)**:身份四元组+contextRegistry 端口表+既有 broker 复用+两轨策略+回退备选 ✔ |
 | P1-003a | contextRegistry + 端口 RPC 网关（宿主侧:HostContextRecord/反查/喂既有 broker;离线可测） | **VERIFIED** | P0 | P1-002 | LexiContextRegistry.ets(新), RuntimeHost 端口实装, runtime 集成 | **Round 20 结案**:端口对真机建立(page-side attached)+enable 注册/disable 吊销接线+帧裁决链复用 call();门禁 15 项+29/29 ✔ |
 | P1-003b | 沙箱页插件 API 面(obsidian namespace 端口化重建;CSP unsafe-eval 仅 iframe) | IN_PROGRESS(第一切片 VERIFIED;Round 24 双插件并发+命令回环 VERIFIED) | P0 | P1-003a | sandbox host html+container+bootPlugin(就绪) | Round 22 方案 B 全链真机贯通(onload+data 往返铁证);Round 24 B-009b 证伪/关闭——probe+sample-min 双 iframe 并发装载、数据往返 {"runCount":1,"bootOk":true} 落盘、命令面板→容器→iframe window 通道回环全真机验收;obsidian 面剩余(view/settings/editor 执行面)为后续切片 |
-| P1-003c | 构建期 CommonJS→IIFE + 宿主页面 CSP 收紧（移除 unsafe-eval） | TODO | P0 | P1-003b | tools/lexi-cli, template, runtime.html CSP | 宿主页面无 eval;S20 类断言覆盖 runtime 页 |
+| P1-003c | 构建期 CommonJS→IIFE + 宿主页面 CSP 收紧（移除 unsafe-eval） | **VERIFIED**(Round 25,ADR-R25-01) | P0 | P1-003b | tools/lexi-cli, template, runtime.html CSP | 宿主页面无 eval ✔(S26-S29+C6,48 项);真机:新 CSP 下 lexi-sample 装载运行+沙箱轨回归×4 冷启零违规(差分证明注入通道);残差:通道直接标记(console 观测哑 KI-5)、legacy 命令回环未再驱动(路径不在 diff) |
 | P1-003d | 真实业务插件迁移验收（lexi-sample/calendar 真机 + SEC 探针进业务路径） | TODO | P0 | P1-003a..c | 设备批次 | RFC §3.6 验收表通过;旧共享 realm 路径停用 |
 | P1-004 | Workspace 轨道收敛：插件执行面从编辑器页面剥离/同构接入 | TODO | P0 | P1-002, P1-003a, P1-003b | LexiWorkspacePage, WorkspaceBridge, lexinote_workspace_shim.js | 编辑器页不再直接求值第三方代码，或该面进入 Trusted 策略 |
 | P1-005 | 宿主端 port↔PluginExecutionIdentity 绑定；废弃 credential 第四参经页面传递的形态 | TODO | P0 | P1-003a | LexiWebRuntime.call, WorkspaceBridge | 插件侧报文不含任何身份字段；身份仅由端口解析 |
@@ -127,7 +129,7 @@ clipboard/notifications/editor 分级未接线；授权 UI 缺失（`grant/revok
 8. **R32 = P1-008 + P2-009**（销毁闭环 SEC-009/013 自动化;quarantine 由安全事件触发可达）。
 9. **R33 = P1-009 + P1-010**（SEC 全表进门禁;**Phase 1 出口评审**,RELEASE_READINESS 复核——P1-010 的 B-001 阻塞已解除,状态改判可执行）。
 
-**并行快速赢面**（填构建等待/设备空档,不占主轮）：P0-003 根 CI（29 步手工门禁 bit-rot 风险,P0-008 教训）、P0-005 generate.cjs、P0-006 统一测试入口、P0-008 shim harness、P0-009 flows --flow all、P5-007 KI-1 规模档、P5-008 KI-2 定位。
+**并行快速赢面**（填构建等待/设备空档,不占主轮）：P0-003 根 CI（29 步手工门禁 bit-rot 风险,P0-008/010/011 教训）、P0-005 generate.cjs、P0-006 统一测试入口、~~P0-008 shim harness~~(Round 25 完成)、P0-010/011 门禁 bit-rot、P0-009 flows --flow all、P4-007 shim vault 索引、P5-007 KI-1 规模档、P5-008 KI-2 定位。
 
 **中远期**：R34-36 Phase 3（P3-001..004/007 + P0-004 文档入 Git;M1 出口前不标 Stable）→ R37-38 Phase 4（P4-001 Modal/Menu/Settings + P4-005 夹具 C 级定级,含 calendar）→ Phase 5 分发半边（P5-002/003/009 **依赖 B-002 用户决策**;P5-005/010 独立先行）→ Phase 6 治理 → 最终按原 RFC 全量对照校验（用户收尾要求）。
 

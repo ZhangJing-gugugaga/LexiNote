@@ -125,6 +125,60 @@ if (fs.existsSync(CLI)) {
       ok('C5.3 targets 形状与宿主信任链兼容', verified, detail);
     }
   }
+  section('C6 build(CJS→IIFE,P1-003c/RFC §3.2)');
+  {
+    // 把脚手架入口重写成 require('obsidian') 形态:包装产物必须在求值期自带 require 管线,
+    // 宿主侧(注入通道)不再提供 module/exports/require 装配。
+    fs.writeFileSync(path.join(proj, 'main.js'), [
+      "const { Plugin } = require('obsidian');",
+      'module.exports = class MyPlugin extends Plugin {',
+      '  onload() { this.ready = true; }',
+      '};',
+      ''
+    ].join('\n'));
+    const r = lexi(['plugin', 'build', proj]);
+    ok('C6.1 build 退出码 0', r.status === 0, r.output.split('\n').slice(-2).join('|'));
+    const built = fs.readFileSync(path.join(proj, 'main.js'), 'utf8');
+    ok('C6.2 产物是 lexi-iife:v1 自执行 IIFE', /^\s*\/\*\s*lexi-iife:v1\s*\*\//.test(built) &&
+      /;\(function \(require\) \{/.test(built) &&
+      /window\.__lexiPluginRegistry\s*=\s*window\.__lexiPluginRegistry\s*\|\|\s*\{\}/.test(built) &&
+      /# sourceURL=lexinote-plugin-my-plugin\.js/.test(built) &&
+      !/\bnew\s+Function\s*\(/.test(built),
+      '包装产物缺标记/注册表交付/sourceURL,或混入 new Function');
+    // 行为级:stub 宿主 require 通道,vm 执行产物 —— 注册表必须交付可用插件类。
+    let behaviorDetail = '';
+    let behaviorOk = false;
+    try {
+      const vm = require('node:vm');
+      const sb = { window: {}, console: { log: function () {} } };
+      sb.window = sb;
+      sb.window.lexiRuntime = {
+        __lexiAcquireRequire: function () {
+          return function (name) {
+            if (name === 'obsidian') {
+              return { Plugin: function Plugin() {} };
+            }
+            throw new Error('模块未提供: ' + name);
+          };
+        }
+      };
+      vm.createContext(sb);
+      vm.runInContext(built, sb, { filename: 'built-main.js' });
+      const entry = sb.window.__lexiPluginRegistry && sb.window.__lexiPluginRegistry['my-plugin'];
+      behaviorOk = !!entry && !entry.error && typeof entry.exports === 'function';
+      if (behaviorOk) {
+        const inst = new entry.exports({});
+        inst.onload();
+        behaviorOk = inst.ready === true;
+      }
+      behaviorDetail = entry ? (entry.error || typeof entry.exports) : '注册表缺项(求值未完成)';
+    } catch (error) { behaviorDetail = 'threw: ' + error.message; }
+    ok('C6.3 产物 vm 求值即交付插件类(require 管线内置于 IIFE)', behaviorOk, behaviorDetail);
+    const before = built;
+    const r2 = lexi(['plugin', 'build', proj]);
+    ok('C6.4 幂等:重复 build 跳过且不二次包装', r2.status === 0 &&
+      fs.readFileSync(path.join(proj, 'main.js'), 'utf8') === before, r2.output.split('\n').slice(-2).join('|'));
+  }
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 

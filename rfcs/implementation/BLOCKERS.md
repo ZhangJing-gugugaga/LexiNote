@@ -19,3 +19,4 @@
 - KI-1 市场 Sheet 已安装列表挤占致远程条目不可达 → 任务 P5-007,验收 `plugin-dist-flows --market-repro` N=3..8 reachable=true。
 - KI-2 幽灵已安装条目（obsidian-outliner 无磁盘目录,卸载报"插件目录不存在"）根因未定位 → P5-008（依赖 B-001）。
 - KI-3 shell 无写权限入应用私有目录（数据预置不可行）→ 已绕行（probe 插件 onload 自写标记）,保持记录。
+- KI-5 runtime 页 Web 组件 `.onConsole` 从不投递（Round 25:LexiSandboxHost 同款 handler 在 lexi_2in1 上无条件日志/过滤/error 级均零输出;沙箱容器页 console 由引擎自动转发正常）→ runtime 页 console 观测哑,shim 通道选择标记不可经 console 取证;handler 保留（正确形态,随 API 升级复验）;如需直接标记须走 lexiHost 桥诊断缝。

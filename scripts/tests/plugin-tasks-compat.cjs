@@ -20,8 +20,10 @@ const EXPECTED = {
 };
 // Our two shims as of the start of this track; a change here means the verdict below
 // belongs to a different base than the one this run measured.
+// lexinote_plugin_shim.js digest refreshed for P1-003c (CJS→IIFE + script-injection eval
+// channel replaced the loadPlugin new Function on the runtime page).
 const SHIM_BASELINE = {
-  'lexinote_plugin_shim.js': '278CBC352D76C0B3C6CFCCB921EAB8FD502300C31CC7B41FA11980C9F864F471',
+  'lexinote_plugin_shim.js': 'A6C6560D3FEA502748894C7F01F75DFD9EB7626B3C05292BDB777943D393A976',
   'lexinote_plugin_view_shim.js': 'C2CDC44BC33C5EA5851B0ACEB51BD3A9EF89BE116DE9529833E5808525E337EA'
 };
 

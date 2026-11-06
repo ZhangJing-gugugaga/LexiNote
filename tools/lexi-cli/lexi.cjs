@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const vm = require('node:vm');
 
 function fail(message) { console.error('error: ' + message); process.exit(1); }
 
@@ -67,6 +68,74 @@ function cmdCreate(args) {
   fs.writeFileSync(path.join(proj, 'README.md'), '# ' + name + '\n\nLexiNote 插件。开发文档见 docs/plugin-development.md。\n');
   fs.writeFileSync(path.join(proj, 'styles.css'), '/* ' + name + ' 样式(消费 --lexi-* token,§7.8) */\n');
   console.log('created: ' + proj);
+}
+
+// P1-003c:构建期 CJS→IIFE。包装器单一真源 = 宿主 shim 的 __lexiWrapPluginSource
+// (经 vm 复用,与 runtime 页装载期包装逐字节同源,CLI 不另写第二份 —— 与 validate/publish
+// 复用宿主解析器同一原则)。产物自执行,求值期不再需要 module/exports/require 宿主管线。
+const IIFE_MARKER_PATTERN = /^\s*\/\*\s*lexi-iife:v1\s*\*\//;
+
+function loadShimWrapper() {
+  const shimPath = path.join(ROOT, 'entry', 'src', 'main', 'resources', 'rawfile', 'lexinote_plugin_shim.js');
+  if (!fs.existsSync(shimPath)) { fail('找不到宿主 shim(单一真源包装器): ' + shimPath); }
+  const sandbox = {
+    console: { log: function () {}, warn: function () {}, error: function () {} },
+    setTimeout: function () { return 0; },
+    clearTimeout: function () {},
+    setInterval: function () { return 0; },
+    clearInterval: function () {},
+    Promise: Promise,
+    JSON: JSON,
+    Math: Math,
+    Date: Date,
+    Map: Map,
+    Set: Set,
+    document: { createElement: function () { return { style: {}, classList: { add: function () {} } }; } },
+    location: { href: 'about:blank' }
+  };
+  sandbox.window = sandbox;
+  try {
+    vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(shimPath, 'utf8'), sandbox, { filename: 'lexinote_plugin_shim.js' });
+  } catch (error) {
+    fail('宿主 shim 求值失败: ' + (error && error.message));
+  }
+  const wrap = sandbox.window.lexiRuntime && sandbox.window.lexiRuntime.__lexiWrapPluginSource;
+  if (typeof wrap !== 'function') {
+    fail('宿主 shim 未发布 __lexiWrapPluginSource(P1-003c 单一真源包装器缺失)');
+  }
+  return wrap;
+}
+
+function cmdBuild(args) {
+  const proj = path.resolve(args[0] || process.cwd());
+  const manifestPath = path.join(proj, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) { fail('manifest.json 不存在: ' + proj); }
+  let manifestId = '';
+  try { manifestId = String(JSON.parse(fs.readFileSync(manifestPath, 'utf8')).id || ''); } catch (error) {
+    fail('manifest.json 解析失败: ' + (error && error.message));
+  }
+  if (!manifestId) { fail('manifest.json 缺少 id'); }
+  const mainPath = path.join(proj, 'main.js');
+  if (!fs.existsSync(mainPath)) { fail('main.js 不存在: ' + proj + '(先由 esbuild/tsc 产出 CommonJS bundle)'); }
+  const outIdx = args.indexOf('--out');
+  const outPath = outIdx >= 0 && args[outIdx + 1] ? path.resolve(args[outIdx + 1]) : mainPath;
+  const source = fs.readFileSync(mainPath, 'utf8');
+  if (IIFE_MARKER_PATTERN.test(source)) {
+    console.log('build: 已是 lexi-iife:v1 自执行产物,跳过包装: ' + outPath);
+    return;
+  }
+  const wrap = loadShimWrapper();
+  let wrapped = '';
+  try { wrapped = wrap(source, manifestId); } catch (error) { fail('IIFE 包装失败: ' + (error && error.message)); }
+  // 构建期验证:包装产物必须可编译(语法级失败在此拦下,不流入分发)。
+  try { new vm.Script(wrapped, { filename: 'lexinote-plugin-' + manifestId + '.js' }); } catch (error) {
+    fail('包装产物语法校验失败: ' + (error && error.message));
+  }
+  fs.writeFileSync(outPath, wrapped);
+  const sha256 = crypto.createHash('sha256').update(wrapped).digest('hex');
+  console.log('build: iife=' + outPath + ' bytes=' + Buffer.byteLength(wrapped) + ' sha256=' + sha256 +
+    ' (lexi-iife:v1; 包装器单一真源=宿主 shim __lexiWrapPluginSource)');
 }
 
 function cmdValidate(args) {
@@ -138,11 +207,12 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const [, , command, sub, ...subArgs] = process.argv;
 switch (command === 'plugin' ? sub : command) {
   case 'create': cmdCreate((command === 'plugin' ? subArgs : [sub]).filter(Boolean)); break;
+  case 'build': cmdBuild((command === 'plugin' ? subArgs : [sub]).filter(Boolean)); break;
   case 'validate': cmdValidate((command === 'plugin' ? subArgs : [sub]).filter(Boolean)); break;
   case 'pack': cmdPack((command === 'plugin' ? subArgs : [sub]).filter(Boolean)); break;
   case 'sign': cmdSign((command === 'plugin' ? subArgs : [sub]).filter(Boolean)); break;
   case 'publish': cmdPublish((command === 'plugin' ? subArgs : [sub]).filter(Boolean)); break;
   default:
-    console.log('用法: lexi plugin create|validate|pack|sign|publish [args](RFC §10.2)');
+    console.log('用法: lexi plugin create|build|validate|pack|sign|publish [args](RFC §10.2)');
     process.exit(command === 'plugin' && !sub ? 0 : 1);
 }

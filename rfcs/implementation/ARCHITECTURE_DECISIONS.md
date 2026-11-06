@@ -70,6 +70,18 @@
 - 影响面：P1-003b 的 API 面重建工作不返工（sandbox html 的 bootPlugin/最小面已就绪）；容器脚本与宿主网关（LexiContextRegistry）原样迁移。P1-004（workspace 轨收敛）不受影响。
 - 复审条件：方案 B 容器组件真机贯通（帧往返+onload）即解除 B-009。
 
+## ADR-R25-01 构建期 CJS→IIFE + runtime 页 eval 清零（P1-003c）：脚本文本注入与双通道求值
+
+- 依据：RFC §3.2 硬规则（宿主运行页不允许 unsafe-eval；旧版 CommonJS 优先构建期打包为 IIFE）；EXECUTION_PLAN R25=P1-003c；ADR-R18-01 定案4（Track1 宿主页面移除 unsafe-eval）；真机事实——ArkWeb 强制执行 meta CSP（B-008：script-src 'self' 拦杀内联脚本），且 `script-src 'unsafe-inline'` 放行内联脚本自 Round 9 起有真机见证（sandbox.html 内联引导）。
+- eval 面盘点（本决策的代码证据）：runtime 页（lexinote_plugin_runtime.html 装载 lexinote_plugin_shim.js/render.js/sandbox_container.js）唯一 eval 消费点 = shim `loadPlugin` 的 `new Function('require','module','exports', code)`（原 lexinote_plugin_shim.js:2296）——legacy 共享 realm 轨（LexiPluginRuntime.ets `dispatch('load.plugin')`，默认轨）与工作区 obsidian 兼容路由（workspace bundle `window.LexiObsidian.loadPlugin`，同一份 shim）都走它；sandbox iframe 内部 new Function（bootPlugin/evalInContext）按 ADR-R18-01 定案4 保留；workspace_shim 自有求值器（:224）属 Track2，P1-004 收敛；ArkTS VM 无 eval。
+- 定案 1·包装单一真源：CJS→IIFE 包装器只实现一份——shim 内 `wrapPluginSource`（发布为 `window.lexiRuntime.__lexiWrapPluginSource`），CLI `lexi plugin build` 经 vm 复用（与 validate/publish 复用宿主解析器同一原则），模板 build 链尾追加 `lexi plugin build .`。产物形状 `/* lexi-iife:v1 */`：自执行 IIFE 自带 module/exports/require 管线、捕获求值错误、把 exports 登记进 `window.__lexiPluginRegistry[id]`；求值期宿主侧零管线。已包装产物按字节原样注入（标记判别，幂等）。
+- 定案 2·双通道求值（能力探测选择，装载期一次定死，插件不可重探/改判）：①注入通道（runtime 页，CSP `script-src 'self' 'unsafe-inline'`）——包装文本经 `<script>` 元素注入执行，探测脚本 `__lexiScriptInjectOk` 判通道可用；②过渡通道（`new Function` 管线，语义与历史版本逐字节一致）——**必须保留**，因为 shim 同时挂在 lexinote_workspace.html 上且工作区 obsidian 兼容路由经 `LexiObsidian.loadPlugin` 走同一函数，而工作区页 CSP 保留 `'unsafe-eval'` 是本轮显式不动项（P1-004 收敛时删通道+收紧该页 CSP，两者同轮复审）。runtime 页的 eval 兜底由 S26 的 CSP 断言保证不生效（无 unsafe-eval 时 new Function 恒 EvalError）。
+- 定案 3·require 令牌绑定不进脚本文本：注入文本可被同 realm 读取，令牌只能走闭包——装载期登记一次性 require 上下文，IIFE 以 `window.lexiRuntime.__lexiAcquireRequire(id)` 参数表达式获取令牌绑定 require；消费窗口 = loadPlugin 的同步注入段（两次 await 之间，同 realm 其他插件代码无法插队），取用即烧毁，盗调 fail-closed 抛错。闭包随插件类存活（异步 onload 里 require 仍带令牌），与旧 requireForPlugin 闭包同安全形状（ADR-R10-01 不回退）。
+- 定案 4·'unsafe-inline' 的取舍：eval 移除后，动态求值的 CSP 合法通道仅剩脚本元素注入——`'unsafe-inline'` 是放行它的最小授权（备选 `blob:`/hash/strict-dynamic 因离线不可证真、真机风险高被否）。权衡：HTML 文档本体保持零内联脚本（S27 静态断言续守"引导外置"不变量）；共享 realm 插件本就能操作 DOM，注入通道不新增同 realm 攻击面，而 eval/new Function gadget 链在宿主页 fail-closed；真实隔离边界仍是沙箱 iframe（unsafe-eval 按设计保留，S29）。
+- 兼容性影响：未包装旧 bundle 由 shim 在装载期补同构包装（行为等价：非严格求值语义不变、require 命名空间/令牌绑定不变、`module.exports`/`exports.default` 导出识别不变）；CLI-wrapped 产物在沙箱轨（bootPlugin）暂不可载——require 回调抛"require 不可用"，属 P1-003d 真机迁移切片的收口项；离线门禁 vm/JSDOM harness 无注入环境 → 探测判 false → 全部走过渡通道，既有断言零改动。
+- 门禁锚点：plugin-context-isolation S26（runtime CSP 无 unsafe-eval）/S27（HTML 零内联脚本）/S28（runtime 页脚本 eval 对账：render/container 清零、shim new Function 恰 1 处且能力门控）/S28b（注入通道结构在案）/S29（沙箱保留 unsafe-eval+注释在案）；lexi-cli-contract C6（build 端到端+形状+vm 行为级+幂等）；plugin-shim-regression 注入通道行为级用例；net-request-url 19.3 锚点随内部命名更新（语义不变）。
+- 复审条件：P1-004 收敛工作区页 CSP 时必须同轮删除过渡通道（S28 的"恰好 1 处"预期归零）；真机阶段若注入通道异常（探测 false 且无 unsafe-eval）按 fail-closed 报错暴露，不得静默回退。
+
 ## 历史决策登记（迁移自既有代码语义,防遗失）
 
 - Manifest v1 无 capabilities → `capabilitiesDeclared=false` → 跳过 T2.2 授权门且 legacy 分支放行 fs。此为兼容策略,但等于"旧插件默认高权"——P2 权限闭环须将其收敛为显式兼容权限集（RFC §18.1）。

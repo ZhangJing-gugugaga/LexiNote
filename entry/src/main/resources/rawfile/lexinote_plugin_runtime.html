@@ -2,9 +2,13 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <!-- RFC §3.9 插件运行页 CSP：脚本只来自随 HAP 内置的 rawfile('self') + shim 求值插件代码
-       所需的 eval；一切网络(connect-src 'none')与远程资源全禁，宿主交互只走 lexiHost 桥。 -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-eval'; child-src 'self'; frame-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <!-- RFC §3.9 插件运行页 CSP（P1-003c/ADR-R25-01 收紧）：脚本只来自随 HAP 内置的 rawfile
+       ('self')；'unsafe-eval' 已移除——插件源码不再经 new Function 求值，改为 shim 装载期把
+       构建期同构 IIFE 文本经脚本元素注入执行（'unsafe-inline' 仅为放行这一条注入通道，
+       HTML 文档本体仍零内联脚本，见 plugin-context-isolation S26/S27/S28）。工作区页的
+       'unsafe-eval' 保留至 P1-004 收敛，与本页无关。一切网络(connect-src 'none')与远程
+       资源全禁，宿主交互只走 lexiHost 桥。 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; child-src 'self'; frame-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>lexinote-plugin-runtime</title>
   <script src="lexinote_plugin_render.js"></script>
   <script src="lexinote_plugin_shim.js"></script>

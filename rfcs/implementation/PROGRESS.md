@@ -572,3 +572,37 @@ Phase 2 收尾复核（exit criteria 对照）→ **P1-002/P1-003 沙箱主改�
 P1-003b 继续（沙箱内 obsidian 面扩容→sample 完整迁移）；观测点 slog 清理随迁移轮。
 
 最近更新时间：2026-11-04（Round 22）。
+
+---
+
+## Round 25 — 2026-11-07（P1-003c:构建期 CJS→IIFE + runtime 页 CSP 移除 unsafe-eval → **VERIFIED**；并行 P0-008 修复收口）
+
+**当前 Phase：** Phase 1 收口推进。**P1-003c 完成**（ADR-R25-01）。
+
+### 本轮完成
+
+1. **ADR-R25-01 定案**：eval 面盘点——runtime 页唯一 eval 消费点 = shim `loadPlugin` 的 `new Function`（legacy 轨 + workspace obsidian 兼容路由共用；sandbox iframe 内 eval 按 ADR-R18-01 定案4 保留；ArkTS VM 无 eval）。定案：①CJS→IIFE 包装单一真源（shim `wrapPluginSource`，CLI `lexi plugin build` 经 vm 复用，产物 `/* lexi-iife:v1 */` 自带 module/exports/require 管线，登记 `window.__lexiPluginRegistry[id]`，幂等）；②双通道求值（装载期能力探测一次定死）：runtime 页走**脚本文本注入**（CSP `script-src 'self' 'unsafe-inline'`，'unsafe-eval' 移除；'unsafe-inline' 为放行注入通道的最小授权，HTML 文档本体零内联脚本 S27 续守）、workspace 页过渡通道 `new Function` 保留（P1-004 收敛时同轮删除，S28 钉死"恰好 1 处"）；③require 令牌绑定不进脚本文本（一次性 `__lexiAcquireRequire`，同步注入段消费即烧毁，盗调 fail-closed）。
+2. **门禁扩容**：plugin-context-isolation +S26（runtime CSP 无 unsafe-eval）/S27（HTML 零内联脚本）/S28（runtime 页脚本 eval 对账：render/container 清零、shim new Function 恰 1 处且能力门控）/S28b（注入通道结构在案）/S29（沙箱按设计保留 unsafe-eval+注释在案）→ **48 项 PASS**（原 43）；lexi-cli-contract +C6.1-4（build 端到端/形状/vm 行为级/幂等）→ 18 项；plugin-shim-regression +注入通道行为级用例 → 9 passed（叠加 P0-008 修复的 8 项基线）。
+3. **模板链**：tools/lexinote-plugin-template build 尾追加 `lexi plugin build .`，README 同步。
+4. **真机验收（lexi_2in1，四连冷启全绿）**：新 CSP（无 unsafe-eval）下 lexi-sample legacy 轨装载+运行（onload 完成+8 命令注册+启用）×4；sandbox-probe/sample-min 沙箱轨数据往返不变×4；全程零 CSP 违规/零 EvalError/零 function-fallback。判定逻辑=差分证明：沙箱 iframe（CSP 放行 eval）new Function 正常 → 引擎不整体禁 eval；runtime 页（CSP 禁 eval）插件照常装载 → 必经注入通道（ArkWeb 强制 CSP 已由 B-008 真机定案）。
+5. **新平台发现（KI-5）**：runtime 页 Web 组件 `.onConsole` 从不投递（LexiSandboxHost 同款 handler 真机有输出，本组件无条件日志/过滤/error 级均零输出）——runtime 页 console 观测哑，通道选择直接标记不可经 console 获得登记为残差；已补 onConsole handler（正确形态，随 API 升级可能生效）。legacy 轨命令执行回环未再驱动（路径不在本轮 diff，实例创建由 onload+命令注册证明）——记为 R25 残差。
+6. **并行快速赢面 P0-008 收口（独立提交 d322199）**：shim-regression harness 补 DOM stub+host-first 顺序+启动预热，8/8 确定性绿×2；根因含 267ad04 后契约漂移；发现 shim vault 同步索引两缺陷登记 **P4-007**（rename 误删+启动拉取缺失，仅登记未修）。
+7. **预存红核实（防假完成）**：plugin-route-coverage FAIL（vault.getByPath 孤儿，view_shim 调用点门禁盲区，HEAD 即红）→ 登记 **P0-010**；workspace-tools-regression 模块加载即崩（HEAD 即红）→ 登记 **P0-011**。均不在 release 29 步内。
+
+### 实际执行的测试
+
+| 命令 | 结果 |
+|---|---|
+| `release-gate --ci`（主线独立复跑×2，含最终树） | **PASS 29/29** |
+| `plugin-context-isolation.cjs` | **PASS 48/48**（+S26-S29） |
+| `lexi-cli-contract.cjs` | **PASS 18/18**（+C6） |
+| `plugin-shim-regression.cjs` | **PASS 9/9**（P0-008 后 8+注入通道 1） |
+| `hvigorw assembleHap` ×3 | **PASS** |
+| 真机冷启 ×4（lexi_2in1） | **PASS**：3/3 插件 onload、零违规（见上） |
+
+### 残差与下一轮
+
+- 残差：注入通道直接标记（console 观测哑，KI-5）；legacy 命令执行回环未再驱动。
+- **下一轮 = R26 = P5-004**（装完不自动 enable：权限清单→同意→启用；B-004 按 RFC §4.5 自设计）。
+
+最近更新时间：2026-11-07（Round 25）。

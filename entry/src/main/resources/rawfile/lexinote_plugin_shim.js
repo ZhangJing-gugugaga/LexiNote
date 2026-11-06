@@ -2262,6 +2262,149 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
     throw new Error('插件沙箱不支持模块: ' + name + '(依赖请随 main.js 打包)');
   }
 
+  // ---------------------------------------------------------------- P1-003c 构建期 CJS→IIFE + 脚本注入求值
+  //
+  // RFC §3.2:宿主运行页面不允许开放 unsafe-eval;旧版 CommonJS 插件优先在构建期打包为
+  // IIFE(lexi plugin build / 官方模板),而不是让宿主用 new Function 求值原始源码。
+  // runtime 页 CSP 已收紧为 script-src 'self' 'unsafe-inline'(无 unsafe-eval),求值通道:
+  //   1) 注入通道(真机 runtime 页):把插件源码包成与构建期产物同形状的自执行 IIFE 文本,
+  //      以 <script> 元素注入执行。HTML 文档本体仍零内联脚本(S27 断言);'unsafe-inline'
+  //      的授权形态在真机早有见证(sandbox.html 内联引导自 Round 9 起执行)。
+  //   2) 过渡通道(工作区页 + 离线门禁):本 shim 同时挂在 lexinote_workspace.html 上,
+  //      该页 CSP 保留 'unsafe-eval' 是 P1-004 收敛前的显式决定(本轮不动 workspace.html),
+  //      且工作区 obsidian 兼容路由经 LexiObsidian.loadPlugin 走本函数 —— 通道按页面能力
+  //      探测选择,两条通道最终交付同一个插件类。探测在 shim 装载时一次完成,插件代码
+  //      无法重探或改判。
+  var IIFE_MARKER = '/* lexi-iife:v1 */';
+  function isIifeWrapped(code) {
+    return /^\s*\/\*\s*lexi-iife:v1\s*\*\//.test(String(code || ''));
+  }
+
+  // 注入通道能力探测(装载期一次):注入一个置位探针脚本,只有 CSP 真放行内联脚本时
+  // window.__lexiScriptInjectOk 才会被置位。任何异常/缺 DOM/被 CSP 拦杀都归入"不可用"。
+  var scriptInjectionAvailable = (function () {
+    try {
+      if (typeof document === 'undefined' || !document || typeof document.createElement !== 'function') { return false; }
+      var mount = document.head || document.documentElement || document.body;
+      if (!mount || typeof mount.appendChild !== 'function') { return false; }
+      var probeEl = document.createElement('script');
+      probeEl.textContent = 'window.__lexiScriptInjectOk = true;';
+      mount.appendChild(probeEl);
+      if (probeEl.parentNode && typeof probeEl.parentNode.removeChild === 'function') {
+        probeEl.parentNode.removeChild(probeEl);
+      }
+      var available = false;
+      try { available = window.__lexiScriptInjectOk === true; } catch (err) { available = false; }
+      try { delete window.__lexiScriptInjectOk; } catch (err) { window.__lexiScriptInjectOk = undefined; }
+      return available;
+    } catch (err) { return false; }
+  })();
+  if (typeof console !== 'undefined' && console.log) {
+    console.log('[lexinote] plugin eval channel=' + (scriptInjectionAvailable ? 'script-inject' : 'function-fallback') +
+      ' (P1-003c; runtime 页=script-inject, workspace 页过渡=function)');
+  }
+
+  // 一次性 require 上下文表:pluginId → { token, namespace, acquired }。
+  // 令牌只活在闭包里(与 P1-006 的 WeakMap 同纪律);__lexiAcquireRequire 把它递进本次
+  // IIFE 求值后即烧毁 —— 消费窗口是 loadPlugin 的同步注入段(两次 await 之间,同 realm
+  // 的其他插件代码无法插队),因此在任何可达时机盗调都只会得到 fail-closed 的抛错面。
+  var requireContextsById = new Map();
+
+  function acquireRequireFor(pluginId) {
+    var ctx = requireContextsById.get(pluginId);
+    if (!ctx || ctx.acquired) {
+      return function () { throw new Error('require 上下文不可用(已消费或不存在): ' + String(pluginId)); };
+    }
+    ctx.acquired = true;
+    // 这个插件的 require('obsidian'/'lexinote') 拿到的是同一命名空间的视图,但 requestUrl
+    // 绑定到它自己的令牌(原型链,不动命名空间里的 class,也不走 bindApiToken 的 Proxy)。
+    return function (name) {
+      if ((name === 'obsidian' || name === 'lexinote') && ctx.token.length > 0) {
+        if (!ctx.namespace) {
+          ctx.namespace = Object.create(obsidianNamespace);
+          ctx.namespace.requestUrl = requestUrlFor(ctx.token);
+        }
+        return ctx.namespace;
+      }
+      return requireShim(name);
+    };
+  }
+
+  // 构建/装载共用的 CJS→IIFE 包装(纯文本变换,无状态、无凭据)。产物自执行:自带
+  // module/exports/require 管线,求值期不再需要宿主侧任何管线;把 exports(或求值错误)
+  // 登记进 window.__lexiPluginRegistry[id] 供 loadPlugin 消费。CLI(lexi plugin build)
+  // 经 window.lexiRuntime.__lexiWrapPluginSource 复用本实现 —— 单一真源,不另写第二份。
+  function wrapPluginSource(code, pluginId) {
+    var idLiteral = JSON.stringify(String(pluginId || ''));
+    return IIFE_MARKER + '\n' +
+      ';(function (require) {\n' +
+      'var module = { exports: {} };\n' +
+      'var exports = module.exports;\n' +
+      'try {\n' +
+      code + '\n' +
+      '} catch (__lexiEvalError) {\n' +
+      '(window.__lexiPluginRegistry = window.__lexiPluginRegistry || {})[ ' + idLiteral + ' ] = ' +
+        '{ error: String((__lexiEvalError && __lexiEvalError.message) || __lexiEvalError), exports: module.exports };\n' +
+      'return;\n' +
+      '}\n' +
+      '(window.__lexiPluginRegistry = window.__lexiPluginRegistry || {})[ ' + idLiteral + ' ] = { exports: module.exports };\n' +
+      '})(window.lexiRuntime ? window.lexiRuntime.__lexiAcquireRequire(' + idLiteral + ') : ' +
+        'function (name) { throw new Error("require 不可用(无 lexiRuntime): " + name); });\n' +
+      '//# sourceURL=lexinote-plugin-' + String(pluginId || 'plugin') + '.js';
+  }
+
+  // 脚本文本执行。真机通道 = <script> 元素注入(同步执行,执行后即摘除);门禁/无 DOM
+  // 环境走不到这里(探测已判不可用)。求值错误语义与浏览器一致:脚本体异常由 IIFE 自捕
+  // (登记进注册表),语法级失败表现为注册表缺项(可选地补一条 window error 讯息)。
+  function executeWrappedPlugin(scriptText, pluginId) {
+    var failure = '';
+    var onScriptError = null;
+    if (typeof window.addEventListener === 'function') {
+      onScriptError = function (event) {
+        if (failure) { return; }
+        failure = String((event && (event.message || (event.error && event.error.message))) || '未知脚本错误');
+      };
+      window.addEventListener('error', onScriptError);
+    }
+    try {
+      var scriptEl = document.createElement('script');
+      scriptEl.textContent = scriptText;
+      scriptEl.setAttribute('data-lexi-plugin', String(pluginId || ''));
+      var mount = document.head || document.documentElement || document.body;
+      if (mount && typeof mount.appendChild === 'function') {
+        mount.appendChild(scriptEl);
+        if (scriptEl.parentNode && typeof scriptEl.parentNode.removeChild === 'function') {
+          scriptEl.parentNode.removeChild(scriptEl);
+        }
+      } else {
+        failure = '脚本注入挂载点不可用';
+      }
+    } catch (err) {
+      failure = String((err && err.message) || err);
+    } finally {
+      if (onScriptError) { window.removeEventListener('error', onScriptError); }
+    }
+    return failure;
+  }
+
+  function consumePluginResult(pluginId) {
+    var registry = window.__lexiPluginRegistry;
+    var entry = registry ? registry[pluginId] : null;
+    if (!registry || !entry) { return null; }
+    try { delete registry[pluginId]; } catch (err) { registry[pluginId] = null; }
+    return entry;
+  }
+
+  // 注入通道求值:包装(已包装产物按字节原样注入)→ 执行 → 读回注册表。
+  function evaluateViaScriptInjection(code, pluginId) {
+    var wrapped = isIifeWrapped(code) ? code : wrapPluginSource(code, pluginId);
+    var failure = executeWrappedPlugin(wrapped, pluginId);
+    var result = consumePluginResult(pluginId);
+    if (result && result.error) { throw new Error('插件脚本求值失败: ' + pluginId + ' — ' + result.error); }
+    if (!result) { throw new Error('插件脚本求值未完成: ' + pluginId + (failure ? ' — ' + failure : '')); }
+    return result.exports;
+  }
+
   // ---------------------------------------------------------------- plugin loading
 
   async function loadPlugin(message) {
@@ -2292,25 +2435,27 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
       if (!code) { throw new Error('插件源码读取失败: ' + manifest.id); }
       console.log('[lexinote] 插件源码分片加载完成: ' + manifest.id + ' ' + code.length + ' 字符');
     }
-    var moduleObj = { exports: {} };
-    var factory = new Function('require', 'module', 'exports',
-      code + '\n//# sourceURL=lexinote-plugin-' + manifest.id + '.js');
-    // 这个插件的 require('obsidian'/'lexinote') 拿到的是同一命名空间的视图,但 requestUrl
-    // 绑定到它自己的令牌(原型链,不动命名空间里的 class,也不走 bindApiToken 的 Proxy)。
+    // P1-003c(ADR-R25-01):求值通道按页面能力选择 —— runtime 页(注入)走构建期 IIFE
+    // 同构包装 + <script> 脚本文本注入;工作区页/离线门禁(过渡通道)保持历史的
+    // new Function 管线,语义逐字节不变(该页 CSP 显式保留 unsafe-eval 至 P1-004 收敛)。
+    // 两条通道共用同一个一次性 require 上下文:令牌绑定只在闭包里,插件之间不可达。
     var pluginToken = typeof message.token === 'string' ? message.token : '';
-    var boundNamespace = null;
-    var requireForPlugin = function (name) {
-      if ((name === 'obsidian' || name === 'lexinote') && pluginToken.length > 0) {
-        if (!boundNamespace) {
-          boundNamespace = Object.create(obsidianNamespace);
-          boundNamespace.requestUrl = requestUrlFor(pluginToken);
-        }
-        return boundNamespace;
+    var requireContext = { token: pluginToken, namespace: null, acquired: false };
+    requireContextsById.set(manifest.id, requireContext);
+    var exported = null;
+    try {
+      if (scriptInjectionAvailable) {
+        exported = evaluateViaScriptInjection(code, manifest.id);
+      } else {
+        var moduleObj = { exports: {} };
+        var factory = new Function('require', 'module', 'exports',
+          code + '\n//# sourceURL=lexinote-plugin-' + manifest.id + '.js');
+        factory(acquireRequireFor(manifest.id), moduleObj, moduleObj.exports);
+        exported = moduleObj.exports;
       }
-      return requireShim(name);
-    };
-    factory(requireForPlugin, moduleObj, moduleObj.exports);
-    var exported = moduleObj.exports;
+    } finally {
+      requireContextsById.delete(manifest.id);
+    }
     var Ctor = typeof exported === 'function' ? exported : (exported && typeof exported.default === 'function' ? exported.default : null);
     if (!Ctor) { throw new Error('main.js 必须导出插件类(default)'); }
     // 插件拿到的 app 面按本次装载的令牌包一层,插件里的 app.vault/app.workspace… 调用自带身份。
@@ -2352,6 +2497,11 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
   }
 
   window.lexiRuntime = {
+    // P1-003c:构建期 IIFE 包装的单一真源(lexi plugin build 经 vm 复用本实现,不另写
+    // 第二份包装器);__lexiAcquireRequire 是 IIFE 拿到令牌绑定 require 的一次性口子
+    // (消费窗口 = loadPlugin 的同步注入段,盗调 fail-closed,见 acquireRequireFor)。
+    __lexiWrapPluginSource: wrapPluginSource,
+    __lexiAcquireRequire: acquireRequireFor,
     __receive: function (method, payloadJson) {
       var message = safeParse(payloadJson || '{}', {});
       if (method === 'event') { dispatchHostEvent(message); return; }

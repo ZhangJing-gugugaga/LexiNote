@@ -3,7 +3,10 @@
 <head>
   <meta charset="utf-8">
   <!-- RFC §3.2/§3.9 沙箱执行上下文：默认全禁；脚本只在本文档内联求值（插件代码经宿主端口送入）；
-       网络全部断绝（connect-src 'none'），一切宿主交互只能走宿主转移进来的 MessagePort。 -->
+       网络全部断绝（connect-src 'none'），一切宿主交互只能走宿主转移进来的 MessagePort。
+       P1-003c（ADR-R25-01）：本 iframe 的 'unsafe-eval' 是按设计保留的过渡形态（ADR-R18-01
+       定案 4）——opaque origin 沙箱才是插件求值的真实隔离边界，宿主 runtime 页已移除
+       unsafe-eval；沙箱内 bootPlugin/evalInContext 的 new Function 待后续切片（IIFE 直载）收口。 -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>lexinote-plugin-sandbox</title>
 </head>

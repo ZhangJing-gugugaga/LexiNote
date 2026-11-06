@@ -1,12 +1,12 @@
 # LexiNote 插件模板
 
-面向 LexiNote 的 Obsidian 风格插件模板:TypeScript 源码,build 产物是单个 `main.js`(CommonJS),宿主通过运行时垫片提供 `lexinote` / `obsidian` 模块。
+面向 LexiNote 的 Obsidian 风格插件模板:TypeScript 源码,build 产物是单个 `main.js`——esbuild 先产出 CommonJS bundle,再由 `lexi plugin build` 包装成自执行 IIFE(`/* lexi-iife:v1 */`,P1-003c/RFC §3.2:宿主运行页不再以 `new Function` 求值原始源码),宿主通过运行时垫片提供 `lexinote` / `obsidian` 模块。
 
 ## 快速开始
 
 ```bash
 npm install
-npm run build        # 输出 main.js(与 manifest.json、可选 styles.css 同一目录)
+npm run build        # 输出 main.js(esbuild CJS → lexi-iife:v1 自执行包装;与 manifest.json、可选 styles.css 同一目录)
 ```
 
 把以下文件放进设备插件目录(LexiNote 设置 → 插件 可知目录),重启或重新启用插件:

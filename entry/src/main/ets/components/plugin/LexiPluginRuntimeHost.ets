@@ -3,7 +3,13 @@
 
 import { common } from '@kit.AbilityKit';
 import { webview } from '@kit.ArkWeb';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { LexiPluginManager } from '../../core/plugin/LexiPluginRuntime';
+
+// runtime 页的 console 引擎不自动转发（LexiSandboxHost/LexiWorkspacePage 同款 onConsole 补齐），
+// shim 的通道选择/告警日志（[lexinote] 前缀）由此进 hilog，供设备验收取证。
+const HI_DOMAIN: number = 0x1051;
+const HI_TAG: string = 'LexiPluginRuntimePage';
 
 @Component
 export struct LexiPluginRuntimeHost {
@@ -63,6 +69,17 @@ export struct LexiPluginRuntimeHost {
           controller: this.webController
         })
         .onPageEnd((): void => { this.openContextPort(); })
+        .onConsole((event: OnConsoleEvent): boolean => {
+          try {
+            const line: string = event.message.getMessage();
+            if (line.indexOf('[lexinote]') >= 0) {
+              hilog.info(HI_DOMAIN, HI_TAG, '%{public}s', line);
+            }
+          } catch (err) {
+            hilog.error(HI_DOMAIN, HI_TAG, 'onConsole handler threw');
+          }
+          return true;
+        })
         .width(1).height(1)
         .hitTestBehavior(HitTestMode.None)
     }

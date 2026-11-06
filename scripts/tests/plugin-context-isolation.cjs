@@ -110,6 +110,12 @@ if (fs.existsSync(SANDBOX_HTML)) {
     /function runSandboxCommand\(/.test(sandbox) &&
     (sandbox.match(/runSandboxCommand\(/g) || []).length >= 3,
     '命令表若置于 bootPlugin 作用域内,port/window 两路 listener 跨作用域引用必 ReferenceError;window listener 缺 sandbox.command 分支则容器轨命令回环不工作');
+  // P1-003c:宿主 runtime 页已移除 unsafe-eval(S26);沙箱 iframe 的 unsafe-eval 是按设计
+  // 保留的过渡形态 —— opaque origin 沙箱才是插件求值的真实隔离边界(ADR-R18-01 定案4),
+  // 注释在案,后续切片(IIFE 直载)收口。
+  ok('S29 沙箱页按设计保留 unsafe-eval(P1-003c/ADR-R18-01 定案4)', /unsafe-eval/.test(sandboxCsp) &&
+    /P1-003c/.test(sandbox),
+    'unsafe-eval 只属于沙箱 iframe 内部;宿主页面一律不得开放(S10/S26);删沙箱保留必须连同 ADR 一起复审');
 }
 {
   const runtimeHtml = fs.readFileSync(path.join(RAWFILE, 'lexinote_plugin_runtime.html'), 'utf8');
@@ -119,6 +125,46 @@ if (fs.existsSync(SANDBOX_HTML)) {
   ok('S16b 运行时页 CSP 放行沙箱 iframe(真机 Round 21 教训)',
     /child-src[^;]*'self'/.test(runtimeCsp) || /frame-src[^;]*'self'/.test(runtimeCsp),
     'default-src none 下无 child-src/frame-src 则 per-plugin iframe 文档被 CSP 拦杀(P1-003b)');
+  // P1-003c(ADR-R25-01):runtime 页 eval 面清零。CSP 不再放行 unsafe-eval(RFC §3.2
+  // "不允许为了兼容插件而在宿主运行页面开放 unsafe-eval"),插件求值改为 shim 装载期的
+  // 脚本文本注入;'unsafe-inline' 仅为放行该注入通道存在(真机授权形态见 sandbox.html
+  // 内联引导,Round 9 起见证)。
+  ok('S26 运行时页 CSP 移除 unsafe-eval(P1-003c/RFC §3.2)', runtimeCsp.length > 0 && !/unsafe-eval/.test(runtimeCsp),
+    '宿主运行页不得为插件兼容开放 eval;eval 在此页即使被调用也会被 CSP 拒为 EvalError');
+  ok('S27 运行时页不含内联可执行脚本(S20 同型)', !((runtimeHtml.match(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi) || [])
+    .some((tag) => tag.replace(/^<script[^>]*>/i, '').replace(/<\/script>$/i, '').trim().length > 0)),
+    '文档本体保持零内联脚本(引导逻辑外置);动态求值只发生在 shim 装载期注入');
+}
+{
+  // P1-003c:runtime 页脚本动态求值对账。注释剔除后扫描,防"把 eval 写进注释躲门禁"
+  // (与 bridge-security R7a 同法)。shim 的 new Function 是显式登记的过渡通道(工作区页
+  // P1-004 收敛前 + 离线门禁 vm),必须恰好 1 处且被 scriptInjectionAvailable 能力探测
+  // 门控 —— runtime 页 CSP(S26)保证该分支在宿主页不可能生效。
+  const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const globalEvalPattern = /(^|[^.\w$])eval\s*\(/;
+  const newFunctionPattern = /\bnew\s+Function\s*\(/;
+  for (const name of ['lexinote_plugin_render.js', 'lexinote_sandbox_container.js']) {
+    const file = path.join(RAWFILE, name);
+    if (!fs.existsSync(file)) { ok('S28 ' + name + ' 在库', false, '缺少 runtime 页脚本'); continue; }
+    const body = stripComments(fs.readFileSync(file, 'utf8'));
+    ok('S28 ' + name + ' 零动态求值(eval/new Function)', !globalEvalPattern.test(body) && !newFunctionPattern.test(body),
+      'runtime 页脚本不得求值运行时字符串(RFC §3.2/P1-003c)');
+  }
+  const shimFile = path.join(RAWFILE, 'lexinote_plugin_shim.js');
+  if (fs.existsSync(shimFile)) {
+    const shimBody = stripComments(fs.readFileSync(shimFile, 'utf8'));
+    const newFunctionSites = shimBody.match(newFunctionPattern) || [];
+    ok('S28 lexinote_plugin_shim.js 全局 eval 清零', !globalEvalPattern.test(shimBody),
+      'shim 不得求值运行时字符串(全局 eval 形态)');
+    ok('S28 shim new Function 仅剩过渡通道(恰好 1 处且能力探测门控)', newFunctionSites.length === 1 &&
+      /scriptInjectionAvailable/.test(shimBody),
+      'new Function 只允许存在于 scriptInjectionAvailable=false 分支(工作区页过渡/离线门禁);' +
+      'runtime 页由 S26 的 CSP 保证该分支不生效;P1-004 收敛后应删至 0');
+    ok('S28b shim 注入通道在案(脚本文本求值机制)', /createElement\('script'\)/.test(shimBody) &&
+      /textContent\s*=\s*scriptText/.test(shimBody) && /__lexiScriptInjectOk/.test(shimBody) &&
+      /__lexiPluginRegistry/.test(shimBody) && /__lexiAcquireRequire/.test(shimBody),
+      'runtime 页插件求值 = IIFE 包装 + <script> 注入(能力探测+注册表交付);缺失即退回 eval,不得删');
+  }
 }
 {
   for (const host of HOSTS) {

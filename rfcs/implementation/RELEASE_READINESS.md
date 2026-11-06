@@ -6,7 +6,7 @@
 
 | RFC 条目 | Round 7 审计判定 | Round 8-12 后现状 | 证据 |
 |---|---|---|---|
-| P0-01 业务插件未进沙箱(共享 realm `new Function`) | 证实(且低估:两条轨道) | **未修**(Phase 1 主体 P1-003 待做);但载体可行性已真机定案(ADR-R9-01),身份面先行收口 | B-008 关闭记录;MODULE_MAP |
+| P0-01 业务插件未进沙箱(共享 realm `new Function`) | 证实(且低估:两条轨道) | **收敛中**:沙箱轨真机贯通+双插件并发(P1-003b,R24);runtime 页 eval 已清零(P1-003c,R25,ADR-R25-01——legacy 轨改脚本文本注入,CSP 移除 unsafe-eval);剩余=旧共享 realm 轨停用(P1-003d)+workspace 页收敛(P1-004) | B-008 关闭记录;ADR-R25-01;PROGRESS R24/R25 |
 | P0-02 身份令牌暴露面 | 部分证实 | **已收口**(ADR-R10-01):回落 fail-closed/WeakMap/手工入口删除/restore 修复;残余 `__receive` 面登记 P1-006b | bridge-security 34/34;真机四流程链 |
 | P0-03 Manifest v2 能力未进授权链 | 证实(且更糟) | **主体已修**:P2-001 透传+P2-002 标签正典+P2-003 broker capability+P2-004 路径级+delete 独立键+data 解绑;**残余**:storage 配额执行(P2-005)、notifications/clipboard 执行面已有 gate(data)、管理面方法缺 v2 键(已登记) | manifest-v2 39、authz-matrix M2b、dist-regression |
 | P0-04 Registry Trust 未进市场主流程 | 证实(现行) | **部分修**:fail-closed 哈希闸门真机 VERIFIED(P5-001)、发布镜像严格 v1(P5-006);**TUF/签名 authenticity 未接(P5-002,依赖 B-002 密钥决策)** | dist-flows 四流程;发布仓 |
@@ -25,7 +25,7 @@ RFC §17.1 安全量化 DoD 现状:RPC 进权限矩阵 ✔(M1.2/1.3 对账+capab
 
 | 项 | 状态 | 备注 |
 |---|---|---|
-| release-gate --ci 28 步 | PASS（本机） | 无根仓库 CI 自动触发（P0-003） |
+| release-gate --ci 29 步 | PASS（本机，Round 25 复跑×2） | 无根仓库 CI 自动触发（P0-003） |
 | HAP 构建 | PASS | 仅 default unsigned product |
 | 真机批次 | **Round 8 恢复**:dist-flows 四流程 PASS(2in1);沙箱 PoC 真机**静默 FAIL**(B-008);KI-1 规模/KI-2 定位/兼容夹具回归待排 | B-001 已解除;新证据需求转入具体任务 |
 

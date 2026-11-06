@@ -454,7 +454,9 @@ async function main() {
     const sites = shimSource.match(/hostCall\('net\.requestUrl'/g) || [];
     ok('19.1 站点数 = 1', sites.length === 1, String(sites.length));
     ok('19.2 第三参是 pluginToken 闭包变量', /hostCall\('net\.requestUrl', \{[\s\S]{0,220}?\}, pluginToken\)/.test(shimSource));
-    ok('19.3 装载时按插件令牌构造 require 出口', /boundNamespace\.requestUrl = requestUrlFor\(pluginToken\)/.test(shimSource));
+    // P1-003c 重构锚:令牌绑定 require 出口迁入 acquireRequireFor(ctx 闭包),绑定语义不变
+    // (装载期按插件令牌构造 requestUrl;一次性 acquire 烧毁,盗调 fail-closed)。
+    ok('19.3 装载时按插件令牌构造 require 出口', /ctx\.namespace\.requestUrl = requestUrlFor\(ctx\.token\)/.test(shimSource));
     ok('19.4 视图 shim 第三参是 viewToken', /hostCall\('net\.requestUrl', \{[\s\S]{0,220}?\}, viewToken\)/.test(viewSource));
     ok('19.5 视图 shim boot 落令牌', /payload\.token === 'string'\) \{ viewToken = payload\.token/.test(viewSource));
   });

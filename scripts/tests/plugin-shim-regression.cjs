@@ -357,6 +357,52 @@ const tests=[
   await dispatch('invoke.command',{fullId:'lexi-sample-plugin:sample-notice'});
   await tick();await tick();
   assert.equal(calls.filter(c=>c.method==='ui.notice').length,noticeBefore);
+ }],
+ // P1-003c:注入通道(真机 runtime 页通道)行为级验证。上面的用例都在"无 document"环境,
+ // 走的是过渡通道(new Function,工作区页同款);本用例在独立 vm 沙箱里安装"会执行脚本文本"
+ // 的 document 桩,能力探测据此判注入可用 —— loadPlugin 必须走 wrapPluginSource →
+ // <script> 注入 → 注册表交付,且 require 闭包(令牌绑定)在装载完成后依然可用。
+ ['plugin code evaluates through the script-injection channel (P1-003c)',async()=>{
+  const injected=[];
+  const sandbox={
+    console:{log:()=>{},warn:()=>{},error:()=>{}},
+    setTimeout:(fn)=>{ if(typeof fn==='function'){fn();} return 0; },
+    clearTimeout:()=>{}, setInterval:()=>0, clearInterval:()=>{},
+    Promise,JSON,Math,Date,Map,Set,
+    location:{href:'https://lexinote.local/runtime'}
+  };
+  sandbox.window=sandbox;
+  const mount={appendChild:(el)=>{
+    injected.push(String(el.textContent||''));
+    try{ vm.runInContext(String(el.textContent||''),sandbox,{filename:'lexinote-plugin-injected.js'}); }
+    catch(err){ /* 浏览器语义:脚本异常走 window error,不冒泡进 appendChild */ }
+  }};
+  sandbox.document={
+    createElement:()=>({textContent:'',setAttribute(){},parentNode:null}),
+    getElementById:()=>null,
+    head:mount
+  };
+  sandbox.window.lexiHost={call(){return Promise.resolve(JSON.stringify({ok:true,result:null}));}};
+  vm.createContext(sandbox);
+  vm.runInContext(shimSource,sandbox,{filename:'lexinote_plugin_shim.js'});
+  const injectedRuntime=sandbox.window.lexiRuntime;
+  assert.ok(injectedRuntime,'注入沙箱:shim 必须注册 window.lexiRuntime');
+  let captured=null;
+  sandbox.__capture=(value)=>{captured=value;};
+  const injectProbe="const { Plugin } = require('obsidian');\n"+
+    "module.exports = class InjectProbe extends Plugin {\n"+
+    "  async onload(){ __capture(require('obsidian') === require('lexinote')); }\n"+
+    "};";
+  injectedRuntime.__receive('load.plugin',JSON.stringify({manifest:{id:'inject-probe'},code:injectProbe}));
+  await until(()=>captured!==null,'injection channel onload');
+  assert.equal(captured,true,'require 闭包必须在装载完成后依然可用(obsidian===lexinote)');
+  const wrapped=injected.filter((text)=>text.indexOf('/* lexi-iife:v1 */')===0);
+  assert.equal(wrapped.length,1,'插件源码必须以 lexi-iife:v1 包装注入,实际 '+wrapped.length);
+  assert.ok(wrapped[0].indexOf('//# sourceURL=lexinote-plugin-inject-probe.js')>=0,'包装文本必须带 sourceURL');
+  assert.ok(!sandbox.window.__lexiPluginRegistry || !sandbox.window.__lexiPluginRegistry['inject-probe'],
+    '注册表交付项必须在装载后被消费(不残留)');
+  assert.ok(!sandbox.window.__lexiScriptInjectOk,
+    '探测标记必须被清理');
  }]
 ];
 (async()=>{
