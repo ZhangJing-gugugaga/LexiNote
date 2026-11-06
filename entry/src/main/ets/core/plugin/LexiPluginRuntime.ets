@@ -47,6 +47,7 @@ import {
   LexiAuthzDecision,
   LexiPermissionBroker
 } from './LexiPermissionBroker';
+import { LexiRpcGateway, LexiRpcHandler } from './LexiRpcGateway';
 import { LexiPluginLifecycleManager } from './LexiPluginLifecycleManager';
 import { LexiContextKind } from './LexiPluginExecutionContext';
 import { LexiExtensionRegistry } from './LexiExtensionRegistry';
@@ -179,7 +180,13 @@ export class LexiWebRuntime {
   private controller: webview.WebviewController | null = null;
   /** P1-003b 方案 B:沙箱容器页 controller(manager 登记后 sandbox.boot 走本页)。 */
   sandboxController: webview.WebviewController | null = null;
-  private handlers: Map<string, (payloadJson: string, identity: string, token: string) => Promise<string>> = new Map();
+  /**
+   * P1-007(R31)RPC 入口归一:单一 Gateway(lexiHost.call / sandboxHost.call /
+   * context port 帧 / dispatch+admitDispatch / WorkspaceBridge delegate 五类前门的
+   * 共同漏斗)。handler 表、唯一 broker 实例、未知方法与 payload schema 入口闸
+   * 全部归 Gateway;本类保留传输面(controller/凭据表/通道凭据核销)。
+   */
+  readonly rpcGateway: LexiRpcGateway = LexiRpcGateway.shared;
   private ready: boolean = false;
   private readyWaiters: Array<() => void> = [];
   /**
@@ -193,10 +200,12 @@ export class LexiWebRuntime {
   /** 页面会话凭据(唯一一份,' '角色)。WorkspaceBridge 代表整个页面会话调用宿主时使用。 */
   private sessionCredential: string = '';
   /**
-   * 授权矩阵(T0.3):call() 预检 + 所有权复查的唯一判定器。默认 fs 拒绝;
-   * 管理器 init 时注入真实 fsAuthorizer(manifest 能力判定单一真源)。
+   * 授权矩阵(T0.3):call() 预检 + 所有权复查的唯一判定器。P1-007 起本字段降级为
+   * 转发访问器——实例归单一 Gateway 持有(WorkspaceBridge 的第二个历史实例同轮删除),
+   * 管理器 init 时注入真实 fsAuthorizer(manifest 能力判定单一真源)的注入点语义不变。
    */
-  broker: LexiPermissionBroker = new LexiPermissionBroker((_pluginId: string, _method: string): boolean => false);
+  get broker(): LexiPermissionBroker { return this.rpcGateway.broker(); }
+  set broker(replacement: LexiPermissionBroker) { this.rpcGateway.attachBroker(replacement); }
   /** RPC 拒绝计数(T5.3 Inspector 数据源):key=插件 id 或 '(anonymous)'。 */
   rpcDenies: Map<string, number> = new Map();
 
@@ -341,7 +350,8 @@ export class LexiWebRuntime {
 
   registerHandler(method: string,
     handler: (payloadJson: string, identity: string, token: string) => Promise<string>): void {
-    this.handlers.set(method, handler);
+    // P1-007:handler 表移管单一 Gateway(调用点原样,漏斗不改写 handler)。
+    this.rpcGateway.registerHandler(method, handler as LexiRpcHandler);
   }
 
   markReady(): void {
@@ -371,8 +381,13 @@ export class LexiWebRuntime {
    * 绝不作为身份下传。payload 里的 pluginId 是自述,进处理器之前就被剥掉并落一行审计日志。
    */
   async call(_callId: string, method: string, payloadJson: string, identity: string): Promise<string> {
-    const handler = this.handlers.get(method);
-    if (!handler) { return failResponse(`未知插件通道: ${method}`); }
+    // P1-007:单一 Gateway 入口双闸——未知方法显式拒绝(unknown_method,不再静默
+    // undefined)+ 敏感家族 payload schema 校验(bad_request),先于身份解析与 authorize;
+    // '' = 放行进既有 身份→authorize→handler 链(已登记方法行为不变)。
+    const entryReject: string = this.rpcGateway.entryReject(method, payloadJson);
+    if (entryReject.length > 0) { return entryReject; }
+    const handler = this.rpcGateway.handlerOf(method);
+    if (handler === null) { return failResponse(`未知插件通道: ${method}`); }
     const credential: string = typeof identity === 'string' ? identity : '';
     const role: string = this.roleOfCredential(credential);
     if (role === 'anonymous') {
@@ -431,6 +446,10 @@ export class LexiWebRuntime {
 
   async dispatch(method: string, payloadJson: string): Promise<void> {
     if (!this.controller || !this.ready) { throw new Error('插件运行时未就绪'); }
+    // P1-007:dispatch 面归一——host→页只许投递 Gateway 登记的页侧方法
+    // (load/unload.plugin, invoke.*, event, settings.values),未知显式抛错。
+    const surfaceReject: string = this.rpcGateway.dispatchSurfaceReject(method);
+    if (surfaceReject.length > 0) { throw new Error(surfaceReject); }
     // P1-006b①:每次派发铸造一次性通道凭据,作为第 3 实参进 __receive 门卫。
     // 同 realm 插件裸调 __receive(不带凭据)/盗用旧凭据(已核销)在 shim 侧 fail-closed;
     // 凭据绑定本次 method+payload,核销口在 admitDispatch(同步 javaScriptProxy 面)。
@@ -954,6 +973,8 @@ export class LexiPluginManager {
     await this.vault.init(context);
     this.metadata = new LexiMetadataCache(this.vault);
     // 授权矩阵的能力注入(P2-003):fs 写判定 + 细粒度 capability gate,单一真源 manifest。
+    // P1-007:broker 实例归一——注入目标经 set broker 访问器进单一 Gateway
+    // (LexiRpcGateway.shared),全应用只此一份授权判定器(runtime+bridge 两实例合并)。
     this.runtime.broker = new LexiPermissionBroker((pluginId: string, method: string): boolean =>
       this.fsAllowedByManifest(pluginId, method), (pluginId: string, method: string): boolean =>
       this.capabilityAllowedFor(pluginId, method));

@@ -2,7 +2,8 @@ import { LexiPluginManager } from '../core/plugin/LexiPluginRuntime';
 import { LexiInstalledPlugin, LexiPluginManifest } from '../core/plugin/LexiPluginManifest';
 import { resolvePluginTrack, TRACK_REFUSED } from '../core/plugin/LexiPluginTrackPolicy';
 import { mintCredential } from '../core/plugin/LexiCredentialFactory';
-import { LexiCallerContext, LexiCallerRole, LexiPermissionBroker } from '../core/plugin/LexiPermissionBroker';
+import { LexiCallerContext, LexiCallerRole } from '../core/plugin/LexiPermissionBroker';
+import { LexiRpcGateway } from '../core/plugin/LexiRpcGateway';
 import { LexiNoteChange } from '../core/plugin/LexiPluginBus';
 import { LexiFileEventPayload } from '../core/plugin/LexiVaultFacade';
 import { LexiTFile } from '../core/plugin/LexiVaultModel';
@@ -101,10 +102,14 @@ export class WorkspaceBridge {
   private runtimePluginCredentials: Map<string, string> = new Map<string, string>();
   /**
    * 桥面授权矩阵(T0.3):bridge 原生方法(hello/auth/插件控制面/主题/note.write/demo)
-   * 在进分支处理前必须过 broker;fs/network 判定不在这里(桥面没有这类方法)。
+   * 在进分支处理前必须过授权判定;fs/network 判定不在这里(桥面没有这类方法)。
+   * P1-007(R31)RPC 入口归一:桥内第二个 LexiPermissionBroker 实例删除,授权改走
+   * 单一 Gateway(LexiRpcGateway.shared,与 runtime 同一份判定器)。桥面语义不变的
+   * 依据:桥面方法只有 public/control-plane/demo-plugin 三类(fs/capability 两个 seam
+   * 在这三类上从不触发),与旧桥内实例(默认 fail-closed)的判定逐格一致;delegate 转发
+   * 的业务方法在 runtime.call 内仍过同一 Gateway 的 authorize(既有双重裁决收敛为一处)。
    */
-  private readonly broker: LexiPermissionBroker =
-    new LexiPermissionBroker((_pluginId: string, _method: string): boolean => false);
+  private readonly rpcGateway: LexiRpcGateway = LexiRpcGateway.shared;
   private channelId: string = '';
   private nonce: string = '';
   private authed: boolean = false;
@@ -271,7 +276,7 @@ export class WorkspaceBridge {
     return this.delegate(method, token, payload);
   }
 
-  /** 桥面授权:token → 角色(会话/插件/匿名),broker 矩阵判定;允许时返回 null。 */
+  /** 桥面授权:token → 角色(会话/插件/匿名),单一 Gateway 的矩阵判定(P1-007);允许时返回 null。 */
   private bridgeAuthorize(token: string, method: string): WorkspaceCallReply | null {
     const owner: string | undefined = this.tokens.get(token);
     const ctx = new LexiCallerContext();
@@ -283,7 +288,7 @@ export class WorkspaceBridge {
       ctx.role = 'plugin' as LexiCallerRole;
       ctx.pluginId = owner;
     }
-    const authz = this.broker.authorize(ctx, method, null);
+    const authz = this.rpcGateway.authorize(ctx, method, null);
     if (authz.allowed) {
       return null;
     }

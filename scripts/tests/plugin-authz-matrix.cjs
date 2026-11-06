@@ -23,6 +23,7 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const RUNTIME_ETS = path.join(ROOT, 'entry/src/main/ets/core/plugin/LexiPluginRuntime.ets');
 const BRIDGE_ETS = path.join(ROOT, 'entry/src/main/ets/workspace/WorkspaceBridge.ets');
 const BROKER_ETS = path.join(ROOT, 'entry/src/main/ets/core/plugin/LexiPermissionBroker.ets');
+const GATEWAY_ETS = path.join(ROOT, 'entry/src/main/ets/core/plugin/LexiRpcGateway.ets');
 
 let passed = 0;
 const failures = [];
@@ -65,16 +66,22 @@ function extractBridgeMethods(src) {
 }
 
 // ---------------------------------------------------------------- M2 真实 broker 求值
+let stagedDir = '';
 function stageBroker() {
   const tsPath = process.env.LEXI_TYPESCRIPT;
   if (!tsPath) { throw new Error('需要 LEXI_TYPESCRIPT 指向 typescript 模块'); }
   const ts = require(tsPath);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lexinote-broker-'));
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ type: 'commonjs' }));
-  const out = ts.transpileModule(fs.readFileSync(BROKER_ETS, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
-  }).outputText;
-  fs.writeFileSync(path.join(dir, 'LexiPermissionBroker.js'), out);
+  const options = { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 } };
+  fs.writeFileSync(path.join(dir, 'LexiPermissionBroker.js'),
+    ts.transpileModule(fs.readFileSync(BROKER_ETS, 'utf8'), options).outputText);
+  // P1-007:Gateway 与 broker 同目录落盘(相对 require('./LexiPermissionBroker') 可解析)。
+  if (fs.existsSync(GATEWAY_ETS)) {
+    fs.writeFileSync(path.join(dir, 'LexiRpcGateway.js'),
+      ts.transpileModule(fs.readFileSync(GATEWAY_ETS, 'utf8'), options).outputText);
+  }
+  stagedDir = dir;
   return require(path.join(dir, 'LexiPermissionBroker.js'));
 }
 
@@ -318,11 +325,147 @@ ok('M3.4 ui.addIcon 归属登记', /iconOwners/.test(runtimeSrc), '图标必须�
 ok('M3.5 events.on 登记订阅归属', /ownerPluginId|subscriptionOwner|owner:/.test(runtimeSrc) &&
   /registerHandler\('events\.on'[\s\S]{0,400}?(identity|owner)/.test(runtimeSrc),
   '订阅必须归属到调用插件，events.off 才有归属可查');
-ok('M3.6 桥面 dispatch 接 broker', /broker\.authorize\(/.test(bridgeSrc) && /new LexiPermissionBroker\(/.test(bridgeSrc),
-  'WorkspaceBridge 桥面方法必须经 broker');
+ok('M3.6 桥面 dispatch 接单一 Gateway(P1-007 归一:桥内第二 broker 实例删除)',
+  /LexiRpcGateway\.shared/.test(bridgeSrc) && !/new LexiPermissionBroker\(/.test(bridgeSrc) &&
+  /rpcGateway\.authorize\(ctx, method, null\)/.test(bridgeSrc),
+  'WorkspaceBridge 桥面方法必须经 LexiRpcGateway.shared(全应用唯一 broker 实例)');
 ok('M3.7 fsGate 语义保留（v1 legacy + fail-closed）', /manifestFor\(/.test(runtimeSrc) &&
   /fail-closed|fail_closed/.test(runtimeSrc),
   'fs 判定的既有语义必须保留（broker 经 fsAuthorizer 注入）');
+
+// ------------------------------------------------- M4 RPC 入口归一(P1-007 单一 Gateway)
+// 验收行:「100% RPC 经同一入口;契约测试对账」。三类前门(lexiHost.call / 沙箱容器页+
+// 端口帧 / 桥 delegate)全部收敛到单一 Gateway;未知方法与敏感家族 payload schema 在
+// 入口双闸显式拒绝;授权判定全应用只此一份 broker 实例(runtime+bridge 两实例合并)。
+section('M4 RPC 入口归一(P1-007:单一 Gateway = 授权+分发唯一收口)');
+const gatewaySrc = fs.existsSync(GATEWAY_ETS) ? fs.readFileSync(GATEWAY_ETS, 'utf8') : '';
+ok('M4.0a Gateway 模块存在(纯逻辑,零 @kit 依赖)', gatewaySrc.length > 0 && !/from '@kit/.test(gatewaySrc),
+  'LexiRpcGateway.ets 必须存在且可在 Node 转译求值');
+let gw = null;
+let gwMod = null;
+try {
+  gwMod = require(path.join(stagedDir, 'LexiRpcGateway.js'));
+  gw = gwMod.LexiRpcGateway.shared;
+  ok('M4.0b Gateway 可转译求值且单例可用', !!gw && gw === gwMod.LexiRpcGateway.shared);
+} catch (error) {
+  ok('M4.0b Gateway 可转译求值且单例可用', false, 'threw: ' + error.message);
+}
+if (gw) {
+  // --- 行为级:入口双闸(真实 Gateway 求值) ---
+  ok('M4.1 未知方法显式拒绝(unknown_method,不再静默 undefined)', (() => {
+    const reply = gw.entryReject('not.a.method', '{}');
+    let parsed = {};
+    try { parsed = JSON.parse(reply); } catch (e) { return false; }
+    return parsed.ok === false && parsed.code === 'unknown_method' &&
+      String(parsed.error).indexOf('not.a.method') >= 0;
+  })());
+  // 与真实 runtime 一致:schema 覆盖的每个方法都是已登记 handler——先登记再验双闸。
+  const schemaMethods = ['vault.getByPath', 'vault.read', 'vault.modify', 'vault.create', 'vault.delete',
+    'vault.rename', 'vault.append', 'metadata.get', 'editor.replace', 'editor.selection',
+    'editor.applyChanges', 'net.requestUrl', 'commands.add', 'commands.remove', 'commands.execute',
+    'data.save'];
+  for (const method of schemaMethods) { gw.registerHandler(method, async () => '{}'); }
+  gw.registerHandler('runtime.ready', async () => '{}');
+  ok('M4.2 已登记方法+合法载荷放行(entryReject 回空串)',
+    gw.entryReject('vault.read', JSON.stringify({ path: 'notes/a.md' })) === '' &&
+    gw.entryReject('runtime.ready', '{}') === '');
+  // schema 负例族:每个敏感家族至少一条(缺必需字段/类型不符/非对象载荷)。
+  const schemaNegative = (method, payloadJson) => {
+    const reply = gw.entryReject(method, payloadJson);
+    let parsed = {};
+    try { parsed = JSON.parse(reply); } catch (e) { return null; }
+    return parsed;
+  };
+  ok('M4.3 fs/vault 负例:vault.modify 缺 data / vault.rename 缺 newPath',
+    schemaNegative('vault.modify', JSON.stringify({ path: 'a.md' })).code === 'bad_request' &&
+    schemaNegative('vault.rename', JSON.stringify({ path: 'a.md' })).code === 'bad_request');
+  ok('M4.4 editor 负例:editor.replace 缺 text / editor.applyChanges changes 非数组',
+    schemaNegative('editor.replace', JSON.stringify({ start: 0, end: 1 })).code === 'bad_request' &&
+    schemaNegative('editor.applyChanges', JSON.stringify({ changes: 'x' })).code === 'bad_request');
+  ok('M4.5 network 负例:net.requestUrl 缺 url',
+    schemaNegative('net.requestUrl', '{}').code === 'bad_request');
+  ok('M4.6 commands 负例:commands.execute 缺 id / commands.add 缺 command / commands.remove 缺 fullId',
+    schemaNegative('commands.execute', '{}').code === 'bad_request' &&
+    schemaNegative('commands.add', '{}').code === 'bad_request' &&
+    schemaNegative('commands.remove', '{}').code === 'bad_request');
+  ok('M4.7 data 负例:data.save 缺 dataJson',
+    schemaNegative('data.save', '{}').code === 'bad_request');
+  ok('M4.8 类型违例:vault.read path 非字符串 / 非对象载荷',
+    schemaNegative('vault.read', JSON.stringify({ path: 42 })).code === 'bad_request' &&
+    schemaNegative('vault.read', '[1]').code === 'bad_request' &&
+    schemaNegative('vault.read', '{not-json').code === 'bad_request');
+  ok('M4.9 schema 正例(各家族合法载荷零拦截)', (() => {
+    gw.registerHandler('vault.modify', async () => '{}');
+    gw.registerHandler('vault.rename', async () => '{}');
+    gw.registerHandler('editor.replace', async () => '{}');
+    gw.registerHandler('editor.applyChanges', async () => '{}');
+    gw.registerHandler('net.requestUrl', async () => '{}');
+    gw.registerHandler('commands.execute', async () => '{}');
+    gw.registerHandler('commands.add', async () => '{}');
+    gw.registerHandler('data.save', async () => '{}');
+    return gw.entryReject('vault.modify', JSON.stringify({ path: 'a.md', data: 'x' })) === '' &&
+      gw.entryReject('vault.rename', JSON.stringify({ path: 'a.md', newPath: 'b.md' })) === '' &&
+      gw.entryReject('editor.replace', JSON.stringify({ start: 0, end: 1, text: 'x' })) === '' &&
+      gw.entryReject('editor.applyChanges', JSON.stringify({ changes: [] })) === '' &&
+      gw.entryReject('net.requestUrl', JSON.stringify({ url: 'https://a' })) === '' &&
+      gw.entryReject('commands.execute', JSON.stringify({ id: 'x' })) === '' &&
+      gw.entryReject('commands.add', JSON.stringify({ command: { id: 'x' } })) === '' &&
+      gw.entryReject('data.save', JSON.stringify({ dataJson: '{}' })) === '';
+  })());
+  ok('M4.10 双闸先于身份解析(伪造身份同样先撞入口闸)', (() => {
+    // entryReject 不接收任何身份实参——签名即证据:入口校验在凭据解析之前。
+    return gw.entryReject.length === 2 && gw.entryReject('ghost.method', '{}').indexOf('unknown_method') > 0;
+  })());
+  ok('M4.11 authorize 单一收口(Gateway 持有的 broker 与直连判定逐格一致)', (() => {
+    gw.attachBroker(broker);
+    const viaGateway = gw.authorize(ctxOf('plugin', 'plug-a'), 'plugin.load');
+    const direct = broker.authorize(ctxOf('plugin', 'plug-a'), 'plugin.load');
+    return !viaGateway.allowed && !direct.allowed &&
+      viaGateway.code === direct.code && gw.broker() === broker;
+  })());
+  ok('M4.12 dispatch 面归一(host→页只许投递已登记页侧方法)',
+    gw.dispatchSurfaceReject('event') === '' &&
+    gw.dispatchSurfaceReject('invoke.command') === '' &&
+    gw.dispatchSurfaceReject('load.plugin') === '' &&
+    gw.dispatchSurfaceReject('bogus.push').length > 0);
+  ok('M4.13 handler 表归 Gateway(handlerOf/hasHandler/计数)',
+    gw.hasHandler('vault.read') && gw.handlerOf('ghost') === null &&
+    typeof gw.handlerOf('vault.read') === 'function' && gw.handlerCount() >= 2);
+  // --- 静态收敛:前门 → Gateway 的接线 ---
+  const componentSources = {};
+  for (const comp of ['LexiPluginRuntimeHost', 'LexiPluginViewSlot', 'LexiPluginCodeBlockSlot', 'LexiSandboxContainerHost']) {
+    const compPath = path.join(ROOT, 'entry/src/main/ets/components/plugin', comp + '.ets');
+    componentSources[comp] = fs.existsSync(compPath) ? fs.readFileSync(compPath, 'utf8') : '';
+  }
+  ok('M4.14 三类 javaScriptProxy 面全绑 runtime/sandboxProxy(无旁路对象)',
+    /object: this\.manager\.runtime/.test(componentSources.LexiPluginRuntimeHost) &&
+    /'call', 'admitDispatch'/.test(componentSources.LexiPluginRuntimeHost) &&
+    /object: LexiPluginManager\.shared!\.runtime/.test(componentSources.LexiPluginViewSlot) &&
+    /object: LexiPluginManager\.shared!\.runtime/.test(componentSources.LexiPluginCodeBlockSlot) &&
+    /object: this\.manager\.sandboxProxy/.test(componentSources.LexiSandboxContainerHost));
+  ok('M4.15 端口帧/沙箱容器页经 callFromPort→call 同一漏斗',
+    /callFromPort\('sbx-' \+ gateway\.requestId/.test(runtimeSrc) &&
+    /callFromPort\('ctxport-' \+ gateway\.requestId/.test(runtimeSrc));
+  ok('M4.16 runtime 持有 shared Gateway 且 broker 字段降级为转发访问器',
+    /readonly rpcGateway: LexiRpcGateway = LexiRpcGateway\.shared/.test(runtimeSrc) &&
+    /get broker\(\): LexiPermissionBroker \{ return this\.rpcGateway\.broker\(\); \}/.test(runtimeSrc) &&
+    /set broker\(replacement: LexiPermissionBroker\) \{ this\.rpcGateway\.attachBroker\(replacement\); \}/.test(runtimeSrc) &&
+    !/broker: LexiPermissionBroker = new LexiPermissionBroker/.test(runtimeSrc));
+  ok('M4.17 call() 入口双闸接线(unknown/schema 先于身份解析)',
+    /const entryReject: string = this\.rpcGateway\.entryReject\(method, payloadJson\);/.test(runtimeSrc) &&
+    /const handler = this\.rpcGateway\.handlerOf\(method\);/.test(runtimeSrc) &&
+    /rpcGateway\.registerHandler\(method, handler/.test(runtimeSrc));
+  ok('M4.18 dispatch 面接线(host→页未知方法显式抛错)',
+    /const surfaceReject: string = this\.rpcGateway\.dispatchSurfaceReject\(method\);/.test(runtimeSrc));
+  ok('M4.19 全应用 broker 构造点对账(bridge 0 / runtime 1=init 注入 / gateway 1=默认)',
+    (bridgeSrc.match(/new LexiPermissionBroker\(/g) || []).length === 0 &&
+    (runtimeSrc.match(/new LexiPermissionBroker\(/g) || []).length === 1 &&
+    (gatewaySrc.match(/new LexiPermissionBroker\(/g) || []).length === 1);
+  ok('M4.20 init 注入仍落 Gateway(唯一实例换血,不另立实例)',
+    /this\.runtime\.broker = new LexiPermissionBroker\(/.test(runtimeSrc));
+  ok('M4.21 委托路径收敛(WorkspaceBridge delegate→runtime.call→Gateway)',
+    /manager\.runtime\.call\('', method, JSON\.stringify\(forwarded\), credential\)/.test(bridgeSrc));
+}
 
 // ---------------------------------------------------------------- 汇总
 console.log('\n[summary] 通过 ' + passed + ' 项 / 失败 ' + failures.length + ' 项');

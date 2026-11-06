@@ -60,12 +60,17 @@ function boot() {
   w.console = Object.assign({}, console, { log: fmt('log'), warn: fmt('warn'), error: fmt('error'), debug: fmt('debug') });
 
   const calls = [];
+  // P1-006b①:dispatch 通道鉴权镜像(生产面 = LexiWebRuntime.mintChannelCredential/admitDispatch)。
+  const dispatchChannel = require('../../scripts/tests/plugin-dispatch-channel.cjs').createDispatchChannel();
   w.lexiHost = {
     call(callId, method, raw, token) {
       let payload = {};
       try { payload = JSON.parse(raw || '{}'); } catch (e) { payload = {}; }
       calls.push({ method, token: token || '', payload: Object.keys(payload) });
       return Promise.resolve(JSON.stringify({ ok: true, result: answer(method, payload, state) }));
+    },
+    admitDispatch(credential, method, payloadJson) {
+      return dispatchChannel.admitDispatch(credential, method, payloadJson);
     }
   };
 
@@ -84,7 +89,7 @@ function boot() {
       return orig.apply(w.LexiReading, arguments);
     };
   }
-  return { w, dom, logs, calls, errors, state, postProcessors, loaded };
+  return { w, dom, logs, calls, errors, state, postProcessors, loaded, dispatchChannel };
 }
 
 // V8 reports new Function bodies two lines lower than the body's own line 1.
@@ -195,7 +200,7 @@ async function run(opts) {
 
 async function runInner(opts, rejections) {
   opts = opts || {};
-  const { w, logs, calls, errors, state, postProcessors, loaded } = boot();
+  const { w, logs, calls, errors, state, postProcessors, loaded, dispatchChannel } = boot();
   const result = {
     fixture: {
       main: sha256(path.join(FIXTURE, 'main.js')),
@@ -233,7 +238,9 @@ async function runInner(opts, rejections) {
   const code = fs.readFileSync(path.join(FIXTURE, 'main.js'), 'utf8');
   result.load.attempted = true;
   try {
-    w.lexiRuntime.__receive('load.plugin', JSON.stringify({ manifest, code, token: 'tok-tasks' }));
+    // P1-006b①:合法派发带宿主铸造的一次性通道凭据(绑定 method+payload)。
+    const bootFrame = JSON.stringify({ manifest, code, token: 'tok-tasks' });
+    w.lexiRuntime.__receive('load.plugin', bootFrame, dispatchChannel.mint('load.plugin', bootFrame));
   } catch (err) {
     result.load.dispatchThrew = String(err && err.message);
   }

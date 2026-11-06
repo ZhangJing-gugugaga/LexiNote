@@ -603,6 +603,60 @@ test('runtime 接线：能力门禁在处理器前面，卸载/回滚/严格索�
   assert.match(text, /if \(this\.wasUninstalled\(entryName\)\) \{ return; \}/, '内置插件落盘前必须先查卸载记录');
 });
 
+// --- 6b. P1-007(R31) RPC 入口归一:单一 Gateway ------------------------------------------
+test('P1-007 RPC 入口归一：五类前门收敛单一 Gateway,入口双闸(unknown/schema)在位', () => {
+  const text = runtimeEts();
+  const gwText = fs.readFileSync(path.join(CORE, 'plugin', 'LexiRpcGateway.ets'), 'utf8');
+  const bridgeText = fs.readFileSync(path.join(WORKSPACE_ETS, 'WorkspaceBridge.ets'), 'utf8');
+  // ① broker 实例归一:runtime 字段降级为转发访问器,桥内第二实例删除——全应用唯一
+  //   授权判定器活在 Gateway(init 注入经 set attachBroker 换血,不另立实例)。
+  assert.match(text, /readonly rpcGateway: LexiRpcGateway = LexiRpcGateway\.shared/,
+    'runtime 必须持有单一 Gateway(LexiRpcGateway.shared)');
+  assert.match(text, /get broker\(\): LexiPermissionBroker \{ return this\.rpcGateway\.broker\(\); \}/,
+    'runtime.broker 必须是转发访问器(P1-007 实例归一)');
+  assert.doesNotMatch(text, /broker: LexiPermissionBroker = new LexiPermissionBroker/,
+    'runtime 不得再自持 broker 字段实例');
+  assert.equal((bridgeText.match(/new LexiPermissionBroker\(/g) || []).length, 0,
+    'WorkspaceBridge 内第二个 broker 实例必须删除(P1-007 两实例合并)');
+  assert.match(bridgeText, /rpcGateway\.authorize\(ctx, method, null\)/,
+    '桥面授权必须经单一 Gateway');
+  assert.equal((gwText.match(/new LexiPermissionBroker\(/g) || []).length, 1,
+    'Gateway 内只允许默认 fail-closed 一个构造点(唯一实例在 Gateway)');
+  // ② 入口双闸:call() 先过 Gateway(未知方法显式拒绝 + 敏感家族 payload schema)。
+  assert.match(text, /const entryReject: string = this\.rpcGateway\.entryReject\(method, payloadJson\);/,
+    'call() 入口必须先过 Gateway 双闸');
+  assert.match(text, /const handler = this\.rpcGateway\.handlerOf\(method\);/,
+    'handler 表必须归 Gateway(handlerOf)');
+  assert.match(gwText, /ERROR_RPC_UNKNOWN_METHOD: string = 'unknown_method'/,
+    '未知方法必须显式机器码(不静默 undefined)');
+  assert.match(gwText, /ERROR_RPC_BAD_REQUEST: string = 'bad_request'/,
+    'schema 违例必须显式机器码');
+  for (const method of ['vault.read', 'vault.modify', 'vault.rename', 'vault.append', 'editor.replace',
+    'editor.applyChanges', 'net.requestUrl', 'commands.add', 'commands.execute', 'data.save']) {
+    assert.ok(gwText.indexOf("'" + method + "'") >= 0, '敏感家族 schema 必须覆盖 ' + method);
+  }
+  // ③ dispatch 面归一:host→页只许投递 Gateway 登记的页侧方法(未知显式抛错)。
+  assert.match(text, /const surfaceReject: string = this\.rpcGateway\.dispatchSurfaceReject\(method\);/,
+    'dispatch 必须经 Gateway 方法面校验');
+  assert.match(gwText, /dispatchSurfaceReject\(method: string\): string/,
+    'dispatch 面策略必须活在 Gateway');
+  // ④ 五类前门收敛:三个 javaScriptProxy 面绑 runtime/sandboxProxy;端口帧与容器页经
+  //   callFromPort→call;桥 delegate→runtime.call;每条路都过 entryReject+authorize。
+  const compSrc = (name) => fs.readFileSync(
+    path.join(REPO_ROOT, 'entry', 'src', 'main', 'ets', 'components', 'plugin', name + '.ets'), 'utf8');
+  const hostSrc = compSrc('LexiPluginRuntimeHost');
+  const viewSrc = compSrc('LexiPluginViewSlot');
+  const codeblockSrc = compSrc('LexiPluginCodeBlockSlot');
+  const sandboxSrc = compSrc('LexiSandboxContainerHost');
+  assert.match(hostSrc, /object: this\.manager\.runtime,\s*\n\s*name: 'lexiHost',[\s\S]{0,240}methodList: \['call', 'admitDispatch'\]/,
+    'runtime 页 proxy 必须绑 manager.runtime(call+admitDispatch)');
+  assert.match(viewSrc, /object: LexiPluginManager\.shared!\.runtime/, '视图页 proxy 必须绑 runtime');
+  assert.match(codeblockSrc, /object: LexiPluginManager\.shared!\.runtime/, '代码块页 proxy 必须绑 runtime');
+  assert.match(sandboxSrc, /object: this\.manager\.sandboxProxy/, '沙箱容器页 proxy 必须绑 sandboxProxy');
+  assert.match(bridgeText, /manager\.runtime\.call\('', method, JSON\.stringify\(forwarded\), credential\)/,
+    '桥 delegate 必须转发 runtime.call(Gateway 漏斗)');
+});
+
 // --- 7. P5-004 安装不再自动 enable:授权清单展示 → 用户同意 → 启用 ---------------------
 function runtimeEts() {
   return fs.readFileSync(path.join(CORE, 'plugin', 'LexiPluginRuntime.ets'), 'utf8');

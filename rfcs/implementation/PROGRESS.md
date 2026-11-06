@@ -766,3 +766,33 @@ release-gate 29/29 ×2、bridge-security 50、context-isolation 82、shim-reg 12
 **R31 = P1-007**（双 broker 归一单 Gateway,契约对账）。
 
 最近更新时间：2026-11-07（Round 30）。
+
+## Round 31 — 2026-11-07（P1-007 RPC 入口归一 → 离线全绿；100% 口径按传输面如实裁定）
+
+### 本轮完成
+
+1. **单一 Gateway 模块（新 `entry/src/main/ets/core/plugin/LexiRpcGateway.ets`，纯逻辑零 @kit）**：`LexiRpcGateway.shared` 单例（与 LexiPluginManager.shared 同纪律）持有 ①全应用唯一 `LexiPermissionBroker` 实例 ②页侧 handler 表 ③敏感家族 payload schema 表 ④host→页 dispatch 面方法注册表。Gateway 是漏斗——handler 全部原位保留（registerHandler 调用点零改动），不是 handler 重写。
+2. **两 broker 实例合并**：runtime 侧 `LexiWebRuntime.broker` 从自持字段降级为转发访问器（get→`rpcGateway.broker()`，set→`attachBroker`；init 处 `this.runtime.broker = new LexiPermissionBroker(...fsAllowedByManifest...capabilityAllowedFor...)` 注入点文本与语义不变，落点是 Gateway）；bridge 侧 `WorkspaceBridge` 的第二个 `LexiPermissionBroker` 实例删除，`bridgeAuthorize` 改走 `LexiRpcGateway.shared.authorize`。桥面语义不变的依据（Track2 范围裁定）：桥面方法仅 public/control-plane/demo-plugin 三类，fs/capability 两个 seam 在这三类从不触发，与旧桥内实例（默认 fail-closed）判定逐格一致；delegate 业务方法在 `runtime.call` 内本就过同一矩阵（此前双重裁决，现收敛一处）——**评估模型/装载门 pluginLoadRefusal 零改动，P1-004 残余不变**。
+3. **入口双闸（先于身份解析与 authorize）**：①未知方法显式拒绝——机器码 `unknown_method`（原 failResponse 无码，升级为机器可读），不再静默 undefined；②payload schema 校验——机器码 `bad_request`，覆盖敏感家族 fs/vault（vault.read/getByPath/modify/create/delete/rename/append）、editor（replace/selection/applyChanges）、network（net.requestUrl）、commands（add/remove/execute）、data（save）、metadata.get；必需字段+类型从既有 handler 真实消费键推导（rpcString/rpcNumber/Array.isArray），与 shim/视图页/工作区页实际发送形状逐条对齐——合法流量零拦截，域级复核（fsAuthorizer/capabilityGate/fsGate/LexiNetProbe 白名单/editorReplaceGate）全部原样保留。
+4. **dispatch 面归一**：`dispatch()` 新增 Gateway 方法面校验（load/unload.plugin、invoke.*、event、settings.values），未知页侧方法显式抛错（宿主内部调用点拼写错误启动即暴露）；admitDispatch 核销口原位保留（bridge-security R8a-d 锚不动）。
+5. **门禁**：authz-matrix **70→93**（M3.6 改判「桥面接单一 Gateway、桥内无第二实例」+新 M4 段：真实转译 Gateway 的 unknown_method/schema 行为级负例 8 族+正例对账+authorize 单一收口+dispatch 面+收敛静态 21 项）；dist-regression **38→39**（P1-007 接线对账：五类前门收敛/broker 构造点对账 bridge 0·runtime 1·gateway 1/入口双闸/dispatch 面）；contract-matrix symbols.json 2 处行号漂移手修（:1719→:1740、:1521→:1542，按门禁提示逐条照抄）。**release-gate 29/29 ×2**（新 HAP 落地后复跑）+ assembleHap BUILD SUCCESSFUL。
+
+### 100% 口径（如实裁定）
+
+五类传输前门全部经单一 Gateway：①`lexiHost.call` javaScriptProxy（LexiPluginRuntimeHost / LexiPluginViewSlot / LexiPluginCodeBlockSlot 三绑定面）→`LexiWebRuntime.call`→entryReject+authorize；②`sandboxHost.call`→`handleSandboxProxyCall`→adjudicate→callFromPort→call；③context port 帧→`handleContextPortFrame`→同②；④dispatch（host→页）+`admitDispatch`（一次性通道凭据核销,不达 handler）——dispatch 面注册表进 Gateway,核销后页内回调若回呼宿主则再经①；⑤WorkspaceBridge 桥面（bridgeAuthorize→shared.authorize）+delegate（→runtime.call→Gateway）。工作区页 `hello` 握手 poke（一次性,非方法分发）不在 RPC 面。Track2 装载门/评估模型未动（P1-004 域）。
+
+### 实际执行的测试
+
+release-gate 29/29 ×2、authz-matrix 93、dist-reg 39/39、bridge-security 50、context-isolation 82、context-registry 15、shim-reg 12、identity-delivery、contract-tripod、extension-ownership、inspector、workspace-api、error-visible、net-request-url、core-regression、workspace-tools-regression、workspace-note-open、contract-matrix(--fixtures-required)、assembleHap PASS。
+
+### 预存红（与本轮无关,HEAD 对照核实）
+
+- `plugin-route-coverage`：editor.replace/selection/applyChanges 报「未登记孤儿」——R27 起 editor shim 调用点走 `_apply` 间接,非本轮引入（handler 集合与 HEAD 逐字一致,git show 对照）。
+- `input-robustness-evidence`：A2/A3/A4 设备证据项（2026-11-02 会话缺 editor.change 事件）——门禁只读该日 hilog 证据,不读本轮源码。
+- `plugin-tasks-compat`：PENDING（3 项 pending,夹具态）。
+
+### 下一轮
+
+**R32 = P1-008 + P2-009**（销毁闭环 SEC-009/013 自动化;quarantine 由安全事件触发可达）。
+
+最近更新时间：2026-11-07（Round 31）。
