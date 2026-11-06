@@ -1,4 +1,6 @@
 import { LexiPluginManager } from '../core/plugin/LexiPluginRuntime';
+import { LexiInstalledPlugin, LexiPluginManifest } from '../core/plugin/LexiPluginManifest';
+import { resolvePluginTrack, TRACK_REFUSED } from '../core/plugin/LexiPluginTrackPolicy';
 import { mintCredential } from '../core/plugin/LexiCredentialFactory';
 import { LexiCallerContext, LexiCallerRole, LexiPermissionBroker } from '../core/plugin/LexiPermissionBroker';
 import { LexiNoteChange } from '../core/plugin/LexiPluginBus';
@@ -48,6 +50,10 @@ const ERR_UNKNOWN_THEME: string = 'unknown_theme';
 const ERR_INSTALL_FAILED: string = 'install_failed';
 const ERR_NOTE_NOT_FOUND: string = 'note_not_found';
 const ERR_WRITE_FAILED: string = 'write_failed';
+/** P1-011(S1):装载门 ① 轨政策拒绝(沙箱声明插件 / legacy 轨停用开关关死)。 */
+const ERR_PLUGIN_TRACK_REFUSED: string = 'plugin_track_refused';
+/** P1-011(S1):装载门 ② 授权同意缺失(未启用 / 声明型清单授权态非 granted)。 */
+const ERR_PLUGIN_CONSENT_REQUIRED: string = 'plugin_consent_required';
 
 /** theme.config / theme.list 的应答形状:安装源 + 已装主题 + 当前激活项。 */
 interface WorkspaceThemeListData {
@@ -535,6 +541,14 @@ export class WorkspaceBridge {
       WorkspaceLog.warn('plugin.load', 'unknown plugin id=' + id);
       return this.fail(ERR_UNKNOWN_PLUGIN, '未安装的插件: ' + id);
     }
+    // P1-011(S1/ADR-R29-01):Track2 装载门必须先于一切下发动作(令牌/源码)。
+    // 这条旁路 caller 此前无轨政策查阅、无授权同意检查——已装未授权插件经
+    // plugin.list→plugin.load 在工作区页被自动求值,同时绕过 ADR-R28-01 停用开关。
+    const manager: LexiPluginManager | null = await this.managerReady;
+    const refusal: WorkspaceCallReply | null = this.pluginLoadRefusal(manager, id, entry);
+    if (refusal !== null) {
+      return refusal;
+    }
     const token: string = this.mint('tk');
     this.tokens.set(token, entry.id);
     const data: WorkspacePluginDescriptorData = {
@@ -551,6 +565,88 @@ export class WorkspaceBridge {
       'id=' + entry.id + ' version=' + entry.version + ' codeBytes=' + entry.code.length +
         ' tokenTail=' + this.tail(token));
     return this.success(data);
+  }
+
+  /**
+   * P1-011(S1/ADR-R29-01):Track2(workspace 页)plugin.load 装载门——把两道已定案闸门
+   * 接到这条旁路 caller(非新架构,判定全部复用既有机制)。返回 null = 放行。
+   *
+   * 门 ① 轨政策(ADR-R28-01 单一真源 LexiPluginTrackPolicy):工作区页按 ADR-R21-02 无
+   *   iframe 容器(runtime 宿主页形态的跨帧通道真机证伪),沙箱轨在本页结构性不可达
+   *   (sandboxTrackOn 恒 false)。因此:
+   *   - 沙箱声明插件(manifest.sandboxService)在本页没有正确执行面——其代码不得下发,
+   *     也绝不许回落进本页共享求值面;其命令/事件面经既有 manager 端口链,可见视图载体
+   *     收敛归 P4-005/ADR-R29-01 S2;
+   *   - 非沙箱声明插件按 resolvePluginTrack 判定:legacy 轨开关(lexiPluginLegacyTrack)
+   *     关死时,工作区页同样 fail-closed 拒载(此前 R28 停用开关只裁决 runtime 轨)。
+   * 门 ② 授权同意(ADR-R26-01,"未授权插件不能运行"):沿用 manager 既有授权语义——
+   *   - 未启用(record.enabled=false,含 revoked/regrant-required 被 enablePlugin 打回的
+   *     插件)不下发;
+   *   - 声明型清单(capabilitiesDeclared)授权状态必须 granted(permissionStateOf,与设置页
+   *     "开关即同意"同一判定);revoked/not-granted/regrant-required 一律拒绝;
+   *   - v1 无声明清单沿用启用即授权的存量语义,不新增授权面。
+   * 内联 demo 夹具(manifest=null、无 manager 记录)随 HAP 签名分发、不经安装/授权链
+   * (ADR-R26-01 内置白名单同纪律),不套门。
+   *
+   * fail-visible:拒载回明确错误码+可读信息(页面 bundle 落 plugin.obsidian.error),
+   * 绝不静默缺席——这正是 plugin.list 仍列出已装插件、由本门在 load 时拒绝的原因;
+   * errorState 的权威记录仍归 enablePlugin 语义,本门只读、不改 manager 状态。
+   */
+  private pluginLoadRefusal(manager: LexiPluginManager | null, id: string,
+    entry: WorkspacePluginEntry): WorkspaceCallReply | null {
+    if (manager === null) {
+      // 宿主未就绪时注册表只可能含内联 demo(loadFromManager 未跑过),无门可套。
+      return null;
+    }
+    let record: LexiInstalledPlugin | null = null;
+    for (const installed of manager.installedPlugins()) {
+      if (installed.manifest.id === id) {
+        record = installed;
+        break;
+      }
+    }
+    if (record === null) {
+      if (entry.manifest !== null) {
+        // 注册表条目带清单 = 来自 manager 目录;manager 已无记录 = 卸载/重扫后的陈旧快照,
+        // 不得借陈旧条目继续下发源码(否则卸载变成绕过本门的通路)。
+        WorkspaceLog.warn('plugin.load.track', 'id=' + id + ' refuse=stale_entry(注册表快照过期)');
+        return this.fail(ERR_UNKNOWN_PLUGIN, '插件已不在宿主注册表中: 工作区注册表快照过期,拒绝下发源码: ' + id);
+      }
+      return null; // 内联 demo:随 HAP 分发,不经安装/授权链(内置白名单同纪律)
+    }
+    const manifest: LexiPluginManifest = record.manifest;
+    // 门 ①-a:沙箱声明插件不发进工作区页(本页无 iframe 容器,ADR-R21-02;视图面归 P4-005)。
+    if (manifest.sandboxService) {
+      WorkspaceLog.warn('plugin.load.track',
+        'id=' + id + ' refuse=sandbox_declared realm=workspace(无 iframe 容器,ADR-R21-02)');
+      return this.fail(ERR_PLUGIN_TRACK_REFUSED,
+        '沙箱轨插件不能在工作区页装载:本页无 per-plugin iframe 容器(ADR-R21-02),' +
+          '其代码不得进入本页求值;可见视图载体收敛归 P4-005');
+    }
+    // 门 ①-b:legacy 共享 realm 轨受 ADR-R28-01 开关约束(单一真源,不内联第二份判定)。
+    const track: string = resolvePluginTrack(manifest.sandboxService, false,
+      manager.isLegacyTrackEnabled() ? 'true' : 'false');
+    if (track === TRACK_REFUSED) {
+      WorkspaceLog.warn('plugin.load.track',
+        'id=' + id + ' refuse=legacy_track_disabled(lexiPluginLegacyTrack=false) fail-closed');
+      return this.fail(ERR_PLUGIN_TRACK_REFUSED,
+        '旧共享 realm 轨已停用(lexiPluginLegacyTrack=false):工作区页同样拒绝下发插件源码(fail-closed)');
+    }
+    // 门 ②:授权同意(ADR-R26-01 语义,与 enablePlugin/设置页同一套状态判定)。
+    if (!record.enabled) {
+      WorkspaceLog.warn('plugin.load.consent', 'id=' + id + ' refuse=not_enabled');
+      return this.fail(ERR_PLUGIN_CONSENT_REQUIRED,
+        '插件未启用:工作区页不下发未启用插件的源码(未授权插件不能运行)');
+    }
+    if (manifest.capabilitiesDeclared) {
+      const state: string = manager.permissionStateOf(id);
+      if (state !== 'granted') {
+        WorkspaceLog.warn('plugin.load.consent', 'id=' + id + ' refuse=not_granted state=' + state);
+        return this.fail(ERR_PLUGIN_CONSENT_REQUIRED,
+          '插件权限尚未授权(当前 ' + state + '):请在授权面板同意后启用(未授权插件不能运行)');
+      }
+    }
+    return null;
   }
 
   private onPluginUnload(token: string): WorkspaceCallReply {

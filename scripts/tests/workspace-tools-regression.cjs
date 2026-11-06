@@ -104,4 +104,24 @@ test('assistant sheet uses the global viewport height and leaves a native margin
 assert.ok(source.includes('.id(`workspace-tools-${this.noteId}`)'));
 assert.ok(source.includes('.id(`workspace-tools-popup-${this.noteId}`)'));
 assert.ok(source.includes('.id(`workspace-body-input-${this.noteId}-${this.continuationOwner}`)'));
+// --- P1-011(R29/S1) Track2 装载门:形状锚(行为级真跑在 plugin-dist-regression §9) ------------
+// WorkspaceBridge.plugin.load 此前无轨政策查阅、无授权同意检查(ADR-R29-01 勘察的核心事实)。
+// 这里钉住桥面源形状:两道已定案闸门(ADR-R28-01 轨政策 / ADR-R26-01 同意门)必须接到这条旁路。
+const bridgeSrc = fs.readFileSync(path.resolve(__dirname, '../../entry/src/main/ets/workspace/WorkspaceBridge.ets'), 'utf8').replace(/\r\n/g, '\n');
+const onLoadSlice = bridgeSrc.slice(bridgeSrc.indexOf('private async onPluginLoad('), bridgeSrc.indexOf('private onPluginUnload('));
+assert.ok(onLoadSlice.length > 0, 'P1-011: onPluginLoad 必须存在');
+assert.ok(onLoadSlice.includes('pluginLoadRefusal('), 'P1-011: onPluginLoad 必须过 Track2 装载门');
+assert.ok(onLoadSlice.indexOf('pluginLoadRefusal(') < onLoadSlice.indexOf("this.mint('tk')"),
+  'P1-011: 装载门必须先于令牌铸造/源码下发');
+assert.ok(bridgeSrc.includes('resolvePluginTrack('), 'P1-011: 轨判定必须走 LexiPluginTrackPolicy 单一真源');
+assert.ok(bridgeSrc.includes('manager.isLegacyTrackEnabled()'), 'P1-011: legacy 开关状态取自 manager(与设置页同一份)');
+assert.ok(bridgeSrc.includes('manifest.sandboxService'), 'P1-011: 沙箱声明插件必须显式拒发(工作区页无 iframe,ADR-R21-02)');
+assert.ok(bridgeSrc.includes('record.enabled'), 'P1-011: 未启用插件不得下发(P5-004)');
+assert.ok(/manifest\.capabilitiesDeclared[\s\S]{0,200}manager\.permissionStateOf\(id\)/.test(bridgeSrc),
+  'P1-011: 声明型清单必须查授权态(与 manager 同一判定面)');
+assert.ok(bridgeSrc.includes("ERR_PLUGIN_TRACK_REFUSED: string = 'plugin_track_refused'"),
+  'P1-011: 轨拒绝必须带机器可读错误码');
+assert.ok(bridgeSrc.includes("ERR_PLUGIN_CONSENT_REQUIRED: string = 'plugin_consent_required'"),
+  'P1-011: 同意拒绝必须带机器可读错误码');
+assert.ok(bridgeSrc.includes('P4-005'), 'P1-011: 沙箱拒绝信息必须指明视图载体收敛去向(P4-005)');
 console.log(`${count} workspace tool regression groups passed`);

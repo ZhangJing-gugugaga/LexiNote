@@ -815,6 +815,239 @@ test('P1-003d SEC 探针进业务路径：夹具随 HAP 内置+首启白名单+�
     '首启白名单必须包含 SEC 探针');
 });
 
+// --- 9. P1-011(R29/S1) Track2(workspace 页)接轨政策与授权门 ------------------------------
+// WorkspaceBridge.plugin.load 此前把每个已装插件的 main.js 直接下发页面求值,同时绕过
+// ADR-R28-01 轨政策(停用开关只在 enablePlugin 裁决)与 ADR-R26-01 同意门——本节把
+// WorkspaceBridge.ets 转译真跑,断言两道闸门在 Track2 生效(ADR-R29-01 S1"轨矩阵扩 Track2 行")。
+const WORKSPACE_ETS = path.join(REPO_ROOT, 'entry', 'src', 'main', 'ets', 'workspace');
+// 桥面日志桩:fail-visible 断言要证明拒载落了日志,不只是回一个错误帧。
+const hilogWarns = [];
+const track2Kits = {
+  '@kit.PerformanceAnalysisKit': {
+    hilog: {
+      debug() {}, info() {}, error() {},
+      warn(domain, tag, fmt, topic) { hilogWarns.push(String(topic)); }
+    }
+  },
+  '@kit.CryptoArchitectureKit': {
+    cryptoFramework: {
+      // 测试桩:随机字节带自增计数,保证桥内铸出的令牌互不相同(tokens 表按令牌键控)。
+      createRandom() {
+        return {
+          generateRandomSync(len) {
+            const arr = new Uint8Array(len);
+            arr[0] = (randCounter & 0xff);
+            arr[1] = ((randCounter >> 8) & 0xff);
+            randCounter += 1;
+            return { data: arr };
+          }
+        };
+      }
+    }
+  },
+  '@kit.AbilityKit': { common: {} },
+  '@kit.CoreFileKit': { fileIo: {} },
+  '@kit.NetworkKit': { http: {} }
+};
+let randCounter = 0;
+
+function loadWorkspaceEts(spec, kits) {
+  const target = path.join(WORKSPACE_ETS, spec + '.ets');
+  const cache = new Map();
+  const loadResolved = (resolved) => {
+    if (!resolved.endsWith('.ets')) { resolved = resolved + '.ets'; }
+    const key = resolved.replace(/\.ets$/, '');
+    if (cache.has(key)) { return cache.get(key); }
+    const exports = {};
+    cache.set(key, exports); // 先占位再执行:相对依赖存在共享引用(WorkspaceLog 等)
+    const js = ts.transpileModule(fs.readFileSync(resolved, 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
+    }).outputText;
+    const module = { exports };
+    vm.runInThisContext('(function(require,module,exports){' + js + '\n})', { filename: resolved })(
+      (name) => {
+        if (kits[name]) { return kits[name]; }
+        if (name.startsWith('.')) { return loadResolved(path.resolve(path.dirname(resolved), name)); }
+        return require(name);
+      }, module, exports);
+    return exports;
+  };
+  return loadResolved(target);
+}
+
+function track2Record(id, sandboxService, capabilitiesDeclared, enabled) {
+  return {
+    manifest: { id, sandboxService, capabilitiesDeclared, name: id, version: '1.0.0' },
+    enabled, errorState: '', dir: '/plugins/' + id, activationId: ''
+  };
+}
+
+function track2Manager(opts) {
+  return {
+    vault: { events: { on() {} } },
+    metadata: null,
+    workspaceEvents: { on() {} },
+    installedPlugins() { return opts.plugins; },
+    isLegacyTrackEnabled() { return opts.legacyTrack !== false; },
+    permissionStateOf(id) { return (opts.grants && opts.grants[id]) || 'not-granted'; },
+    // 目录装载面(loadFromManager)要读清单与源码:桩按安装记录投影,保持全量列出。
+    pluginManifestJson(id) {
+      const record = opts.plugins.find((row) => row.manifest.id === id);
+      return JSON.stringify(record ? { id, name: record.manifest.name, version: record.manifest.version } : { id });
+    },
+    pluginMainCode(id) { return 'module.exports=function(){/*track2-fixture*/};'; }
+  };
+}
+
+async function track2AuthedBridge(manager) {
+  const bridgeMod = loadWorkspaceEts('WorkspaceBridge', track2Kits);
+  const bridge = new bridgeMod.WorkspaceBridge(Promise.resolve(manager), {
+    list() { return []; }, active() { return ''; }, load() { return null; },
+    install() { throw new Error('not used'); }, setActive() {}
+  });
+  const hello = JSON.parse(await bridge.handleText(
+    JSON.stringify({ v: 1, id: 'h1', method: 'channel.hello', payload: {} })));
+  assert.equal(hello.ok, true, 'hello 必须成功(测试脚手架前提)');
+  const auth = JSON.parse(await bridge.handleText(
+    JSON.stringify({ v: 1, id: 'a1', method: 'channel.auth', payload: { nonce: hello.data.nonce } })));
+  assert.equal(auth.ok, true, 'auth 必须成功(测试脚手架前提)');
+  return { bridge, token: auth.data.token };
+}
+
+async function track2Load(bridge, token, id) {
+  return JSON.parse(await bridge.handleText(
+    JSON.stringify({ v: 1, id: 'p1', token, method: 'plugin.load', payload: { id } })));
+}
+
+test('P1-011 Track2 正例不回归:demo 夹具与已启用 legacy 插件照常下发源码', async () => {
+  const manager = track2Manager({ plugins: [
+    track2Record('calendar', false, false, true)
+  ] });
+  const { bridge, token } = await track2AuthedBridge(manager);
+  // plugin.list 仍列出已装插件:拒载可见性(fail-visible)的前提,不得静默缺席。
+  const list = JSON.parse(await bridge.handleText(
+    JSON.stringify({ v: 1, id: 'l1', token, method: 'plugin.list', payload: {} })));
+  assert.equal(list.ok, true);
+  const listed = list.data.plugins.map((row) => row.id);
+  assert.ok(listed.indexOf('lexinote.demo-status') >= 0, '内联 demo 必须在列(工作区 UI 不回归)');
+  assert.ok(listed.indexOf('calendar') >= 0, '已装插件必须在列(拒载可见性前提)');
+  const demo = await track2Load(bridge, token, 'lexinote.demo-status');
+  assert.equal(demo.ok, true, '内联 demo(随 HAP 分发,不经安装/授权链)必须照常装载: ' +
+    JSON.stringify(demo.error || null));
+  assert.ok(demo.data.code.length > 0 && demo.data.token.length > 0, 'demo descriptor 必须含源码与令牌');
+  const legacy = await track2Load(bridge, token, 'calendar');
+  assert.equal(legacy.ok, true, '已启用 legacy 插件(v1 无声明清单,启用即授权存量语义)必须照常装载: ' +
+    JSON.stringify(legacy.error || null));
+  assert.ok(legacy.data.code.length > 0 && legacy.data.manifest, 'descriptor 必须含源码与清单');
+  // 已启用 + 已授权的声明型清单同样放行(与设置页"开关即同意"同一授权语义)。
+  const grantedManager = track2Manager({
+    plugins: [track2Record('v2-ok', false, true, true)],
+    grants: { 'v2-ok': 'granted' }
+  });
+  const grantedBridge = await track2AuthedBridge(grantedManager);
+  const granted = await track2Load(grantedBridge.bridge, grantedBridge.token, 'v2-ok');
+  assert.equal(granted.ok, true, '已启用且授权的 v2 插件必须照常装载: ' + JSON.stringify(granted.error || null));
+});
+
+test('P1-011 门② consent 真跑:未启用/未授权/被撤销插件在工作区页拒载且零源码下发', async () => {
+  hilogWarns.length = 0;
+  const manager = track2Manager({
+    plugins: [
+      track2Record('v2-fresh', false, true, false),   // 安装后从未启用(未授权)
+      track2Record('v2-revoked', false, true, true),  // 曾启用但被用户撤销
+      track2Record('legacy-fresh', false, false, false) // v1 未启用(启用即授权语义下未同意)
+    ],
+    grants: { 'v2-revoked': 'revoked' }
+  });
+  const { bridge, token } = await track2AuthedBridge(manager);
+  for (const [id, why] of [['v2-fresh', '未授权声明型清单'], ['v2-revoked', '已撤销授权'], ['legacy-fresh', '未启用 v1']]) {
+    const reply = await track2Load(bridge, token, id);
+    assert.equal(reply.ok, false, why + ' 必须拒载: ' + JSON.stringify(reply.data || null));
+    assert.equal(reply.error.code, 'plugin_consent_required', why + ' 的拒绝码必须机器可读');
+    assert.ok(reply.error.message.length > 0, '拒绝必须带可读信息(fail-visible)');
+    assert.equal(reply.data === undefined, true, why + ' 拒载时不得携带源码');
+  }
+  // 页面侧可见性通道:拒载必须落桥面日志(WorkspaceLog.warn),不是只回一个静默错误。
+  assert.ok(hilogWarns.indexOf('plugin.load.consent') >= 0,
+    'consent 拒载必须落桥面日志 plugin.load.consent(fail-visible,非静默缺席)');
+});
+
+test('P1-011 门① track 真跑:沙箱声明插件即使已授权已启用也不发进工作区页(P4-005 待收敛)', async () => {
+  hilogWarns.length = 0;
+  const manager = track2Manager({
+    plugins: [track2Record('lexi-sample-plugin', true, true, true)],
+    grants: { 'lexi-sample-plugin': 'granted' }
+  });
+  const { bridge, token } = await track2AuthedBridge(manager);
+  const reply = await track2Load(bridge, token, 'lexi-sample-plugin');
+  assert.equal(reply.ok, false, '沙箱声明插件不得下发工作区页(授权/启用齐全也拒——拒因是轨)');
+  assert.equal(reply.error.code, 'plugin_track_refused', '拒绝码必须机器可读');
+  assert.match(reply.error.message, /P4-005/, '错误信息必须指明视图载体收敛去向(P4-005)');
+  assert.match(reply.error.message, /ADR-R21-02|iframe/, '错误信息必须点名工作区页无 iframe 容器(ADR-R21-02)');
+  assert.equal(reply.data === undefined, true, '拒载不得携带源码');
+  assert.ok(hilogWarns.indexOf('plugin.load.track') >= 0,
+    '轨拒载必须落桥面日志 plugin.load.track(fail-visible,非静默缺席)');
+});
+
+test('P1-011 门① track 真跑:legacy 轨开关关死时工作区页同样 fail-closed(R28 开关覆盖 Track2)', async () => {
+  hilogWarns.length = 0;
+  const manager = track2Manager({
+    legacyTrack: false,
+    plugins: [track2Record('calendar', false, false, true)]
+  });
+  const { bridge, token } = await track2AuthedBridge(manager);
+  const reply = await track2Load(bridge, token, 'calendar');
+  assert.equal(reply.ok, false, '开关关死:已启用 legacy 插件同样拒载(此前只裁决 runtime 轨)');
+  assert.equal(reply.error.code, 'plugin_track_refused');
+  assert.match(reply.error.message, /lexiPluginLegacyTrack=false/, '错误信息必须点名开关(可诊断)');
+  assert.match(reply.error.message, /fail-closed/, '错误信息必须明示 fail-closed 语义');
+  assert.equal(reply.data === undefined, true, '拒载不得携带源码');
+  assert.ok(hilogWarns.indexOf('plugin.load.track') >= 0, '轨拒载必须落桥面日志(fail-visible)');
+});
+
+test('P1-011 边界:卸载后的陈旧注册表条目不得继续下发源码', async () => {
+  const plugins = [track2Record('calendar', false, false, true)];
+  const manager = track2Manager({ plugins });
+  const { bridge, token } = await track2AuthedBridge(manager);
+  const before = await track2Load(bridge, token, 'calendar');
+  assert.equal(before.ok, true, '对照:在册且已启用时照常装载');
+  plugins.length = 0; // 模拟卸载:manager 无记录,而工作区注册表仍是陈旧快照(registryLoaded 缓存)
+  const stale = await track2Load(bridge, token, 'calendar');
+  assert.equal(stale.ok, false, '陈旧条目必须拒载(不得借注册表快照绕过装载门)');
+  assert.equal(stale.error.code, 'unknown_plugin', '陈旧条目按未安装拒绝');
+  assert.equal(stale.data === undefined, true, '陈旧拒载不得携带源码');
+  // 对照:内联 demo 没有清单(非目录条目),不受快照判定影响。
+  const demo = await track2Load(bridge, token, 'lexinote.demo-status');
+  assert.equal(demo.ok, true, 'demo(无清单条目)不受陈旧快照判定影响');
+});
+
+test('P1-011 接线:装载门先于一切下发动作,轨判定走单一真源,同意语义复用 manager', () => {
+  const bridgeText = fs.readFileSync(path.join(WORKSPACE_ETS, 'WorkspaceBridge.ets'), 'utf8');
+  const onLoad = bridgeText.slice(bridgeText.indexOf('private async onPluginLoad('),
+    bridgeText.indexOf('private onPluginUnload('));
+  assert.ok(onLoad.length > 0, 'onPluginLoad 必须存在');
+  const gatePos = onLoad.indexOf('this.pluginLoadRefusal(');
+  const mintPos = onLoad.indexOf("this.mint('tk')");
+  assert.ok(gatePos > 0, 'onPluginLoad 必须过 Track2 装载门(pluginLoadRefusal)');
+  assert.ok(mintPos > gatePos, '装载门必须先于令牌铸造/源码下发(不得先下发再补救)');
+  const gate = bridgeText.slice(bridgeText.indexOf('private pluginLoadRefusal('),
+    bridgeText.indexOf('private onPluginUnload(') > bridgeText.indexOf('private pluginLoadRefusal(')
+      ? bridgeText.indexOf('private onPluginUnload(') : undefined);
+  assert.match(gate, /resolvePluginTrack\(/, '轨判定必须走 LexiPluginTrackPolicy 单一真源(不内联第二份判定)');
+  assert.match(gate, /manager\.isLegacyTrackEnabled\(\)/, 'legacy 开关状态必须取自 manager(与设置页同一份)');
+  assert.match(gate, /manifest\.sandboxService/, '沙箱声明插件必须显式拒发(工作区页无 iframe,ADR-R21-02)');
+  assert.match(gate, /P4-005/, '沙箱拒绝信息必须指明视图载体收敛去向');
+  assert.match(gate, /record\.enabled/, '未启用插件不得下发(P5-004/ADR-R26-01)');
+  assert.match(gate, /manifest\.capabilitiesDeclared[\s\S]{0,200}manager\.permissionStateOf\(id\)/,
+    '声明型清单必须查授权态,且与 manager 同一判定面');
+  assert.match(gate, /ERR_PLUGIN_TRACK_REFUSED/, '轨拒绝必须带机器可读错误码');
+  assert.match(gate, /ERR_PLUGIN_CONSENT_REQUIRED/, '同意拒绝必须带机器可读错误码');
+  // 目录(WorkspacePluginCatalog)保持全量列表:拒载可见性由 load 门负责,静默缺席是禁止形态。
+  const catalogText = fs.readFileSync(path.join(WORKSPACE_ETS, 'WorkspacePluginCatalog.ets'), 'utf8');
+  assert.match(catalogText, /loadFromManager\(manager: LexiPluginManager\): void/,
+    '目录装载面保持(全量列出已装插件,拒绝发生在 load 门,fail-visible)');
+});
+
 test('P2-005/P1-003b 编辑器切片：editor 分级档位接线(域映射+精判+脱敏+沙箱路由)', () => {
   const text = runtimeEts();
   // broker capabilityGate 域映射(方法→档位):state→readActive;selection→writeSelection;
