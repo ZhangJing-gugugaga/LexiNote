@@ -581,7 +581,13 @@ test('runtime 接线：能力门禁在处理器前面，卸载/回滚/严格索�
   assert.match(text, /contextRegistry\.ensureService\(pluginId, activationId\)/, '启用必须注册端口身份(幂等;沙箱轨在 dispatch 前置)');
   assert.match(text, /const revokedContexts = this\.contextRegistry\.revokePlugin\(pluginId\);/,
     '停用必须吊销端口身份(P2-010 联动)');
-  assert.match(text, /tokenForPlugin\(gateway\.identity\)/, '端口身份必须经既有 credential 链进 call()');
+  // P1-005(R30):端口身份纯端口化——调用点只传 contextRegistry 反查身份,凭据在
+  // callFromPort 宿主内部补铸(旧形态 tokenForPlugin(gateway.identity) 出现在调用点
+  // = 凭据表达式回流,红;验收行:插件侧报文不含任何身份字段,身份仅由端口解析)。
+  assert.match(text, /callFromPort\('ctxport-' \+ gateway\.requestId, gateway\.method, gateway\.payloadJson, gateway\.identity\)/,
+    '端口帧身份必须经 callFromPort 进既有调用链(P1-005 身份纯端口化)');
+  assert.doesNotMatch(text, /tokenForPlugin\(gateway\.identity\)/,
+    '端口调用点不得出现凭据表达式(credential 第 4 参经页面形态已废弃;补铸收口在 callFromPort)');
   // 真机 KI-4:运行时安装的插件在 enablePlugin 前必须经 scanPluginDir 落 installed,
   // 否则生命周期表判 discovered→starting 非法迁移,"装得上却永不 onload"。
   const scan = text.slice(text.indexOf('private async scanPluginDir('), text.indexOf('private readTextFile('));

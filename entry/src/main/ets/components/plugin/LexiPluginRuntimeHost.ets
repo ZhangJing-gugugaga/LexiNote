@@ -65,7 +65,9 @@ export struct LexiPluginRuntimeHost {
         .javaScriptProxy({
           object: this.manager.runtime,
           name: 'lexiHost',
-          methodList: ['call'],
+          // P1-006b①:admitDispatch 是 __receive 门卫的同步核销口(一次性通道凭据,
+          // 单次有效+method/payload 绑定)——派发回调执行前必须先过它。
+          methodList: ['call', 'admitDispatch'],
           controller: this.webController
         })
         .onPageEnd((): void => { this.openContextPort(); })

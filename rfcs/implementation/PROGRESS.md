@@ -739,3 +739,30 @@ install 19/0、upgrade 11/0、rollback 7/0、uninstall 6/0（evidence `20261107-
 **R30 = P1-005 + P1-006b**（身份纯端口化 + __receive dispatch 鉴权）——前提:HUMAN_QUEUE#3 对 ADR-R29-01 完成评审;若 S1（Track2 轨政策收口,纯 ArkTS）获批,可与 R30 并行排入（本 ADR 编排节）。
 
 最近更新时间：2026-11-07（Round 29）。
+
+---
+
+## Round 30 — 2026-11-07（P1-011 S1 + P1-005 + P1-006b → 离线全绿 + 设备链定案；P1-011 Track2 负例设备项受 P2-013 阻）
+
+### 本轮完成
+
+1. **R30-A/P1-011 S1（b005813）**：Track2 双旁路闸（详前报）。设备：boot 健康零拒收误伤。
+2. **R30-B/P1-005 身份纯端口化**：新增 `LexiWebRuntime.callFromPort(callId,method,payload,identity)` 为端口链唯一入口（contextRegistry 反查身份，凭据宿主内存补铸**绝不经过页面**）；两个端口调用点凭据表达式清零（dist-reg `doesNotMatch` 钉死）；兼容定案=credential 第 4 参经页面形态仅剩 legacy 轨（随 `lexiPluginLegacyTrack` 整体退役,TRACK_REFUSED 先于载荷构建,S40f 钉源序）+ Track2 委托（本轮未动,归 P1-004/R31）。
+3. **R30-B/P1-006b**：`dispatch()` 每次铸造一次性通道凭据（CSPRNG,method+payload 双绑定,60s TTL）→ shim 门卫经 **`lexiHost.admitDispatch` javaScriptProxy 同步核销口**首用即烧毁——裸调/伪凭据/重放/换绑定 fail-closed（残余:同 realm 猴补可抢先原样重放一次=ADR-R25-01 定案3 同信任级,登记在案）；`setSessionToken` 写一次定死（容器引导链绑定,异值拒绝/同值幂等/跨上下文 fail-closed）。
+4. **门禁**：bridge-security **50**（+16:R8 静态+9 行为级 SEC-007 负例）、context-isolation **82**（+S40a-f）、shim-regression **12**（+3 负例）、dist-reg **38/38**（协议锚升级,强于旧断言）、authz 70、**release-gate 29/29 ×2**（主线独立复跑）、构建绿。symbols.json 8 锚手修。
+
+### 真机（lexi_2in1,bm clean 首启）
+
+- 5 插件 onload、7 命令注册、**零 dispatch 拒收误伤**（合法路径凭据链透明）。
+- 编辑器命令端到端：`派发编辑器命令`→容器→iframe→`editor.replace`（identity=ctx 端口链）→**CEF 日志实证 `admitDispatch` javaScriptProxy 同步核销发生**→ok→data.json `{"writes":1,"lastWrite":{"textAfter":"〔〕"}}`。
+- Track2 拒载负例设备复现受 **P2-013**（Toggle 多次触发,UI 无法稳定置位）阻——离线 vm 行为级 6 用例为凭据,登记残差。
+
+### 实际执行的测试
+
+release-gate 29/29 ×2、bridge-security 50、context-isolation 82、shim-reg 12、dist-reg 38/38、assembleHap PASS、真机如上。
+
+### 下一轮
+
+**R31 = P1-007**（双 broker 归一单 Gateway,契约对账）。
+
+最近更新时间：2026-11-07（Round 30）。

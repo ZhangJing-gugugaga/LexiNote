@@ -49,6 +49,7 @@
 - 兼容性影响：**旧插件若曾直接调 `window.LexiObsidian.hostCall(...)`（不合规写法）将失效**——这正是 RFC §3.5 禁止形态；合规插件（正规 API 面）经 wrapper/api-root/captured 三类通道身份不变，identity-delivery 30/30 traced。Round 8 真机对照：onload/adapter-probe/匿名拒绝基线一致；cap-probe 证据锚点(cap.identity.forged capability_denied / self allowed=true)经正规 API 路径保持可产出。
 - 残余风险(登记)：同 realm 下 `window.lexiRuntime.__receive` 仍可被他插件调用以触发 `invoke.command`(跨插件回调执行)——修复需 dispatch 通道鉴权(涉及 .ets 协议面),列 **P1-006b**;`setSessionToken` 仍可被他插件乱写(DoS 宿主回话,非提权),同场登记。
 - 复审:P1-003 沙箱落地后 __receive 面自然消失,本 ADR 残余风险随之关闭。
+- **R30 收口记录(P1-006b,离线 IMPLEMENTED 待设备批次)**:两项残余风险已关闭——①dispatch 通道鉴权:`LexiWebRuntime.dispatch` 每次派发铸造一次性通道凭据(mintCredential('dc'),method+payload 双绑定,凭据只存在于本次 runJavaScript 表达式,不落任何页面可读/可枚举面),shim `__receive` 门卫执行回调前必须经 `lexiHost.admitDispatch`(javaScriptProxy 同步核销口,首条核销申请即烧毁,重放/换绑定 fail-closed)——裸调/伪凭据/重放/换方法换载荷全部关闭(SEC-007 负例族 vm 行为级进门禁,bridge-security R8 + shim-regression dispatch 通道负例);**残余(与 ADR-R25-01 定案3 require 令牌同一信任级)**:同 realm 在途截获(猴补 __receive/lexiHost 拦截宿主表达式)仍可让单次派发失效(DoS)或抢在合法消费前原样重放一次,payload 绑定保证内容不可伪造——共享 realm 的平台极限,彻底关闭归沙箱轨(legacy 轨停用后 legacy dispatch 整体消失);②`setSessionToken` 作用域写一次定死(shim 闭包 `sessionTokenBound`):合法写入者只有容器引导链(channel.auth 后先于任何插件装载),首个非空令牌绑定本 realm 会话作用域,绑定后异值后写/清空一律拒绝(跨上下文写入 fail-closed),同值幂等放行——插件的会话 DoS 面关闭(门禁 bridge-security R8f/R8h + shim-regression)。P1-005 同轮把端口链调用点凭据表达式清零(callFromPort,身份纯端口化)。
 
 ## ADR-R18-01 执行上下文模型定案（P1-002）与 P1-003 实施切分
 

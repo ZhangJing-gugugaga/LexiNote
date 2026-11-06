@@ -252,6 +252,44 @@ if (fs.existsSync(PROBE_JS)) {
   }
 }
 
+// ------------------------------------------------- S40 P1-005 身份纯端口化(R30,验收行:插件侧报文不含任何身份字段)
+console.log('== S40 P1-005 身份纯端口化(端口↔身份绑定,报文零身份字段) ==');
+{
+  // 沙箱链(端口化主路径)逐跳载荷捕获:iframe init / iframe→容器 request / 容器→宿主
+  // 网关帧,任何一跳都不得出现凭据/身份字段 —— 身份只在宿主 contextRegistry 反查。
+  const containerSrc = fs.readFileSync(path.join(RAWFILE, 'lexinote_sandbox_container.js'), 'utf8');
+  const sandboxSrc = fs.readFileSync(SANDBOX_HTML, 'utf8');
+  ok('S40a 容器→iframe init 载荷零凭据字段',
+    !/token|activationId|credential/.test((containerSrc.match(/type: 'sandbox\.init'[\s\S]{0,220}/) || ['x']) [0]) &&
+    /contextId: contextId,\s*plugin: \{ code: boot\.code, manifestJson: boot\.manifestJson \}/.test(containerSrc),
+    'init 帧只允许 contextId+装载物;凭据绝不进 iframe(ADR-R18-01 定案2)');
+  ok('S40b 容器→宿主网关帧只带 contextId+协议字段',
+    /dispatchToHost\(matched, \{\s*v: 1, type: 'request',\s*id: String\(data\.requestId \|\| ''\),\s*method: String\(data\.method \|\| ''\),\s*payload: \(data\.params === undefined \? \{\} : data\.params\)\s*\}\)/.test(containerSrc) &&
+    !/token|credential|pluginId/.test((containerSrc.match(/->arkts[\s\S]{0,400}?\}\);/) || ['x'])[0]),
+    '容器覆写 contextId(event.source 反查),帧构造不得混入任何身份/凭据字段');
+  ok('S40c 沙箱 iframe 请求帧零身份字段',
+    !/token|credential|pluginId/.test((sandboxSrc.match(/function request\(method, params\) \{[\s\S]{0,600}parentRequest\(method, params\)/) || ['x'])[0]) &&
+    /\{ type: 'sandbox\.request', requestId: requestId, method: method, params: params \|\| \{\}\s*\}/.test(sandboxSrc),
+    '插件侧请求帧只有 requestId/method/params;身份由宿主端口表反查');
+  const runtimeSrc = fs.readFileSync(path.join(ROOT, 'entry/src/main/ets/core/plugin/LexiPluginRuntime.ets'), 'utf8');
+  const portFrameBody = (runtimeSrc.match(/handleContextPortFrame\(data: string\): void \{[\s\S]*?\n  \}/) || [''])[0];
+  const sandboxProxyBody = (runtimeSrc.match(/handleSandboxProxyCall\(frameJson: string\): void \{[\s\S]*?\n  \}/) || [''])[0];
+  ok('S40d 宿主端口链调用点零凭据表达式(callFromPort 裁决)',
+    portFrameBody.indexOf('callFromPort(') >= 0 && sandboxProxyBody.indexOf('callFromPort(') >= 0 &&
+    portFrameBody.indexOf('tokenForPlugin(') < 0 && sandboxProxyBody.indexOf('tokenForPlugin(') < 0,
+    '身份 = contextRegistry 记录反查;凭据只在 callFromPort 宿主内部补铸,不经过页面');
+  ok('S40e 沙箱轨 boot 载荷零凭据字段(与 legacy 轨分流)',
+    !/'token'/.test((runtimeSrc.match(/const sandboxBoot: Record<string, Object> = \{[\s\S]*?\};/) || ['x'])[0]),
+    'dispatchSandboxBoot 载荷只有 contextId/pluginId/code/manifestJson,无任何凭据');
+  // legacy 轨(ADR-R28-01 过渡保留)的 credential 第 4 参经页面形态必须死在轨道门后:
+  // TRACK_REFUSED 分支先于 load.plugin 载荷构建 —— 开关关闭时该形态整体消失。
+  const refusedAt = runtimeSrc.indexOf('track === TRACK_REFUSED');
+  const tokenPayloadAt = runtimeSrc.indexOf("'token': token as Object");
+  ok('S40f legacy 凭据形态受轨道门约束(TRACK_REFUSED 先于载荷下发)',
+    refusedAt >= 0 && tokenPayloadAt > refusedAt,
+    'load.plugin 的 token 字段只允许存在于 legacy 轨分支(开关 false 时整体不派发,形态退役)');
+}
+
 // ---------------------------------------------------------------- E1/E2 vm 求值探针
 console.log('== E* vm 求值恶意探针 ==');
 function probeSource() {

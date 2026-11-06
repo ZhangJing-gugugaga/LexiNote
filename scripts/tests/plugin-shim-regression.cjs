@@ -2,6 +2,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
+const { createDispatchChannel }=require('./plugin-dispatch-channel.cjs');
 
 const root=path.resolve(__dirname,'../../entry/src/main/resources/rawfile');
 const shimSource=fs.readFileSync(path.join(root,'lexinote_plugin_shim.js'),'utf8');
@@ -21,6 +22,10 @@ async function until(condition,label){
 const calls=[];
 const savedData=[];
 let hostEventRef=0;
+// P1-006b①:宿主侧 dispatch 通道凭据镜像(一次性,method+payload 绑定;生产实现在
+// LexiWebRuntime.mintChannelCredential/admitDispatch)。dispatch 助手凭它走合法链路,
+// 负例用例据此钉死裸调/重放/换绑定 fail-closed。
+const dispatchChannel=createDispatchChannel();
 // 宿主文件清单提到模块级:makeHost 的 vault.files 应答与启动预热的事件回放共用一份事实源。
 const hostFiles=[
  {kind:'file',path:'/我的工作区/日常记录 / 日记/日记.md',name:'日记.md',basename:'日记',extension:'md',noteId:'a1',vaultId:'v1',stat:{ctime:1,mtime:2,size:10}},
@@ -37,6 +42,11 @@ function makeHost(){
    else if(method==='events.on'){result=++hostEventRef;}
    else if(method==='app.isDarkMode'){result=true;}
    return Promise.resolve(JSON.stringify({ok:true,result}));
+  },
+  // P1-006b①:__receive 门卫的核销口(生产面 = LexiWebRuntime.admitDispatch 经
+  // javaScriptProxy methodList 暴露)。
+  admitDispatch(credential,method,payloadJson){
+   return dispatchChannel.admitDispatch(credential,method,payloadJson);
   }
  };
 }
@@ -183,8 +193,10 @@ vm.runInThisContext(shimSource,{filename:'lexinote_plugin_shim.js'});
 const runtime=global.window.lexiRuntime;
 assert.ok(runtime,'shim 必须注册 window.lexiRuntime');
 
+// P1-006b①:合法派发 = 宿主铸造一次性通道凭据(绑定 method+payload)随帧进 __receive 门卫。
 async function dispatch(method,payload){
- runtime.__receive(method,JSON.stringify(payload));
+ const frame=JSON.stringify(payload);
+ runtime.__receive(method,frame,dispatchChannel.mint(method,frame));
  await tick();
 }
 
@@ -382,7 +394,13 @@ const tests=[
     getElementById:()=>null,
     head:mount
   };
-  sandbox.window.lexiHost={call(){return Promise.resolve(JSON.stringify({ok:true,result:null}));}};
+  const injectChannel=createDispatchChannel();
+  sandbox.window.lexiHost={
+    call(){return Promise.resolve(JSON.stringify({ok:true,result:null}));},
+    admitDispatch(credential,method,payloadJson){
+      return injectChannel.admitDispatch(credential,method,payloadJson);
+    }
+  };
   vm.createContext(sandbox);
   vm.runInContext(shimSource,sandbox,{filename:'lexinote_plugin_shim.js'});
   const injectedRuntime=sandbox.window.lexiRuntime;
@@ -393,7 +411,8 @@ const tests=[
     "module.exports = class InjectProbe extends Plugin {\n"+
     "  async onload(){ __capture(require('obsidian') === require('lexinote')); }\n"+
     "};";
-  injectedRuntime.__receive('load.plugin',JSON.stringify({manifest:{id:'inject-probe'},code:injectProbe}));
+  const injectFrame=JSON.stringify({manifest:{id:'inject-probe'},code:injectProbe});
+  injectedRuntime.__receive('load.plugin',injectFrame,injectChannel.mint('load.plugin',injectFrame));
   await until(()=>captured!==null,'injection channel onload');
   assert.equal(captured,true,'require 闭包必须在装载完成后依然可用(obsidian===lexinote)');
   const wrapped=injected.filter((text)=>text.indexOf('/* lexi-iife:v1 */')===0);
@@ -403,6 +422,65 @@ const tests=[
     '注册表交付项必须在装载后被消费(不残留)');
   assert.ok(!sandbox.window.__lexiScriptInjectOk,
     '探测标记必须被清理');
+ }],
+ // P1-006b①(ADR-R10-01 残余风险①/SEC-007 负例族):__receive 门卫。同 realm 插件
+ // 裸调 __receive 触发 invoke.command 跨插件回调执行的历史攻击面,在通道鉴权后必须
+ // 全部 fail-closed —— 裸调(无凭据)、伪凭据、重放(已核销)、换方法/换载荷(绑定不符)。
+ ['dispatch channel: forged __receive without or with fake credential is fail-closed (P1-006b① SEC-007)',async()=>{
+  let ran=false;
+  global.__capture=(value)=>{ if(value==='forged-cmd') { ran=true; } };
+  const probe=`module.exports = class extends require('obsidian').Plugin {
+    async onload(){
+      this.addCommand({ id:'forged', name:'forged', callback: () => { __capture('forged-cmd'); } });
+    }
+  };`;
+  await dispatch('load.plugin',{manifest:{id:'forge-probe'},code:probe});
+  await until(()=>calls.some(c=>c.method==='commands.add'&&c.payload.pluginId==='forge-probe'),'commands.add');
+  runtime.__receive('invoke.command',JSON.stringify({fullId:'forge-probe:forged'}));
+  await tick();await tick();
+  assert.equal(ran,false,'无凭据裸调 __receive 不得执行任何命令回调');
+  runtime.__receive('invoke.command',JSON.stringify({fullId:'forge-probe:forged'}),'dc-forged-not-host-minted');
+  await tick();await tick();
+  assert.equal(ran,false,'非宿主铸造的伪凭据同样 fail-closed');
+  await dispatch('unload.plugin',{id:'forge-probe'});
+ }],
+ ['dispatch channel: one-shot credential burns on admit; replay and re-binding fail (P1-006b①)',async()=>{
+  let runs=0;
+  global.__capture=(value)=>{ if(value==='oneshot-cmd') { runs+=1; } };
+  const probe=`module.exports = class extends require('obsidian').Plugin {
+    async onload(){
+      this.addCommand({ id:'oneshot', name:'oneshot', callback: () => { __capture('oneshot-cmd'); } });
+    }
+  };`;
+  await dispatch('load.plugin',{manifest:{id:'oneshot-probe'},code:probe});
+  await until(()=>calls.some(c=>c.method==='commands.add'&&c.payload.pluginId==='oneshot-probe'),'commands.add');
+  const frame=JSON.stringify({fullId:'oneshot-probe:oneshot'});
+  const credential=dispatchChannel.mint('invoke.command',frame);
+  runtime.__receive('invoke.command',frame,credential);
+  await until(()=>runs===1,'合法派发执行一次');
+  runtime.__receive('invoke.command',frame,credential);
+  await tick();await tick();
+  assert.equal(runs,1,'已核销凭据重放必须 fail-closed(单次有效)');
+  const eventFrame=JSON.stringify({topic:'vault',name:'x',payload:null});
+  const eventCredential=dispatchChannel.mint('event',eventFrame);
+  runtime.__receive('invoke.command',frame,eventCredential);
+  await tick();await tick();
+  assert.equal(runs,1,'换方法盗用凭据必须 fail-closed(绑定不符)');
+  runtime.__receive('event',eventFrame,eventCredential);
+  await tick();
+  assert.equal(runs,1,'换方法盗用即烧毁,凭据回正确方法也不得再通过');
+  await dispatch('unload.plugin',{id:'oneshot-probe'});
+ }],
+ // P1-006b②(ADR-R10-01 残余风险②):setSessionToken 作用域收口 —— 页面会话作用域
+ // 写一次定死,绑定后的异值后写(同 realm 插件乱写/清空,DoS 宿主回话)fail-closed 拒绝。
+ ['setSessionToken scope: cross-context overwrite fails, same-value idempotent (P1-006b②)',async()=>{
+  const face=global.window.LexiObsidian;
+  assert.equal(face.setSessionToken('st-unit-abcdef12'),true,'首次注入放行');
+  assert.equal(face.setSessionToken('st-evil-000000'),false,'绑定后异值后写必须拒绝');
+  assert.equal(face.stats().sessionTokenTail,'cdef12','拒绝后原会话凭据保持不变(尾部 6 位)');
+  assert.equal(face.setSessionToken('st-unit-abcdef12'),true,'同值幂等重放放行');
+  assert.equal(face.setSessionToken(''),false,'清空(异值)同样拒绝');
+  assert.equal(face.stats().sessionTokenTail,'cdef12','清空被拒后原值仍在');
  }]
 ];
 (async()=>{
@@ -412,7 +490,8 @@ const tests=[
  // 经宿主→运行时的公共事件通道回放两笔记(L296-308:topic=vault 事件同步维护
  // knownFiles),让 sample-notice 的统计断言有确定输入。
  for(const file of hostFiles){
-  runtime.__receive('event',JSON.stringify({topic:'vault',name:'create',payload:{file:file}}));
+  const warmFrame=JSON.stringify({topic:'vault',name:'create',payload:{file:file}});
+  runtime.__receive('event',warmFrame,dispatchChannel.mint('event',warmFrame));
  }
  let failed=0;
  for(const[name,run]of tests){

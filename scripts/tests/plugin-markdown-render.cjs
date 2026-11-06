@@ -7,6 +7,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { createDispatchChannel } = require('./plugin-dispatch-channel.cjs');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const RAWFILE = path.join(REPO, 'entry', 'src', 'main', 'resources', 'rawfile');
@@ -47,6 +48,8 @@ function boot(scripts) {
   const { JSDOM } = require(require.resolve('jsdom', { paths: [path.join(REPO, 'tools', 'reading-bundle')] }));
   const logs = [];
   const calls = [];
+  // P1-006b①:每次 boot 配一个 dispatch 通道(铸造+核销对)。
+  const dispatchChannel = createDispatchChannel();
   const dom = new JSDOM(
     fs.readFileSync(PAGE, 'utf8').replace(/<script[\s\S]*?<\/script>/g, ''),
     { runScripts: 'outside-only', url: 'https://lexinote.local/', pretendToBeVisual: true }
@@ -60,6 +63,10 @@ function boot(scripts) {
     call(callId, method, raw) {
       calls.push(method);
       return Promise.resolve(JSON.stringify({ ok: true, result: answer(method) }));
+    },
+    // P1-006b①:__receive 门卫核销口(生产面 = LexiWebRuntime.admitDispatch)。
+    admitDispatch(credential, method, payloadJson) {
+      return dispatchChannel.admitDispatch(credential, method, payloadJson);
     }
   };
   const loaded = [];
@@ -71,7 +78,7 @@ function boot(scripts) {
       loaded.push(name + ' FAILED: ' + (err && err.message));
     }
   }
-  return { w, dom, logs, calls, loaded };
+  return { w, dom, logs, calls, loaded, dispatchChannel };
 }
 
 function waitFor(fn, timeoutMs) {
@@ -119,7 +126,8 @@ async function main() {
 
   const manifest = JSON.parse(fs.readFileSync(path.join(PROBE_DIR, 'manifest.json'), 'utf8'));
   const code = fs.readFileSync(path.join(PROBE_DIR, 'main.js'), 'utf8');
-  w.lexiRuntime.__receive('load.plugin', JSON.stringify({ manifest, code, token: 'tok-md-probe' }));
+  const bootFrame = JSON.stringify({ manifest, code, token: 'tok-md-probe' });
+  w.lexiRuntime.__receive('load.plugin', bootFrame, page.dispatchChannel.mint('load.plugin', bootFrame));
   const report = await waitFor(() => (w.__mdRenderProbe && w.__mdRenderProbe.renderMarkdown ? w.__mdRenderProbe : null), 8000);
   check('probe: plugin onload reached the end of both render calls', !!report, report ? 'report present' : 'timeout; logs=' + page.logs.slice(-6).join(' | '));
   if (!report) return finish(page, order);

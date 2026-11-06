@@ -18,6 +18,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { createDispatchChannel } = require('./plugin-dispatch-channel.cjs');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const RUNTIME_ETS = path.join(ROOT, 'entry/src/main/ets/core/plugin/LexiPluginRuntime.ets');
@@ -179,10 +180,137 @@ console.log('== R7 令牌只活闭包 ==');
     /function\s+setObjectToken\(/.test(codeBody), 'P1-006 的闭包令牌表结构锚点');
 }
 
-// ---------------------------------------------------------------- 汇总
-console.log('\n[summary] 通过 ' + passed + ' 项 / 失败 ' + failures.length + ' 项');
-for (const f of failures) { console.log('  ✗ ' + f); }
-console.log(failures.length === 0
-  ? 'plugin-bridge-security: PASS'
-  : 'plugin-bridge-security: FAIL (' + failures.length + ')');
-process.exit(failures.length === 0 ? 0 : 1);
+// ---------------------------------------------------------------- R8 dispatch 通道鉴权 + 会话作用域(P1-006b)
+console.log('== R8 dispatch 通道鉴权 + setSessionToken 作用域(P1-006b,SEC-007 负例进门禁) ==');
+// R8a:宿主每次派发铸造一次性通道凭据,作为第 3 实参进 __receive 门卫。
+ok('R8a dispatch 铸造一次性通道凭据并随帧下发', /mintChannelCredential\(/.test(runtimeSrc) &&
+  /__receive\(\$\{JSON\.stringify\(method\)\}, \$\{JSON\.stringify\(payloadJson\)\}, \$\{JSON\.stringify\(channelCredential\)\}\)/.test(runtimeSrc),
+  'LexiWebRuntime.dispatch 必须铸造 credential(dc 前缀,method+payload 绑定)并把第 3 实参传给 __receive');
+// R8b:核销口单次有效 + 双绑定 + fail-closed 审计码。
+ok('R8b admitDispatch 单次核销 + method/payload 绑定 + fail-closed 码',
+  /admitDispatch\(credential: string, method: string, payloadJson: string\): boolean/.test(runtimeSrc) &&
+  /channelCredentials\.delete\(/.test(runtimeSrc) &&
+  /ERROR_DISPATCH_CHANNEL_UNTRUSTED/.test(runtimeSrc),
+  'admitDispatch 必须先烧毁再核对(重放 fail-closed),绑定不符落 dispatch_channel_untrusted');
+// R8c(P1-005):端口链两个调用点只传端口解析身份,不再出现任何凭据表达式。
+const portFrameBody = (runtimeSrc.match(/handleContextPortFrame\(data: string\): void \{[\s\S]*?\n  \}/) || [''])[0];
+const sandboxProxyBody = (runtimeSrc.match(/handleSandboxProxyCall\(frameJson: string\): void \{[\s\S]*?\n  \}/) || [''])[0];
+ok('R8c 端口链调用点凭据清零(callFromPort,身份纯端口化)',
+  portFrameBody.indexOf('callFromPort(') >= 0 && sandboxProxyBody.indexOf('callFromPort(') >= 0 &&
+  portFrameBody.indexOf('tokenForPlugin(') < 0 && sandboxProxyBody.indexOf('tokenForPlugin(') < 0 &&
+  portFrameBody.indexOf('runtime.call(') < 0 && sandboxProxyBody.indexOf('runtime.call(') < 0,
+  'handleContextPortFrame/handleSandboxProxyCall 必须只传 contextRegistry 反查身份,凭据在宿主内部补铸');
+// R8d:callFromPort 身份缺失 fail-closed(与页面凭据路径同码)。
+const callFromPortBody = (runtimeSrc.match(/async callFromPort\([\s\S]*?\n  \}/) || [''])[0];
+ok('R8d callFromPort 空身份 fail-closed', callFromPortBody.indexOf('ERROR_IDENTITY_UNTRUSTED') >= 0 &&
+  callFromPortBody.indexOf('identity.port') >= 0,
+  '端口身份缺失必须 fail-closed(identity_untrusted),不得回落会话/匿名继续走');
+// R8e:shim __receive 门卫 —— 回调执行前必须核销成功;通道凭据不得落任何可读面。
+const shimCodeBody = shimSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+ok('R8e __receive 门卫先核销后执行,凭据不落可读面',
+  /window\.lexiHost\.admitDispatch\(channelCredential, method, payloadJson\) === true/.test(shimCodeBody) &&
+  /dispatch\.admit denied/.test(shimCodeBody) &&
+  !/\bchannelCredential\s*=[^=]/.test(shimCodeBody),
+  '__receive 必须先经 admitDispatch 核销(失败即 return),通道凭据不得赋值存任何变量/属性');
+// R8f:setSessionToken 作用域写一次定死(跨上下文异值后写拒绝)。
+ok('R8f setSessionToken 作用域守卫(写一次定死)', /sessionTokenBound/.test(shimCodeBody) &&
+  /session\.token write-denied/.test(shimCodeBody),
+  '绑定后的异值后写(同 realm 插件乱写/清空)必须 fail-closed 拒绝,P1-006b②');
+
+// R8g/R8h 行为级:vm 求值真实 shim,宿主桩带铸造+核销对(与 .ets 协议面同语义)。
+(async () => {
+  const tick = () => new Promise((r) => setImmediate(r));
+  const until = async (cond, label) => {
+    for (let i = 0; i < 500; i++) { await tick(); if (cond()) { return; } }
+    throw new Error('等待超时: ' + label);
+  };
+  const domElement = () => ({ style: {}, textContent: '', setAttribute() {}, appendChild() {}, addEventListener() {}, classList: { add() {}, remove() {} } });
+  const sandbox = {
+    console: { log() {}, warn() {}, error() {} },
+    setTimeout: (fn) => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {},
+    Promise, JSON, Math, Date, Map, Set, WeakMap,
+    location: { href: 'https://lexinote.local/runtime' }
+  };
+  const domBase = {
+    createElement: domElement, createTextNode: (text) => ({ text }), createDocumentFragment: () => ({ appendChild() {} }),
+    head: { appendChild() {} }, body: domElement(), documentElement: domElement(),
+    getElementById: () => null, querySelector: () => null, querySelectorAll: () => [], addEventListener() {}
+  };
+  sandbox.document = new Proxy(domBase, { get(target, key) { return (key in target) ? target[key] : () => null; } });
+  sandbox.window = sandbox;
+  sandbox.globalThis = sandbox;
+  sandbox.__sec7Runs = 0;
+  const channel = createDispatchChannel();
+  const hostCalls = [];
+  sandbox.window.lexiHost = {
+    call(callId, method, payloadJson, token) {
+      hostCalls.push({ method, token: typeof token === 'string' ? token : '' });
+      return Promise.resolve(JSON.stringify({ ok: true, result: method === 'events.on' ? 1 : null }));
+    },
+    admitDispatch(credential, method, payloadJson) { return channel.admitDispatch(credential, method, payloadJson); }
+  };
+  try {
+    vm.createContext(sandbox);
+    vm.runInContext(shimSrc, sandbox, { filename: 'lexinote_plugin_shim.js' });
+    const runtime = sandbox.window.lexiRuntime;
+    ok('R8g.0 vm 求值后 lexiRuntime 在场', !!runtime, 'shim 求值失败');
+    if (runtime) {
+      const probe = "module.exports = class extends require('obsidian').Plugin {" +
+        " async onload(){ this.addCommand({ id:'sec7', name:'sec7', callback: () => { __sec7Runs += 1; } }); } };";
+      const loadFrame = JSON.stringify({ manifest: { id: 'sec7-probe' }, code: probe });
+      runtime.__receive('load.plugin', loadFrame, channel.mint('load.plugin', loadFrame));
+      await until(() => hostCalls.some((c) => c.method === 'commands.add'), 'commands.add');
+      const cmdFrame = JSON.stringify({ fullId: 'sec7-probe:sec7' });
+      // SEC-007 负例族①:同 realm 插件裸调 __receive(无凭据)触发他插件命令回调 —— 必须拒。
+      runtime.__receive('invoke.command', cmdFrame);
+      await tick(); await tick();
+      ok('R8g.1 裸调 __receive(无凭据)不执行任何命令回调', sandbox.__sec7Runs === 0,
+        'runs=' + sandbox.__sec7Runs + '(ADR-R10-01 残余风险①的历史攻击面)');
+      // SEC-007 负例族②:非宿主铸造的伪凭据 —— 必须拒。
+      runtime.__receive('invoke.command', cmdFrame, 'dc-forged-not-host-minted');
+      await tick(); await tick();
+      ok('R8g.2 伪凭据 fail-closed', sandbox.__sec7Runs === 0, 'runs=' + sandbox.__sec7Runs);
+      // 正例:宿主铸造的一次性凭据走通一次。
+      const legit = channel.mint('invoke.command', cmdFrame);
+      runtime.__receive('invoke.command', cmdFrame, legit);
+      await until(() => sandbox.__sec7Runs === 1, '合法派发执行');
+      // SEC-007 负例族③:重放(单次有效,核销即烧毁)—— 必须拒。
+      runtime.__receive('invoke.command', cmdFrame, legit);
+      await tick(); await tick();
+      ok('R8g.3 已核销凭据重放 fail-closed(单次有效)', sandbox.__sec7Runs === 1, 'runs=' + sandbox.__sec7Runs);
+      // SEC-007 负例族④:换方法盗用(绑定不符)—— 必须拒且即烧毁。
+      const eventFrame = JSON.stringify({ topic: 'vault', name: 'x', payload: null });
+      const misbound = channel.mint('event', eventFrame);
+      runtime.__receive('invoke.command', cmdFrame, misbound);
+      await tick(); await tick();
+      ok('R8g.4 换方法盗用凭据 fail-closed(绑定不符)', sandbox.__sec7Runs === 1, 'runs=' + sandbox.__sec7Runs);
+      runtime.__receive('event', eventFrame, misbound);
+      await tick(); await tick();
+      ok('R8g.5 盗用即烧毁:回正确方法也不得再通过', sandbox.__sec7Runs === 1, 'runs=' + sandbox.__sec7Runs);
+    }
+  } catch (error) {
+    ok('R8g dispatch 通道行为级负例', false, 'threw: ' + error.message);
+  }
+  // R8h:setSessionToken 作用域(P1-006b②)行为级 —— 与 shim-regression 同断言,双门禁钉死。
+  try {
+    const surface = sandbox.window.LexiObsidian || sandbox.LexiObsidian;
+    ok('R8h.1 首次注入放行', !!surface && surface.setSessionToken('st-unit-abcdef12') === true, '容器引导链是首个写入者');
+    ok('R8h.2 绑定后异值后写拒绝(DoS 会话的面关闭)',
+      !!surface && surface.setSessionToken('st-evil-000000') === false, '跨上下文写入必须 fail-closed');
+    ok('R8h.3 拒绝后原会话凭据保持(尾部 6 位对账)',
+      !!surface && surface.stats().sessionTokenTail === 'cdef12',
+      'got=' + (surface ? surface.stats().sessionTokenTail : '(no surface)'));
+    ok('R8h.4 同值幂等重放放行', !!surface && surface.setSessionToken('st-unit-abcdef12') === true,
+      '容器引导链重复 adopt 不受伤');
+  } catch (error) {
+    ok('R8h setSessionToken 作用域行为级', false, 'threw: ' + error.message);
+  }
+
+  // ---------------------------------------------------------------- 汇总
+  console.log('\n[summary] 通过 ' + passed + ' 项 / 失败 ' + failures.length + ' 项');
+  for (const f of failures) { console.log('  ✗ ' + f); }
+  console.log(failures.length === 0
+    ? 'plugin-bridge-security: PASS'
+    : 'plugin-bridge-security: FAIL (' + failures.length + ')');
+  process.exit(failures.length === 0 ? 0 : 1);
+})();

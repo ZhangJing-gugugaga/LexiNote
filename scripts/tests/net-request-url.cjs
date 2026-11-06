@@ -16,6 +16,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const { pathToFileURL } = require('node:url');
+const { createDispatchChannel } = require('./plugin-dispatch-channel.cjs');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const PLUGIN_ETS = path.join(ROOT, 'entry/src/main/ets/core/plugin');
@@ -97,8 +98,15 @@ async function until(condition, label) {
 // identity 与宿主 call() 同口径：令牌命中就换成归属 pluginId，否则空串(fail-closed)。
 function makeHostBridge(owners, manifests, transport, log) {
   const calls = [];
+  // P1-006b①:shim 的 __receive 门卫需要核销口(生产面 = LexiWebRuntime.admitDispatch);
+  // view_shim 不走 __receive,本核销口对它无影响。
+  const dispatchChannel = createDispatchChannel();
   const bridge = {
     calls,
+    mintDispatchCredential: (method, payloadJson) => dispatchChannel.mint(method, payloadJson),
+    admitDispatch(credential, method, payloadJson) {
+      return dispatchChannel.admitDispatch(credential, method, payloadJson);
+    },
     call(callId, method, payloadJson, token) {
       const rawToken = typeof token === 'string' ? token : '';
       calls.push({ method, token: rawToken, identity: owners.get(rawToken) || '' });
@@ -340,9 +348,12 @@ async function main() {
     global.__netCapture = (payload) => { shimResult.value = payload; };
     const message = { manifest: JSON.parse(JSON.stringify({ id: 'net-probe', name: 'n', version: '1.0.0', author: 't', capabilities: { network: ['api.example.com'] } })), code: code };
     if (token !== undefined) { message.token = token; }
-    shimRuntime.__receive('load.plugin', JSON.stringify(message));
+    // P1-006b①:合法派发带宿主铸造的一次性通道凭据(绑定 method+payload)。
+    const loadFrame = JSON.stringify(message);
+    shimRuntime.__receive('load.plugin', loadFrame, shimBridge.mintDispatchCredential('load.plugin', loadFrame));
     await until(() => shimResult.value !== null, 'shim net.requestUrl');
-    await shimRuntime.__receive('unload.plugin', JSON.stringify({ id: 'net-probe' }));
+    const unloadFrame = JSON.stringify({ id: 'net-probe' });
+    await shimRuntime.__receive('unload.plugin', unloadFrame, shimBridge.mintDispatchCredential('unload.plugin', unloadFrame));
     return pluginId;
   }
 

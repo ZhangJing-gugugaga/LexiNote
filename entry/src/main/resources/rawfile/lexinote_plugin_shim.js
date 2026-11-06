@@ -28,6 +28,11 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
   // 宿主签发的令牌:页面会话令牌 + 每插件令牌。令牌只活在闭包里,插件读不到也改不了。
   // 每次 hostCall 都带当前令牌,宿主靠令牌反查 pluginId,payload 里的 pluginId 一律不可信。
   var sessionToken = '';
+  // P1-006b②(ADR-R10-01 残余风险②收口):页面会话作用域写一次定死。合法写入者只有
+  // 容器引导链(channel.auth 之后先于任何插件装载);首个非空令牌绑定本 realm 的会话
+  // 作用域后,任何后写(同 realm 插件乱写/清空)一律拒绝 —— 此前任意插件可
+  // setSessionToken(乱串)打掉容器会话凭据(DoS 宿主回话,非提权)。
+  var sessionTokenBound = false;
   var tokenScope = [];
   // RFC P1-006(LEXI-RFC-PLUGIN-001 §3.5):实例归属令牌从"对象属性"迁到闭包 WeakMap。
   // 此前 instance.__lexiToken 挂在插件实例/leaf/EditorProxy 上——同 realm 的插件 A
@@ -2502,7 +2507,26 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
     // (消费窗口 = loadPlugin 的同步注入段,盗调 fail-closed,见 acquireRequireFor)。
     __lexiWrapPluginSource: wrapPluginSource,
     __lexiAcquireRequire: acquireRequireFor,
-    __receive: function (method, payloadJson) {
+    __receive: function (method, payloadJson, channelCredential) {
+      // P1-006b①(ADR-R10-01 残余风险①收口):dispatch 通道鉴权。宿主每次派发铸造
+      // 一次性通道凭据,作为第 3 实参进本门卫 —— 凭据只存在于本次 runJavaScript 表达式
+      // 里,不落任何页面可读/可枚举面(不可读);执行回调前先经 lexiHost.admitDispatch
+      // 同步核销(单次有效:取用即烧毁,method+payload 双绑定)。同 realm 插件裸调
+      // __receive(不带凭据)、盗用旧凭据(重放)、换方法/换载荷(绑定不符)一律
+      // fail-closed —— invoke.command 跨插件回调执行的通道就此关闭(SEC-007 负例族,
+      // 门禁:plugin-bridge-security R8 + plugin-shim-regression dispatch 通道负例)。
+      var admitted = false;
+      try {
+        admitted = typeof window !== 'undefined' && !!window.lexiHost &&
+          typeof window.lexiHost.admitDispatch === 'function' &&
+          window.lexiHost.admitDispatch(channelCredential, method, payloadJson) === true;
+      } catch (admitErr) { admitted = false; }
+      if (!admitted) {
+        console.warn('[lexinote] dispatch.admit denied method=' + String(method || '') +
+          ' credential=' + (typeof channelCredential === 'string' && channelCredential.length > 0
+            ? channelCredential.slice(-6) : '(none)') + ' fail_closed=true');
+        return;
+      }
       var message = safeParse(payloadJson || '{}', {});
       if (method === 'event') { dispatchHostEvent(message); return; }
       if (method === 'invoke.command') {
@@ -2788,9 +2812,16 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
     apiVersion: API_VERSION,
     namespace: obsidianNamespace,
     setSessionToken: function (token) {
-      sessionToken = typeof token === 'string' ? token : '';
-      // 门禁锚点:插件 shim 这才是会话身份的落点,只打尾部 6 位(可对账,不足以被复用)。
+      var next = typeof token === 'string' ? token : '';
+      if (sessionTokenBound && next !== sessionToken) {
+        console.warn('[lexinote] session.token write-denied fail_closed=true');
+        return false;
+      }
+      sessionToken = next;
+      if (next.length > 0) { sessionTokenBound = true; }
+      // 门禁锚点:尾部 6 位(可对账,不可复用);P1-006b② 作用域写一次定死。
       console.log('[lexinote] session.token tail=' + (sessionToken.length > 0 ? sessionToken.slice(-6) : 'none'));
+      return true;
     },
     // 会话令牌只进不出(RFC §3.4):容器经 setSessionToken 单向注入,页面内代码
     // (含插件)没有读回通道。P1-006 收口:currentToken/withToken/hostCall 三个别名

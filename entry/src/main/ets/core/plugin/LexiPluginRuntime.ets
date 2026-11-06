@@ -58,6 +58,11 @@ import { resolvePluginTrack, TRACK_REFUSED, TRACK_SANDBOX } from './LexiPluginTr
 const LOAD_TIMEOUT_MS: number = 20000;
 /** 源码分片通道的身份错误码:与 capability_denied / integrity_mismatch 区分开,便于定点断言。 */
 const ERROR_IDENTITY_UNTRUSTED: string = 'identity_untrusted';
+/**
+ * P1-006b①(ADR-R10-01 残余风险①收口):dispatch 通道鉴权失败码。
+ * __receive 门卫拒绝裸调/盗用凭据/绑定不符时落本码,与 identity_untrusted 区分开便于定点断言。
+ */
+const ERROR_DISPATCH_CHANNEL_UNTRUSTED: string = 'dispatch_channel_untrusted';
 const SOURCE_CHUNK_SIZE: number = 48 * 1024;
 const PLUGIN_DIR_NAME: string = 'plugins';
 const KEY_ENABLED: string = 'lexiPluginEnabled';
@@ -179,7 +184,9 @@ export class LexiWebRuntime {
   private readyWaiters: Array<() => void> = [];
   /**
    * 插件身份凭据表(credential → pluginId,''= 页面会话角色)。凭据只由本运行时铸造:
-   * 装载时下发给运行时页面,页面侧每一次宿主调用把它当第 4 个实参带回来,call() 用它反查身份。
+   * legacy 共享 realm 轨在装载时把凭据下发给运行时页面,页面侧宿主调用以第 4 参带回
+   * (P1-005 已废弃形态,随 lexiPluginLegacyTrack 开关退役);端口链(P1-005 主路径)
+   * 的凭据由 callFromPort 在宿主内存按端口身份补铸,从不经过页面。
    * 凭据里不含插件 id(不可猜),页面自报的 pluginId 不参与身份判定。
    */
   private pluginTokens: Map<string, string> = new Map();
@@ -247,6 +254,74 @@ export class LexiWebRuntime {
     return found.length > 0 ? found : this.mintPluginToken(pluginId);
   }
 
+  // ---------------------------------------------------------------- P1-006b① dispatch 通道鉴权
+  //
+  // ADR-R10-01 残余风险①:同 realm 下 window.lexiRuntime.__receive 可被他插件裸调,
+  // 触发 invoke.command 跨插件回调执行。修复 = 宿主每次派发铸造一次性通道凭据,
+  // shim 的 __receive 门卫经 admitDispatch 同步核销后才开始执行回调。
+
+  /**
+   * host→页 dispatch 的一次性通道凭据表(credential → 'method\0payload' 绑定)。
+   * 凭据只存在于本次 runJavaScript 表达式里,不落任何页面可读/可枚举面(不可读);
+   * 核销即烧毁(admitDispatch),盗用/重放 fail-closed。
+   */
+  private channelCredentials: Map<string, string> = new Map();
+  private channelCredentialAt: Map<string, number> = new Map();
+  /** 通道凭据有效期:页面丢失/未回执的铸造残留按 TTL 回收,防凭据表无限增长。 */
+  private static readonly CHANNEL_CREDENTIAL_TTL_MS: number = 60000;
+
+  /** P1-006b①:铸造 dispatch 一次性通道凭据(CSPRNG 经 mintCredential;绑定 method+payload)。 */
+  private mintChannelCredential(method: string, payloadJson: string): string {
+    const now: number = new Date().getTime();
+    const doomed: string[] = [];
+    this.channelCredentialAt.forEach((mintedAt: number, stale: string): void => {
+      if (now - mintedAt > LexiWebRuntime.CHANNEL_CREDENTIAL_TTL_MS) { doomed.push(stale); }
+    });
+    for (const stale of doomed) {
+      this.channelCredentials.delete(stale);
+      this.channelCredentialAt.delete(stale);
+    }
+    const credential: string = mintCredential('dc');
+    this.channelCredentials.set(credential, method + '\u0000' + payloadJson);
+    this.channelCredentialAt.set(credential, now);
+    return credential;
+  }
+
+  /**
+   * P1-006b①:__receive 门卫的同步核销口(javaScriptProxy 面,LexiPluginRuntimeHost
+   * methodList 暴露)。单次有效:第一条核销申请即烧毁,同凭据重放一律 false;
+   * method+payload 双绑定——即便凭据在途被截获,截获者也只能让本次派发失效(DoS),
+   * 改不了载荷内容。审计只打凭据尾号,原值不进日志。
+   */
+  admitDispatch(credential: string, method: string, payloadJson: string): boolean {
+    const known: boolean = typeof credential === 'string' && credential.length > 0 &&
+      this.channelCredentials.get(credential) !== undefined;
+    const bound: string = known ? this.channelCredentials.get(credential) as string : '';
+    // 单次有效:无论核对结果如何都先烧毁(重放 fail-closed)。
+    if (typeof credential === 'string' && credential.length > 0) {
+      this.channelCredentials.delete(credential);
+      this.channelCredentialAt.delete(credential);
+    }
+    const methodText: string = typeof method === 'string' ? method : '?';
+    if (!known) {
+      pluginError('dispatch.admit method=' + methodText +
+        ' allowed=false fail_closed=true code=' + ERROR_DISPATCH_CHANNEL_UNTRUSTED +
+        ' credential=' + (typeof credential === 'string' && credential.length > 0
+          ? LexiWebRuntime.tokenTail(credential) : '(none)'));
+      return false;
+    }
+    const separator: number = bound.indexOf('\u0000');
+    const boundMethod: string = separator >= 0 ? bound.substring(0, separator) : '';
+    const boundPayload: string = separator >= 0 ? bound.substring(separator + 1) : '';
+    if (boundMethod !== methodText || boundPayload !== (typeof payloadJson === 'string' ? payloadJson : '')) {
+      pluginError('dispatch.admit method=' + methodText +
+        ' allowed=false fail_closed=true code=' + ERROR_DISPATCH_CHANNEL_UNTRUSTED +
+        ' detail=binding_mismatch credential=' + LexiWebRuntime.tokenTail(credential));
+      return false;
+    }
+    return true;
+  }
+
   /** 令牌尾 6 位:日志里可对账,又不足以被复用来冒充。 */
   static tokenTail(token: string): string {
     return token.length <= 6 ? token : token.substring(token.length - 6);
@@ -286,9 +361,12 @@ export class LexiWebRuntime {
   }
 
   /**
-   * 唯一的两个入口,身份实参都必须是本运行时铸造的凭据:
-   * (1) 运行时页面(lexiHost.call)带回装载时下发的插件凭据;
-   * (2) WorkspaceBridge.delegate 带回会话凭据或 tokenForPlugin 铸出的插件凭据。
+   * 页面凭据入口(两个 RPC 入口之一;P1-005 后标记为已废弃形态):
+   * 身份实参 = 本运行时铸造、随装载载荷下发给页面的凭据,页面在每次宿主调用时以
+   * 第 4 参带回。该"credential 第四参经页面传递"的形态仅剩两类过渡消费方
+   * (ADR-R28-01 legacy 共享 realm 轨,默认轨开关 lexiPluginLegacyTrack 控制在案;
+   * Track2 WorkspaceBridge 委托,收敛归 P1-004/R31)——沙箱/端口链一律走 callFromPort,
+   * 身份只由端口解析,页面上不再有任何凭据字段(验收:插件侧报文不含任何身份字段)。
    * 凭据解析不出角色(anonymous)就 fail-closed:调用方原串(RFC P0-01 的 raw identity)
    * 绝不作为身份下传。payload 里的 pluginId 是自述,进处理器之前就被剥掉并落一行审计日志。
    */
@@ -334,9 +412,30 @@ export class LexiWebRuntime {
     }
   }
 
+  /**
+   * P1-005(身份纯端口化):端口链专用调用入口——身份实参 = 传输绑定的解析结果
+   * (contextRegistry 记录反查,RFC §3.3),本入口不收任何页面侧凭据/身份字段。
+   * 处理器链仍按 (identity, credential) 形状工作,凭据在宿主内部按身份补铸
+   * (tokenForPlugin),只活在宿主内存里,绝不经过页面——与 call() 的"第 4 参经页面
+   * 回传"已废弃形态是两条不同的路。身份为空(端口表查无此人)fail-closed,与页面
+   * 凭据路径同码(identity_untrusted)。
+   */
+  async callFromPort(callId: string, method: string, payloadJson: string, identity: string): Promise<string> {
+    if (typeof identity !== 'string' || identity.length === 0) {
+      pluginError('identity.port method=' + method + ' allowed=false fail_closed=true code=' +
+        ERROR_IDENTITY_UNTRUSTED + ' detail=端口身份缺失(transport 未绑定)');
+      return failResponseCode(ERROR_IDENTITY_UNTRUSTED, '端口链身份缺失（fail-closed）');
+    }
+    return this.call(callId, method, payloadJson, this.tokenForPlugin(identity));
+  }
+
   async dispatch(method: string, payloadJson: string): Promise<void> {
     if (!this.controller || !this.ready) { throw new Error('插件运行时未就绪'); }
-    const script = `window.lexiRuntime && window.lexiRuntime.__receive(${JSON.stringify(method)}, ${JSON.stringify(payloadJson)})`;
+    // P1-006b①:每次派发铸造一次性通道凭据,作为第 3 实参进 __receive 门卫。
+    // 同 realm 插件裸调 __receive(不带凭据)/盗用旧凭据(已核销)在 shim 侧 fail-closed;
+    // 凭据绑定本次 method+payload,核销口在 admitDispatch(同步 javaScriptProxy 面)。
+    const channelCredential: string = this.mintChannelCredential(method, payloadJson);
+    const script = `window.lexiRuntime && window.lexiRuntime.__receive(${JSON.stringify(method)}, ${JSON.stringify(payloadJson)}, ${JSON.stringify(channelCredential)})`;
     await this.controller.runJavaScript(script);
   }
 
@@ -552,7 +651,10 @@ export class LexiPluginManager {
       'manifestJson': JSON.stringify(record.manifest) as Object,
       'viewType': viewType as Object,
       'stylesCss': stylesCss as Object,
-      // 视图侧的 net.requestUrl 也要带身份：令牌只在宿主侧铸造，随 boot payload 下发。
+      // P1-005 已废弃形态(过渡保留):令牌随 boot payload 下发、视图页经 javaScriptProxy
+      // 第 4 参带回 —— 视图页是宿主自有的单插件页,该令牌是页内唯一身份载体,视图载体的
+      // 端口化(载荷里彻底去掉凭据字段)归 P1-004 视图面沙箱化切片(ADR-R29-01 S2/S3),
+      // 本轮随 legacy 轨一起按轨道政策保留,不新增消费面。
       'token': this.runtime.tokenForPlugin(pluginId) as Object
     };
     return JSON.stringify(body);
@@ -1898,9 +2000,10 @@ export class LexiPluginManager {
       this.dispatchSandboxResponse(contextId, this.contextRegistry.buildErrorFrame(authz.code, authz.reason));
       return;
     }
-    // 身份进入既有调用链:credential = tokenForPlugin(记录身份),与 javaScriptProxy 路径一致。
-    const credential = this.runtime.tokenForPlugin(gateway.identity);
-    this.runtime.call('sbx-' + gateway.requestId, gateway.method, gateway.payloadJson, credential)
+    // P1-005(身份纯端口化):身份来自 contextRegistry 记录反查(传输绑定),经
+    // callFromPort 进既有调用链——本调用点不再出现任何凭据表达式,凭据在宿主内部
+    // 按身份补铸,与 call() 的页面第 4 参已废弃形态分流。
+    this.runtime.callFromPort('sbx-' + gateway.requestId, gateway.method, gateway.payloadJson, gateway.identity)
       .then((responseJson: string): void => {
         this.dispatchSandboxResponse(contextId,
           this.contextRegistry.buildResponseFrame(gateway.requestId, true, responseJson, '', ''));
@@ -1953,10 +2056,10 @@ export class LexiPluginManager {
       this.postContextFrame(this.contextRegistry.buildErrorFrame(authz.code, authz.reason));
       return;
     }
-    // 身份进入既有调用链:credential = tokenForPlugin(记录身份) → call() 内部
-    // roleOfCredential/stripClaimedIdentity/authorize 与 javaScriptProxy 路径完全一致。
-    const credential = this.runtime.tokenForPlugin(gateway.identity);
-    this.runtime.call('ctxport-' + gateway.requestId, gateway.method, gateway.payloadJson, credential)
+    // P1-005(身份纯端口化):身份来自 contextRegistry 记录反查 → callFromPort 进既有
+    // 调用链(call() 内部 roleOfCredential/stripClaimedIdentity/authorize 原样生效)。
+    // 本调用点不再出现任何凭据表达式——端口帧路径的凭据只在宿主内存补铸,绝不经过页面。
+    this.runtime.callFromPort('ctxport-' + gateway.requestId, gateway.method, gateway.payloadJson, gateway.identity)
       .then((responseJson: string): void => {
         this.postContextFrame(this.contextRegistry.buildResponseFrame(gateway.requestId, true, responseJson, '', ''));
       })
@@ -2423,6 +2526,12 @@ export class LexiPluginManager {
         return false;
       }
       // 大源码经 runJavaScript 直传会静默挂起,改为分片拉取
+      // P1-005 已废弃形态(兼容性定案):'token' 随 load.plugin 载荷进页面,是 credential
+      // 第 4 参经页面传递的源头 —— legacy 共享 realm 轨(ADR-R28-01 过渡保留)在共享 realm
+      // 里没有端口可绑定身份,shim 的源码分片/require 上下文/bindApiToken 全靠它,本形态
+      // 只能随轨道开关(lexiPluginLegacyTrack=false → TRACK_REFUSED,不派发 load.plugin)
+      // 一起退役,不可单独摘除。沙箱轨(端口化主路径)的 boot 载荷只有 contextId+代码,
+      // 从未携带任何凭据字段(验收行"插件侧报文不含任何身份字段"落在端口链上)。
       const payloadBody: Record<string, Object> = {
         'id': pluginId as Object,
         'manifest': record.manifest as Object,
