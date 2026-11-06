@@ -3,9 +3,27 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const ts = require(process.env.LEXI_TYPESCRIPT || '/Applications/DevEco-Studio.app/Contents/tools/hvigor/hvigor/node_modules/typescript');
+// typescript 解析：与 manifest-compat.cjs:24-35 同一套候选约定（env 优先，再平台本机 hvigor，
+// 再仓库 oh_modules，最后裸名）。旧实现把 macOS 的 /Applications/DevEco-Studio.app 路径写死成
+// 兜底，在 Windows/Linux 上加载即 MODULE_NOT_FOUND —— 是平台写死，不是断言漂移。
+const TS_CANDIDATES = [
+  process.env.LEXI_TYPESCRIPT,
+  'E:/dev-tools/harmonyos/command-line-tools/hvigor/hvigor/node_modules/typescript',
+  path.resolve(__dirname, '../../oh_modules/typescript'),
+  'typescript'
+].filter((candidate) => Boolean(candidate));
+function loadTypeScript() {
+  for (const candidate of TS_CANDIDATES) {
+    try { return require(candidate); } catch { /* next candidate */ }
+  }
+  throw new Error('找不到 typescript:请设置 LEXI_TYPESCRIPT 指向 typescript 模块');
+}
+const ts = loadTypeScript();
 const file = path.resolve(__dirname, '../../entry/src/main/ets/components/LexiWorkspaceEditor.ets');
-const source = fs.readFileSync(file, 'utf8');
+// 行尾归一：仓库索引里该文件是 LF(i/lf)，但 core.autocrlf=true 的 Windows 检出是 CRLF。
+// 下面的 section() 切片标记写死了 '\n'（如 '  @Builder\n  private formatTool('），
+// 不归一会让门禁在 Windows 检出上加载即红，而代码结构契约本身没变。
+const source = fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
 function section(start, end) { const i=source.indexOf(start); assert.ok(i>=0,start); const j=source.indexOf(end,i); assert.ok(j>i,end); return source.slice(i,j); }
 const methods = section('  private restoreEditorSelection(', '  @Builder\n  private formatTool(') +
  section('  private mapSavedCursor(', '  private refreshCompletion(') + section('  private updateBody(', '  private undo(');
