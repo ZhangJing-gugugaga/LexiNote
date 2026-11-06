@@ -606,3 +606,36 @@ P1-003b 继续（沙箱内 obsidian 面扩容→sample 完整迁移）；观测�
 - **下一轮 = R26 = P5-004**（装完不自动 enable：权限清单→同意→启用；B-004 按 RFC §4.5 自设计）。
 
 最近更新时间：2026-11-07（Round 25）。
+
+---
+
+## Round 26 — 2026-11-07（P5-004 安装授权同意流 IMPLEMENTED（离线全绿）+ 设备全链自动化 BLOCKED 立牌 P0-012；并行 P0-010/011 收口）
+
+**当前 Phase：** Phase 5 安全半边推进。**P5-004 离线 VERIFIED，设备全链自动化未通（BLOCKED，见下）——诚实裁定不虚标**。
+
+### 本轮完成
+
+1. **ADR-R26-01 定案（B-004 自设计，待人工复审）**：授权落账=同意唯一记录（PermissionStore.grant 指纹绑定）；enablePlugin 首次启用即授权自动落账**废除**——not-granted 一律拒绝（fail-closed，errorState 提示走授权面板）；installZip/installFromUrl 只落盘，首装停在 installed（在盘未启用）态；`consentEnablePlugin`/`permissionStateOf` 新面；市场面板授权披露（RFC §4.5 三档：`classifyCapabilityTags` 高风险/可选/必需，纯展示不拆分授权）；v1 无声明清单不进授权门（无指纹可授），有声明清单与新装 v2 同需同意。
+2. **降级语义（本轮定案）**：授权为指纹整体性 ⇒ 未完全授权=不运行（permission-pending）；§4.5"拒绝可选权限仍降级运行"留 P2-009 状态机连同 per-capability 授权收口。
+3. **内置夹具白名单（B-004 待审项）**：lexi-sample-plugin/sandbox-probe/sandbox-sample-min 随 HAP 签名分发、首启代码内闭合 `bundledAllowList` 逐个 grant 后启用（gate 断言白名单闭合）；用户安装插件无任何自动落账通路。
+4. **门禁扩容**：dist-regression +7（26/26：首装不启用/同意启用/未同意拒启/撤销链完好）、lifecycle-once +L6.8/6.9（37 项）、manifest-v2 +V6.1-6.5（48 项，classifyCapabilityTags 真跑）；release-gate **29/29**（主线独立复跑）。
+5. **设备证据（部分，真机 lexi_2in1）**：授权待定态 UI 正确渲染——`待授权·未启用 · cap-probe-open · 权限: network:127.0.0.1`（装机后未获任何同意的插件跨多轮冷启均未自动运行=negative 案例真机成立）；bundled 白名单插件（sandbox-probe/lexi-sample）多轮冷启正常启用，沙箱/legacy 双轨零回归。
+6. **设备全链自动化 BLOCKED（立牌 P0-012）**：plugin-dist-flows 全链（install→面板→同意→启用→upgrade/rollback/uninstall）未通，重试超限后按纪律停手。根因三层：①R8 时代 `x1<1000` 锚点在 2in1 宽布局下点中宽卡片非侧栏行（已修：findByTextNarrowest 最窄匹配）；②**模拟器长会话 NAT TCP 代理失效**——10.0.2.2 ICMP 通但 TCP 不转发宿主，市场永远"市场为空"；重启 lexi_2in1 即恢复（已证：修复后面板显示"共 1 个插件/演示源（使用中）"）→ **KI-6**；③远程条目被已安装列表挤出视口（KI-1 在自动化链路的化身），已加滚动轮询但 sheet 内滚动容器行为仍未标定（手动滑动会关闭面板）。upgrade/rollback/uninstall 段的 rowAction 点击标定同属 P0-012。
+7. **并行 P0-010/011 收口（独立提交 0e2cc80）**：route-coverage 纳管 view_shim 为第二调用源（vault.getByPath 诚实重分类"仅视图面/fail-closed"，无弱化）；workspace-tools-regression 双层根因修复（mac 硬编码路径→候选约定、CRLF 归一化）；双门禁 PASS×2 确定性。
+8. 过程修正：symbols.json 两处 .ets 行号锚点手工修复（未跑 generate.cjs）；flows 的 adapter-probe-evidence 同步授权步进。
+
+### 实际执行的测试
+
+| 命令 | 结果 |
+|---|---|
+| `release-gate --ci`（主线独立复跑） | **PASS 29/29** |
+| `plugin-dist-regression.cjs` | **PASS 26/26**（+7 授权流用例） |
+| `plugin-lifecycle-once.cjs` / `plugin-manifest-v2.cjs` / `plugin-permission-store.cjs` | PASS 37 / 48 / 28 |
+| `hvigorw assembleHap` | PASS（HAP 00:54 新鲜度核实） |
+| 真机（lexi_2in1） | 待授权态 UI 渲染 ✔、白名单冷启 ✔、市场源拉取 ✔（NAT 修复后）；**全链 flows 4 FAIL（P0-012）** |
+
+### 下一轮
+
+**R27 = P1-003b 编辑器切片 + P2-005**（editorCallback 进沙箱 + editor readActive/writeSelection/writeDocument 分级门禁，互锁同轮）。P0-012（flows 重标定）进并行快速赢面池。
+
+最近更新时间：2026-11-07（Round 26）。

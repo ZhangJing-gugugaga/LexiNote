@@ -257,8 +257,14 @@ async function main() {
     check('市场索引列出探针', listed.ok, listed.ok ? listed.hit : '可见文本=' + listed.texts.slice(0, 10).join(' | '));
     if (!listed.ok) { throw new Error('市场没列出探针'); }
     clickRowAction(dir, 'layout-install-click', PLUGIN_NAME, /^安装$/);
+    // P5-004:安装不再自动 enable——先停在授权面板,显式同意后启用。
+    const pending = await pollText(dir, 'layout-installed-pending', /已安装（未启用）：|安装失败/, { timeoutMs: 45000 });
+    check('UI 报安装结果(待授权)', pending.ok && !/安装失败/.test(pending.hit || ''), pending.hit);
+    const consentBtn = findByText(dumpLayout(dir, 'layout-consent'), /^同意并启用$/);
+    check('授权面板同意按钮可见', Boolean(consentBtn), consentBtn ? 'y=' + bounds(consentBtn).cy : '');
+    if (consentBtn) { clickNode(consentBtn); }
     const done = await pollText(dir, 'layout-installed', /已安装并启用|安装失败/, { timeoutMs: 45000 });
-    check('UI 报安装结果', done.ok && !/安装失败/.test(done.hit), done.hit);
+    check('UI 报安装结果(同意后)', done.ok && !/安装失败/.test(done.hit), done.hit);
     const ls = sh('ls -1 ' + PLUGINS_DIR + '/' + PLUGIN_ID + ' 2>&1');
     fs.writeFileSync(path.join(dir, 'ls.txt'), ls);
     check('插件目录落盘 manifest/main', /manifest\.json/.test(ls) && /main\.js/.test(ls), ls.replace(/\n/g, ' '));

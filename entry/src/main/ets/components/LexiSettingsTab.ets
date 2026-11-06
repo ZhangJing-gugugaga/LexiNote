@@ -20,6 +20,7 @@ class LexiPluginSettingRow {
   detail: string = '';
   canToggle: boolean = true;
   hasSettings: boolean = false;
+  permissionNote: string = '';
 }
 
 @Component
@@ -40,6 +41,15 @@ struct LexiPluginRowView {
           .fontColor(this.row.enabled ? $r('app.color.brand') : $r('app.color.text_secondary'))
           .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
+        // P2-008/P5-004:行内权限标签展示(开启开关 = 对该清单的显式同意)。
+        if (this.row.permissionNote.length > 0) {
+          Text(this.row.permissionNote)
+            .fontSize(9)
+            .fontColor($r('app.color.text_secondary'))
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+        }
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
@@ -136,6 +146,11 @@ export struct LexiSettingsTab {
         ? `${pluginFailureLabel(plugin.errorState)} · ${pluginFailureSummary(plugin.errorState)}`
         : '';
       row.detail = failureText.length > 0 ? failureText : (plugin.enabled ? `已启用 · v${plugin.manifest.version}` : '已停用');
+      // P2-008/P5-004:行内权限标签;未授权的声明型插件标出"待授权"。
+      const tags = manager.permissionTagsOf(plugin.manifest.id);
+      const tagsLine = tags.length > 0 ? '权限: ' + tags.join(' · ') : '权限: 未声明能力';
+      row.permissionNote = manager.permissionStateOf(plugin.manifest.id) !== 'granted' && plugin.manifest.capabilitiesDeclared
+        ? '待授权 · ' + tagsLine : tagsLine;
       rows.push(row);
     }
     this.pluginRows = rows;
@@ -158,7 +173,14 @@ export struct LexiSettingsTab {
     this.pluginRows = this.pluginRows.slice();
     try {
       if (enabled) {
-        await manager.enablePlugin(id);
+        // P5-004:未授权的声明型插件,开关 = 同意行内展示的权限清单(consentEnablePlugin
+        // = grant 落账 + enable);已授权/无能力声明的插件保持原 enablePlugin 通路。
+        if (manager.permissionStateOf(id) !== 'granted' &&
+          current.manifest.capabilitiesDeclared) {
+          await manager.consentEnablePlugin(id);
+        } else {
+          await manager.enablePlugin(id);
+        }
       } else {
         await manager.disablePlugin(id);
       }
@@ -190,7 +212,8 @@ export struct LexiSettingsTab {
       const uris = await docPicker.select({ fileSuffixFilters: ['插件安装包|.zip'], maxSelectNumber: 1 });
       if (!uris || uris.length === 0) { return; }
       const pluginId = await manager.installZip(uris[0]);
-      this.getUIContext().getPromptAction().showToast({ message: `已安装插件: ${pluginId}` });
+      // P5-004:安装不再自动 enable——侧载插件停在待授权,在插件列表开启即同意权限清单。
+      this.getUIContext().getPromptAction().showToast({ message: `已安装插件（未启用，请到插件列表授权后启用）: ${pluginId}` });
     } catch (error) {
       this.getUIContext().getPromptAction().showToast({ message: '安装失败: ' + String(error) });
     } finally {

@@ -156,6 +156,41 @@ export function capabilityTagsOfV2Caps(caps: LexiManifestV2Caps): string[] {
   return tags;
 }
 
+/**
+ * P5-004(RFC §4.5 建议区分)·权限标签三档分类视图:授权面板按 必需/可选/高风险 分组呈现。
+ * 纯展示语义——分类不参与授权判定,指纹与 regrant 仍以 capabilityTagsOfV2Caps 全集为准;
+ * 用户拒绝 = 整体不同意(不启用),按能力部分授权的降级运行留给 P2-009 状态机。
+ * 高风险(§4.5 披露面):笔记读改删/敏感内容读取/剪贴板读取/网络外联/受信任编辑器扩展;
+ * 可选:纯增量体验面(通知/剪贴板写/自定义视图/HTTP 方法收紧);
+ * 必需:基础交互面与配额基线(netreq/netres/storage.quota 对 v2 清单恒在,属披露性基线)。
+ */
+export class LexiPermissionClassView {
+  required: string[] = [];
+  optional: string[] = [];
+  risky: string[] = [];
+}
+
+export function classifyCapabilityTags(tags: string[]): LexiPermissionClassView {
+  const view = new LexiPermissionClassView();
+  for (const tag of tags) {
+    if (tag === 'vault.delete' || tag === 'vault.write' || tag.indexOf('vault.write:') === 0 ||
+      tag === 'vault.read' || tag.indexOf('vault.read:') === 0 ||
+      tag === 'clipboard.read' || tag === 'editor.readActive' || tag === 'editor.writeDocument' ||
+      tag.indexOf('editor.extensions:') === 0 || tag.indexOf('network:') === 0) {
+      view.risky.push(tag);
+    } else if (tag === 'clipboard.write' || tag === 'notifications' || tag === 'workspace.views' ||
+      tag.indexOf('netmethod:') === 0) {
+      view.optional.push(tag);
+    } else {
+      view.required.push(tag);
+    }
+  }
+  view.required.sort();
+  view.optional.sort();
+  view.risky.sort();
+  return view;
+}
+
 function isPlainObject(value: Object | undefined | null): boolean {
   return value !== undefined && value !== null && typeof value === 'object' && !Array.isArray(value);
 }

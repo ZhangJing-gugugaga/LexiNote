@@ -597,6 +597,153 @@ test('runtime 接线：能力门禁在处理器前面，卸载/回滚/严格索�
   assert.match(text, /if \(this\.wasUninstalled\(entryName\)\) \{ return; \}/, '内置插件落盘前必须先查卸载记录');
 });
 
+// --- 7. P5-004 安装不再自动 enable:授权清单展示 → 用户同意 → 启用 ---------------------
+function runtimeEts() {
+  return fs.readFileSync(path.join(CORE, 'plugin', 'LexiPluginRuntime.ets'), 'utf8');
+}
+function marketSheetEts() {
+  return fs.readFileSync(
+    path.join(REPO_ROOT, 'entry', 'src', 'main', 'ets', 'components', 'plugin', 'LexiPluginMarketSheet.ets'), 'utf8');
+}
+
+test('P5-004 安装链不再自动 enable：首装落 installed 等授权，仅授权/升级重启两条通路', () => {
+  const text = runtimeEts();
+  const body = text.slice(text.indexOf('async installZip('), text.indexOf('async installFromUrl('));
+  assert.ok(body.length > 0, 'installZip 必须存在');
+  // 升级重启判定必须在 scanPluginDir 重建记录之前取 enabledIds(启用的持久真源)。
+  const scanPos = body.indexOf('await this.scanPluginDir()');
+  const wasEnabledPos = body.indexOf('const wasEnabled = this.enabledIds.has(manifest.id)');
+  assert.ok(wasEnabledPos > 0 && wasEnabledPos < scanPos,
+    'wasEnabled 判定必须在 scanPluginDir 之前(扫描会把记录重建为未启用)');
+  // 通路 1:grantApproved(P2-008 升级重授权)= 落账 + 启用。
+  const grantStart = body.indexOf('if (grantApproved) {');
+  const upgradeStart = body.indexOf('if (wasEnabled) {');
+  const freshStart = body.indexOf('P5-004 首装默认路径');
+  assert.ok(grantStart > 0 && upgradeStart > grantStart && freshStart > upgradeStart,
+    'installZip 必须依次是 grantApproved / wasEnabled / 首装默认 三段');
+  const grantBlock = body.slice(grantStart, upgradeStart);
+  assert.match(grantBlock, /permissionStore\.grant\(manifest\.id/, '重授权通路必须落账');
+  assert.match(grantBlock, /this\.enablePlugin\(manifest\.id\)/, '重授权通路启用(用户已确认新权限)');
+  // 通路 2:wasEnabled(升级重启)= 只启用不重新落账(§4.6 权限不变沿用授权)。
+  const upgradeBlock = body.slice(upgradeStart, freshStart);
+  assert.match(upgradeBlock, /this\.enablePlugin\(manifest\.id\)/, '升级重启通路启用');
+  assert.doesNotMatch(upgradeBlock, /permissionStore\.grant\(/, '升级重启不得重新落账(沿用既有授权)');
+  // 首装默认路径:不得出现任何 enablePlugin 调用。
+  const freshBlock = body.slice(freshStart);
+  assert.doesNotMatch(freshBlock, /this\.enablePlugin\(/, '首装默认路径不得 enable(P5-004 主断言)');
+  assert.match(freshBlock, /插件已安装\(未启用,等待用户授权\)/, '首装日志必须明示未启用待授权');
+});
+
+test('P5-004 enablePlugin 授权前置：未授权声明型清单拒绝启用,「启用即授权」废除', () => {
+  const text = runtimeEts();
+  const body = text.slice(text.indexOf('async enablePlugin('), text.indexOf('async disablePlugin('));
+  assert.ok(body.length > 0, 'enablePlugin 必须存在');
+  assert.match(body, /decision !== PERMISSION_GRANTED[\s\S]{0,600}插件权限尚未授权[\s\S]{0,300}return false/,
+    '未授权(not-granted)必须拒绝启用,不得自动落账');
+  assert.doesNotMatch(body, /decision !== PERMISSION_GRANTED[\s\S]{0,200}permissionStore\.grant\(/,
+    '「首次启用:用户显式启用即授权」自动落账必须废除(P5-004)');
+  // P2-010 保持:revoked 短路先于授权门(撤销对所有清单版本生效)。
+  const revokedPos = body.indexOf("state === 'revoked'");
+  const consentPos = body.indexOf('decision !== PERMISSION_GRANTED');
+  assert.ok(revokedPos > 0 && revokedPos < consentPos, 'revoked 短路必须先于授权门(P2-010)');
+  // regrant-required(指纹变化)仍拒绝。
+  assert.match(body, /PERMISSION_REGRANT_REQUIRED[\s\S]{0,200}return false/, '指纹变化的 regrant 拒绝保持');
+});
+
+test('P5-004 同意通道：consentEnablePlugin = grant→enable,授权状态可查询,撤销重授权可达', () => {
+  const text = runtimeEts();
+  assert.match(text, /async consentEnablePlugin\(pluginId: string\): Promise<boolean> \{/,
+    '授权面板的同意入口必须存在');
+  const body = text.slice(text.indexOf('async consentEnablePlugin('),
+    text.indexOf('async consentEnablePlugin(') + 500);
+  assert.match(body, /grantPluginPermissions\(pluginId\)/, '同意必须先按当前清单落账');
+  assert.match(body, /enablePlugin\(pluginId\)/, '落账后启用');
+  assert.match(text, /permissionStateOf\(pluginId: string\): string \{/, 'UI 需要授权状态查询(not-granted → 展示面板)');
+  // P2-010 撤销链保持:revoke → disablePlugin 立即停用;consent 可重新授权(revoked → granted)。
+  const revoke = text.slice(text.indexOf('async revokePluginPermissions('),
+    text.indexOf('async revokePluginPermissions(') + 400);
+  assert.match(revoke, /permissionStore\.revoke\(pluginId\)/, '撤销落账');
+  assert.match(revoke, /disablePlugin\(pluginId\)/, '撤销必须立即停用(通道不变)');
+  // 行为面(真跑):撤销后即使指纹一致 decision 也是 revoked,不是 granted。
+  const storeMod = loadEts('plugin/LexiPermissionStore', kits);
+  const store = new storeMod.LexiPermissionStore();
+  store.grant('plug-a', '1.0.0', 'fp:tag|');
+  assert.equal(store.decisionFor('plug-a', '1.0.0', 'fp:tag|'), storeMod.PERMISSION_GRANTED, '对照:同意后 GRANTED');
+  store.revoke('plug-a');
+  assert.equal(store.decisionFor('plug-a', '1.0.0', 'fp:tag|'), storeMod.PERMISSION_REVOKED,
+    '撤销后即使指纹一致也不得 GRANTED(P2-010)');
+  store.grant('plug-a', '1.0.0', 'fp:tag|');
+  assert.equal(store.decisionFor('plug-a', '1.0.0', 'fp:tag|'), storeMod.PERMISSION_GRANTED,
+    '重新授权(consent)后恢复 GRANTED');
+});
+
+test('P5-004 内置夹具白名单：首启显式落账授权,沙箱探针冷启动链保留(Round 22)', () => {
+  const text = runtimeEts();
+  const start = text.indexOf("const bundledInit = await LexiStorageService.getSetting('lexiPluginBundledInit'");
+  const end = text.indexOf('插件管理器初始化完成');
+  assert.ok(start > 0 && end > start, '首启自动启用块必须存在');
+  const block = text.slice(start, end);
+  assert.match(block, /bundledAllowList/, '必须存在显式白名单(代码闭合,不接受数据驱动)');
+  for (const id of ['lexi-sample-plugin', 'sandbox-probe', 'sandbox-sample-min']) {
+    assert.ok(block.indexOf("'" + id + "'") >= 0, '内置白名单必须包含 ' + id);
+  }
+  assert.match(block, /permissionStore\.grant\(bundledId/, '白名单启用必须先落账授权(否则 enablePlugin 授权门拒绝)');
+  assert.equal((block.match(/enabledIds\.add\(/g) || []).length, 1,
+    '首启块只允许经白名单循环启用一次(不得为绕过授权门私开通道)');
+  // 沙箱探针链路仍随首启启用(容器页就绪即走沙箱轨)。
+  assert.ok(block.indexOf('sandbox-probe') >= 0, 'sandbox-probe 冷启动链不得回归(Round 22)');
+});
+
+test('P5-004 分级呈现(§4.5 必需/可选/高风险)：capabilityTagsOfV2Caps 标签三档分类真跑', () => {
+  const v2Mod = loadEts('plugin/LexiPluginManifestV2', kits);
+  const caps = new v2Mod.LexiManifestV2Caps();
+  caps.vault.write.enabled = true;
+  caps.vault.delete = true;
+  caps.editor.readActive = true;
+  caps.workspace.commands = true;
+  caps.network.origins = ['api.example.com'];
+  caps.clipboard.read = true;
+  caps.clipboard.write = true;
+  caps.notifications = true;
+  const tags = v2Mod.capabilityTagsOfV2Caps(caps);
+  const view = v2Mod.classifyCapabilityTags(tags);
+  assert.deepEqual([...view.risky], ['clipboard.read', 'editor.readActive', 'network:api.example.com', 'vault.delete', 'vault.write'],
+    '高风险 = 笔记读改删/敏感读取/剪贴板读/网络外联');
+  assert.deepEqual([...view.optional], ['clipboard.write', 'notifications'], '可选 = 纯增量体验面');
+  assert.deepEqual([...view.required], ['netreq:65536', 'netres:1048576', 'storage.quota:1048576', 'workspace.commands'],
+    '必需/基线 = 基础交互面与配额披露');
+  // 分档必须是全集划分:每个正典标签恰好落一档(分类不改变指纹输入)。
+  const union = [...view.risky, ...view.optional, ...view.required].sort();
+  assert.deepEqual(union, [...tags].sort(), '三档并集必须等于标签全集(分类纯展示,不吞标签)');
+});
+
+test('P5-004 市场 UI：安装 → 授权面板 → 同意启用;拒绝 = 保持未启用', () => {
+  const sheetText = marketSheetEts();
+  assert.match(sheetText, /pendingConsentId/, '安装完成必须进入待授权态而不是报已启用');
+  assert.match(sheetText, /已安装（未启用）：/, '安装成功文案必须明示未启用');
+  assert.match(sheetText, /同意并启用/, '授权面板必须有显式同意按钮');
+  assert.match(sheetText, /暂不启用/, '授权面板必须有拒绝通路(拒绝 = 不启用)');
+  assert.match(sheetText, /consentEnablePlugin\(/, '同意必须走 consentEnablePlugin(grant→enable)');
+  assert.match(sheetText, /classifyCapabilityTags\(/, '权限清单必须分级呈现(RFC §4.5)');
+  assert.match(sheetText, /高风险权限/, '高风险权限必须显式标注');
+  assert.match(sheetText, /安装授权确认/, '授权面板必须展示插件元数据与权限用途披露');
+  // 首装不携带 grantApproved(那是升级重授权专用通道):只在 pendingGrantEntry 确认行置真。
+  const installBody = sheetText.slice(sheetText.indexOf('private async install('), sheetText.indexOf('private async revokePermissions('));
+  assert.match(installBody, /grantApproved \? '\{"grantApproved":true\}' : ''/, '安装选项三目保持:默认为空(不授权)');
+  assert.match(installBody, /pendingConsentId = pluginId/, '首装成功后进入待授权');
+});
+
+test('P5-004 设置页接线：未授权插件的开关 = 同意行内权限清单(consent 通路)', () => {
+  for (const name of ['LexiSettingsTab.ets', 'LexiSettingsWindow.ets']) {
+    const text = fs.readFileSync(path.join(REPO_ROOT, 'entry', 'src', 'main', 'ets', 'components', name), 'utf8');
+    assert.match(text, /permissionStateOf\(id\) !== 'granted'[\s\S]{0,120}consentEnablePlugin\(id\)/,
+      name + ': 未授权声明型插件的开启必须走 consent 通路');
+    assert.match(text, /permissionNote/, name + ': 行内权限标签必须展示(开关即同意的可读性前提)');
+    assert.match(text, /待授权/, name + ': 未授权插件必须标出待授权状态');
+    assert.match(text, /已安装插件（未启用/, name + ': 侧载安装提示必须明示未启用');
+  }
+});
+
 test('静态审核的模块白名单：@codemirror 放行，其它 require 红灯', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lexinote-audit-'));
   const write = (name, manifest, mainJs) => {

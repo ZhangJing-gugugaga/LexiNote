@@ -285,6 +285,29 @@ if (!tsPath5) { throw new Error('需要 LEXI_TYPESCRIPT'); }
   ok('V5.9 disabled 一律拒绝 / 空 patterns 全库', !pathAllowed('any.md', false, ['**']) &&
     pathAllowed('any/deep/file.md', true, []),
     'enabled=false 优先;空白名单=全库(与旧 fs 布尔语义一致)');
+
+  // --- V6 P5-004 分级呈现(RFC §4.5 必需/可选/高风险,真跑) ------------------
+  const classify = v2mod.classifyCapabilityTags;
+  const fineView = classify(baseTags);
+  ok('V6.1 高风险档 = 笔记读改删/敏感读取/网络外联', fineView.risky.indexOf('vault.delete') >= 0 &&
+    fineView.risky.indexOf('vault.write:notes/draft/') >= 0 && fineView.risky.indexOf('vault.read:notes/**/*.md') >= 0 &&
+    fineView.risky.indexOf('editor.writeDocument') >= 0 && fineView.risky.indexOf('editor.readActive') >= 0 &&
+    fineView.risky.indexOf('network:api.example.com') >= 0,
+    '§4.5 披露面(修改笔记/剪贴板/网络)必须落入高风险档');
+  ok('V6.2 可选档 = 纯增量体验面', fineView.optional.indexOf('clipboard.write') >= 0 &&
+    fineView.optional.indexOf('notifications') >= 0 && fineView.optional.indexOf('netmethod:GET') >= 0,
+    '通知/剪贴板写/方法收紧归可选档');
+  ok('V6.3 必需档 = 基础交互面与配额基线', fineView.required.indexOf('workspace.commands') >= 0 &&
+    fineView.required.indexOf('netreq:65536') >= 0 && fineView.required.indexOf('storage.quota:2097152') >= 0,
+    '基线配额标签恒入必需档(披露性,不代表危险能力)');
+  ok('V6.4 分档是全集划分(纯展示,不吞标签)', (() => {
+    const union = fineView.risky.concat(fineView.optional, fineView.required).sort().join('|');
+    return union === baseTags.slice().sort().join('|');
+  })(), '三档并集必须等于正典标签全集;指纹与授权仍以全集为准');
+  ok('V6.5 空标签集产出空视图', (() => {
+    const emptyView = classify([]);
+    return emptyView.risky.length === 0 && emptyView.optional.length === 0 && emptyView.required.length === 0;
+  })(), '未声明能力的插件授权面板显示"未声明能力"而不是编造条目');
 }
 
 console.log('\n[summary] 通过 ' + passed + ' 项 / 失败 ' + failures.length + ' 项');

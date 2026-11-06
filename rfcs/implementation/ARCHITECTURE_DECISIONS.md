@@ -82,7 +82,18 @@
 - 门禁锚点：plugin-context-isolation S26（runtime CSP 无 unsafe-eval）/S27（HTML 零内联脚本）/S28（runtime 页脚本 eval 对账：render/container 清零、shim new Function 恰 1 处且能力门控）/S28b（注入通道结构在案）/S29（沙箱保留 unsafe-eval+注释在案）；lexi-cli-contract C6（build 端到端+形状+vm 行为级+幂等）；plugin-shim-regression 注入通道行为级用例；net-request-url 19.3 锚点随内部命名更新（语义不变）。
 - 复审条件：P1-004 收敛工作区页 CSP 时必须同轮删除过渡通道（S28 的"恰好 1 处"预期归零）；真机阶段若注入通道异常（探测 false 且无 unsafe-eval）按 fail-closed 报错暴露，不得静默回退。
 
+## ADR-R26-01 安装不再自动 enable：授权清单展示 → 用户同意 → 启用（P5-004 / B-004 自设计,验收后请人工复审）
+
+- 依据：RFC §4.5（安装必须展示插件名/发布者/版本/来源/签名状态/请求权限/网络与剪贴板与存储披露,建议区分必需/可选/高风险;拒绝必需权限不得启用）、§8.2 安装流程（展示权限清单在原子安装之前、任何步骤失败不得标记为已启用）、§4.6（版本更新权限不变沿用授权）。EXECUTION_PLAN R26 = P5-004（P0 安全洞:装完自动 enable 无授权）。
+- 同意模型定案：**授权落账（PermissionStore.grant,指纹绑定）= 用户同意的唯一记录;启用以已落账授权为前提**。installZip/installFromUrl 只落盘,首装默认停在 installed（在盘未启用）态;MarketSheet 安装完成后弹出授权面板（元数据披露 + capabilityTagsOfV2Caps 正典标签按 classifyCapabilityTags 三档呈现:高风险/可选/必需基线,分类纯展示、不拆分授权）,「同意并启用」= consentEnablePlugin（grant→enable）,「暂不启用」= 保持未启用。enablePlugin 的「首次启用即授权」自动落账废除:not-granted 一律拒绝启用（errorState='插件权限尚未授权',停留在 RFC §4.1 installed/permission-pending 未运行面）——这条门使未同意插件经任何通路（首装/重启恢复/手动开启）都无法运行,fail-closed。
+- 降级运行路径定案（本轮 documented choice）：授权为**整体性**（指纹全集,延续 P2-002 模型,PermissionStore 无 deniedCapabilities 逐能力字段）,故"未完全授权"= 不运行（permission-pending 语义,即既有 enable/disable + errorState 面）,不做部分授权的 degraded 运行;RFC §4.5 的"拒绝可选权限仍可降级运行"留给 P2-009 状态机补 degraded 态时连同 per-capability 授权一起收口。三档分类先行落 UI,届时无需改数据模型。
+- 升级通路不动（§4.6）：已启用插件（enabledIds 在册,判定取在 scanPluginDir 重建记录之前）升级后经 enablePlugin 重启,权限不变沿用授权;权限增长在安装口仍被 LexiUpdatePolicy 拦成 ERR_PERMISSION_REGRANT_REQUIRED,经 P2-008 重授权确认行（grantApproved）落账后启用。撤销链（P2-010）原样:revoke → disablePlugin 立即停用,revoked 短路先于授权门,consentEnablePlugin 可重新授权。
+- 内置夹具（B-004 待审项）：**内置开发夹具白名单**——lexi-sample-plugin/sandbox-probe/sandbox-sample-min 随 HAP 签名分发、不经用户安装链,首启（bundledInit 一次性标志）在代码内闭合的 bundledAllowList 逐个 grant 落账后启用;Round 22 恢复的 sandbox-probe 冷启动链不回归。用户安装插件无任何自动落账通路。备选"内置夹具也走授权面板"被否:夹具是设备验收探针,首启无人值守场景没有可交互的同意时点;若人工复审要求全量同意,删除该白名单块即可（单点回退）。
+- v1 legacy：无能力声明清单不进授权门（无指纹可授,revoked 短路仍生效）;有声明清单（legacy 三标签形态）与新装 v2 同样需同意——不静默授予任何新面,与 P2-002 的 v1 指纹/diff 处理同口径。
+- 门禁锚点：plugin-dist-regression +7（安装不 enable 三段结构 / enablePlugin 授权前置+自动落账废除 / consent 通道+撤销重授权真跑 / 内置白名单 / 分级呈现真跑 / 市场 UI 接线 / 设置页接线）;plugin-lifecycle-once L6.8/L6.9;plugin-manifest-v2 V6.1-V6.5;plugin-update-policy 语义不变（首装策略仍放行,授权发生在启用口）;设备流 plugin-dist-flows / adapter-probe-evidence 增加「已安装（未启用）→ 同意并启用」步进（真机验收随 P4-005）。
+- 复审条件：B-004 人工确认①内置夹具白名单是否豁免同意②三档分类口径③设置页"开关即同意"（行内权限标签可见）是否需要升级为独立确认弹窗。
+
 ## 历史决策登记（迁移自既有代码语义,防遗失）
 
 - Manifest v1 无 capabilities → `capabilitiesDeclared=false` → 跳过 T2.2 授权门且 legacy 分支放行 fs。此为兼容策略,但等于"旧插件默认高权"——P2 权限闭环须将其收敛为显式兼容权限集（RFC §18.1）。
-- `LexiUpdatePolicy` 首装不询问（注释明示走启用即授权）——与 P5-004（安装即展示权限清单）的衔接点,届时复审。
+- `LexiUpdatePolicy` 首装不询问（注释明示走启用即授权）——与 P5-004（安装即展示权限清单）的衔接点,已复审收口:见 ADR-R26-01（授权发生在启用口,不在安装口拦截）。

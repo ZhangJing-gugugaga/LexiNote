@@ -92,6 +92,14 @@ function texts(list) {
 function findByText(list, pattern, filter) {
   return list.find((attrs) => bounds(attrs) && pattern.test(attrs.text || '') && (!filter || filter(bounds(attrs)))) || null;
 }
+// P0-012:同文本多节点时取最窄者(侧边栏行 vs 宽卡片/标题)。R8 时代的 x1<1000 约束在
+// 2in1 宽布局下既滤不干净也挑不对:社区插件市场的宽卡片 x1=978 同样过筛且先于侧栏行出现,
+// 点卡片中心落空 → 市场从未打开(2026-11-07 两轮 flows 失败根因)。
+function findByTextNarrowest(list, pattern, filter) {
+  const candidates = list.filter((attrs) => bounds(attrs) && pattern.test(attrs.text || '') && (!filter || filter(bounds(attrs))));
+  if (candidates.length === 0) { return null; }
+  return candidates.reduce((best, attrs) => (bounds(attrs).x2 - bounds(attrs).x1 < bounds(best).x2 - bounds(best).x1 ? attrs : best));
+}
 function clickNode(attrs) {
   const box = bounds(attrs || {});
   if (!box) { return false; }
@@ -321,13 +329,20 @@ async function openMarketSheet(dir) {
       (list) => list.some((attrs) => attrs.id === 'workspace-action-dock-profile' && bounds(attrs)), { timeoutMs: 60000, intervalMs: 1500 });
   }
   if (!dock.ok) { throw new Error('未出现 workspace-action-dock-profile'); }
+  // P0-012:全新安装后首启会弹 onboarding 向导(跳过按钮),不处理则后续点击全落向导上。
+  const wiz = await pollText(dir, 'layout-onboarding', /^跳过$/, { timeoutMs: 6000, intervalMs: 1500 });
+  if (wiz.ok) {
+    const nodes = dumpLayout(dir, 'layout-onboarding-click');
+    const skip = findByTextNarrowest(nodes, /^跳过$/, null);
+    if (skip) { clickNode(skip); }
+  }
   const dockList = dumpLayout(dir, 'layout-dock-click');
   clickNode(dockList.find((attrs) => attrs.id === 'workspace-action-dock-profile' && bounds(attrs)));
   const settings = await pollText(dir, 'layout-settings', /^社区插件市场$/, { timeoutMs: 20000 });
   if (!settings.ok) { throw new Error('设置面板未出现'); }
-  // 设置面板在左侧窄栏(x<1000),市场标题在右侧大面板:只点左边那一行。
+  // P0-012:改选最窄匹配(侧栏行),不再依赖 R8 的 x1<1000 布局假设。
   const panel = dumpLayout(dir, 'layout-settings-click');
-  clickNode(findByText(panel, /^社区插件市场$/, (box) => box.x1 < 1000));
+  clickNode(findByTextNarrowest(panel, /^社区插件市场$/, null));
   const sheet = await pollText(dir, 'layout-market', /^演示源$/, { timeoutMs: 20000 });
   if (!sheet.ok) { throw new Error('社区插件市场未打开'); }
   return sheet.texts;
@@ -353,6 +368,14 @@ async function marketIndex(dir, label, pattern) {
       continue;
     }
     listed = await pollText(dir, 'layout-market-' + label + '-a' + attempt, pattern, { timeoutMs: 20000 });
+    if (listed.ok) { return listed; }
+    // P0-012/KI-1:已安装列表把远程条目挤出视口(R8 时代夹具少无需滚动,dumpLayout 只见可见节点)。
+    // 轮询未中则向上滑动市场列表再等,最多 4 屏。
+    for (let scroll = 1; scroll <= 4 && !listed.ok; scroll++) {
+      sh('uitest uiInput swipe 1400 1700 1400 800 600', 60000);
+      await sleep(900);
+      listed = await pollText(dir, 'layout-market-' + label + '-a' + attempt + '-s' + scroll, pattern, { timeoutMs: 8000 });
+    }
     if (listed.ok) { return listed; }
     console.log('  第 ' + attempt + ' 次没渲染出目标条目,可见文本=' + listed.texts.slice(0, 8).join(' | '));
   }
@@ -441,8 +464,15 @@ async function flowInstall(dir, check, ctx) {
     check.check('v1 索引被接受(列表出现探针)', listed.ok, listed.ok ? listed.hit : '可见文本=' + listed.texts.slice(0, 12).join(' | '));
 
     clickRowAction(dir, 'layout-install', PROBE_NAME, /^安装$/);
+    // P5-004:安装不再自动 enable——先停在授权面板(已安装未启用),再显式同意启用。
+    const pending = await pollText(dir, 'layout-installed-pending', /已安装（未启用）：/, { timeoutMs: 40000 });
+    check.check('UI 显示已安装(未启用,待授权)', pending.ok, pending.hit);
+    const consent = dumpLayout(dir, 'layout-consent');
+    const consentBtn = findByText(consent, /^同意并启用$/);
+    check.check('授权面板同意按钮可见', Boolean(consentBtn), consentBtn ? 'y=' + bounds(consentBtn).cy : texts(consent).slice(0, 12).join(' | '));
+    if (consentBtn) { clickNode(consentBtn); }
     const done = await pollText(dir, 'layout-installed', /已安装并启用：/, { timeoutMs: 40000 });
-    check.check('UI 显示已安装并启用', done.ok, done.hit);
+    check.check('UI 显示已安装并启用(同意后)', done.ok, done.hit);
 
     const listing = lsPlugin();
     fs.writeFileSync(path.join(dir, 'ls.txt'), listing);

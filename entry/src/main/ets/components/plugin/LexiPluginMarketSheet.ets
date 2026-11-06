@@ -4,6 +4,7 @@
 import { LexiPluginManager } from '../../core/plugin/LexiPluginRuntime';
 import { LexiPluginMarketEntry, LexiMarketIndexResult, isTrustedInstallHash } from '../../core/plugin/LexiPluginMarketModel';
 import { LexiInstalledPlugin } from '../../core/plugin/LexiPluginManifest';
+import { LexiPermissionClassView, classifyCapabilityTags } from '../../core/plugin/LexiPluginManifestV2';
 
 const DEFAULT_MARKET_URL: string = 'https://raw.githubusercontent.com/ZhangJing-gugugaga/lexinote-releases/master/community-plugins.json';
 // 模拟器/调试用本地源:10.0.2.2 映射到宿主机回环地址
@@ -56,6 +57,10 @@ export struct LexiPluginMarketSheet {
   @State private demoMode: boolean = false;
   // P2-008:权限增长被拒后暂存的待确认条目(渲染"重新授权并安装"按钮)。
   @State private pendingGrantEntry: LexiPluginMarketEntry | null = null;
+  // P5-004:安装完成但尚未授权的插件 id(渲染授权面板:权限清单→同意启用/暂不启用)。
+  @State private pendingConsentId: string = '';
+  @State private pendingConsentRepo: string = '';
+  @State private pendingConsentHashOk: boolean = false;
 
   aboutToAppear(): void {
     this.load();
@@ -118,13 +123,21 @@ export struct LexiPluginMarketSheet {
     try {
       const options = grantApproved ? '{"grantApproved":true}' : '';
       const pluginId = await manager.installFromUrl(entry.zipUrl, entry.sha256, options);
-      // 安装完不等于装载成功:回读该插件的 errorState,别把"装上了但 onload 炸了"报成已启用。
+      // P5-004:安装不再自动 enable。回读落点:已启用 = 升级重启/重授权通路;未启用 =
+      // 首装默认停在待授权,渲染授权面板(权限清单→用户同意→启用)而不是报"已启用"。
       const fresh = manager.installedPlugins()
         .find((plugin: LexiInstalledPlugin): boolean => plugin.manifest.id === pluginId);
       const failure: string = fresh ? pluginFailureSummary(fresh.errorState) : '';
-      this.status = failure.length > 0
-        ? `已安装但加载失败：${entry.name} — ${failure}`
-        : `已安装并启用：${entry.name}`;
+      if (failure.length > 0) {
+        this.status = `已安装但加载失败：${entry.name} — ${failure}`;
+      } else if (fresh !== undefined && fresh.enabled) {
+        this.status = `已安装并启用：${entry.name}`;
+      } else {
+        this.status = `已安装（未启用）：${entry.name} — 请确认权限清单后启用`;
+        this.pendingConsentId = pluginId;
+        this.pendingConsentRepo = entry.repo;
+        this.pendingConsentHashOk = isTrustedInstallHash(entry.sha256);
+      }
       this.pendingGrantEntry = null;
       this.onInstalled(pluginId);
       this.refreshInstalled();
@@ -150,10 +163,112 @@ export struct LexiPluginMarketSheet {
     try {
       const ok = await manager.revokePluginPermissions(pluginId);
       this.status = ok ? `已撤销授权并停用：${pluginId}` : `撤销失败（未授权或插件不存在）：${pluginId}`;
+      if (ok && pluginId === this.pendingConsentId) { this.pendingConsentId = ''; }
       this.refreshInstalled();
     } finally {
       this.busy = false;
     }
+  }
+
+  // ---------------- P5-004 授权面板(RFC §4.5):元数据 + 必需/可选/高风险分级 ----------------
+
+  private consentPlugin(): LexiInstalledPlugin | null {
+    const manager = LexiPluginManager.shared;
+    if (!manager || this.pendingConsentId.length === 0) { return null; }
+    const found = manager.installedPlugins()
+      .find((plugin: LexiInstalledPlugin): boolean => plugin.manifest.id === this.pendingConsentId);
+    return found !== undefined ? found : null;
+  }
+
+  private consentTagsOf(plugin: LexiInstalledPlugin): string[] {
+    const manager = LexiPluginManager.shared;
+    return manager ? manager.permissionTagsOf(plugin.manifest.id) : [];
+  }
+
+  private consentClassOf(plugin: LexiInstalledPlugin): LexiPermissionClassView {
+    return classifyCapabilityTags(this.consentTagsOf(plugin));
+  }
+
+  private consentTitleLine(): string {
+    const plugin = this.consentPlugin();
+    return plugin !== null ? plugin.manifest.name : '';
+  }
+
+  private consentMetaLine(): string {
+    const plugin = this.consentPlugin();
+    if (plugin === null) { return ''; }
+    const repo = this.pendingConsentRepo.length > 0 ? this.pendingConsentRepo : '本地来源';
+    return `发布者 ${plugin.manifest.author.length > 0 ? plugin.manifest.author : '未知'} · v${plugin.manifest.version} · 来源仓库 ${repo}`;
+  }
+
+  private consentSignatureLine(): string {
+    return this.pendingConsentHashOk ? '签名状态：包哈希已校验（与索引 sha256 一致）' : '签名状态：本地侧载（无远端哈希比对）';
+  }
+
+  private consentDisclosureLine(): string {
+    const plugin = this.consentPlugin();
+    if (plugin === null) { return ''; }
+    const tags = this.consentTagsOf(plugin);
+    const touches = (prefix: string): boolean =>
+      tags.some((tag: string): boolean => tag.indexOf(prefix) === 0);
+    const writesNotes = tags.some((tag: string): boolean =>
+      tag === 'vault.write' || tag.indexOf('vault.write:') === 0 || tag === 'vault.delete' || tag === 'editor.writeDocument');
+    const net = touches('network:') || touches('netmethod:');
+    return `是否修改笔记：${writesNotes ? '是' : '否'} · 是否访问剪贴板：${touches('clipboard') ? '是' : '否'} · 是否涉及网络：${net ? '是' : '否'}`;
+  }
+
+  private consentNetworkLine(): string {
+    const plugin = this.consentPlugin();
+    if (plugin === null) { return ''; }
+    const hosts: string[] = [];
+    this.consentTagsOf(plugin).forEach((tag: string): void => {
+      if (tag.indexOf('network:') === 0) { hosts.push(tag.substring('network:'.length)); }
+    });
+    return '网络访问域名：' + (hosts.length > 0 ? hosts.join(' · ') : '无自声明域名');
+  }
+
+  private consentStorageLine(): string {
+    const plugin = this.consentPlugin();
+    if (plugin === null) { return ''; }
+    const quota = this.consentTagsOf(plugin)
+      .find((tag: string): boolean => tag.indexOf('storage.quota:') === 0);
+    return '数据存储空间：' + (quota !== undefined ? quota.substring('storage.quota:'.length) + ' 字节' : '默认配额');
+  }
+
+  private consentClassLine(kind: string): string {
+    const plugin = this.consentPlugin();
+    if (plugin === null) { return ''; }
+    const view = this.consentClassOf(plugin);
+    const tags = kind === 'risky' ? view.risky : (kind === 'optional' ? view.optional : view.required);
+    return tags.join(' · ');
+  }
+
+  /** P5-004:用户对权限清单显式同意 → grant 落账 + 启用(拒绝必需权限的插件不得启用,§4.5)。 */
+  private async consentEnable(): Promise<void> {
+    const manager = LexiPluginManager.shared;
+    const plugin = this.consentPlugin();
+    if (!manager || plugin === null || this.busy) { return; }
+    this.busy = true;
+    try {
+      const ok = await manager.consentEnablePlugin(plugin.manifest.id);
+      const fresh = manager.installedPlugins()
+        .find((item: LexiInstalledPlugin): boolean => item.manifest.id === plugin.manifest.id);
+      const failure: string = fresh ? pluginFailureSummary(fresh.errorState) : '';
+      this.status = ok ? `已安装并启用：${plugin.manifest.name}`
+        : `启用失败：${plugin.manifest.name}${failure.length > 0 ? ' — ' + failure : ''}`;
+      this.pendingConsentId = '';
+    } finally {
+      this.busy = false;
+      this.refreshInstalled();
+    }
+  }
+
+  /** P5-004:用户拒绝授权 → 插件保持已安装未启用(RFC §4.5:拒绝必需权限不得启用)。 */
+  private declineConsent(): void {
+    const plugin = this.consentPlugin();
+    this.pendingConsentId = '';
+    this.status = plugin !== null ? `已安装未启用：${plugin.manifest.name}（未授权的插件不能运行,可稍后重新授权）` : '已安装未启用';
+    this.refreshInstalled();
   }
 
   private async uninstall(pluginId: string): Promise<void> {
@@ -196,6 +311,13 @@ export struct LexiPluginMarketSheet {
     return current.length > 0 ? current : plugin.manifest.version;
   }
 
+  /** P5-004:声明了能力且尚未授权的已装插件 = 待授权(未授权不能运行)。 */
+  private awaitingConsent(plugin: LexiInstalledPlugin): boolean {
+    const manager = LexiPluginManager.shared;
+    if (!manager || plugin.enabled || !plugin.manifest.capabilitiesDeclared) { return false; }
+    return manager.permissionStateOf(plugin.manifest.id) !== 'granted';
+  }
+
   /** 已安装行的状态行:errorState 非空时不出现"已启用"字样。 */
   private stateLine(plugin: LexiInstalledPlugin): string {
     const version: string = `v${this.versionLabel(plugin)}`;
@@ -203,7 +325,9 @@ export struct LexiPluginMarketSheet {
     if (pluginFailureKind(plugin.errorState) !== 'normal') {
       return pluginFailureLabel(plugin.errorState) + suffix;
     }
-    return (plugin.enabled ? '已启用' : '已停用') + suffix;
+    if (plugin.enabled) { return '已启用' + suffix; }
+    if (this.awaitingConsent(plugin)) { return '待授权·未启用' + suffix; }
+    return '已停用' + suffix;
   }
 
   build() {
@@ -254,6 +378,52 @@ export struct LexiPluginMarketSheet {
               const entry = this.pendingGrantEntry;
               if (entry !== null) { this.install(entry, true); }
             })
+        }
+        .width('100%').alignItems(HorizontalAlign.Start)
+        .padding(10).backgroundColor($r('app.color.soft_surface')).borderRadius(10)
+      }
+
+      if (this.pendingConsentId.length > 0 && !this.busy && this.consentPlugin() !== null) {
+        // P5-004 授权面板(RFC §4.5):插件元数据 + 权限分级清单 → 显式同意才启用;
+        // 拒绝(暂不启用)= 插件保持已安装未启用,不能运行。
+        Column({ space: 6 }) {
+          Text('安装授权确认：' + this.consentTitleLine())
+            .fontSize(12).fontWeight(FontWeight.Medium).fontColor($r('app.color.text_primary')).width('100%')
+          Text(this.consentMetaLine())
+            .fontSize(10).fontColor($r('app.color.text_secondary')).width('100%')
+          Text(this.consentSignatureLine())
+            .fontSize(10).fontColor($r('app.color.text_secondary')).width('100%')
+          Text(this.consentDisclosureLine())
+            .fontSize(10).fontColor($r('app.color.text_secondary')).width('100%')
+          Text(this.consentNetworkLine())
+            .fontSize(10).fontColor($r('app.color.text_secondary')).width('100%')
+          Text(this.consentStorageLine())
+            .fontSize(10).fontColor($r('app.color.text_secondary')).width('100%')
+          if (this.consentClassLine('risky').length > 0) {
+            Text('高风险权限: ' + this.consentClassLine('risky'))
+              .fontSize(10).fontColor($r('app.color.error')).width('100%')
+          }
+          if (this.consentClassLine('optional').length > 0) {
+            Text('可选权限: ' + this.consentClassLine('optional'))
+              .fontSize(10).fontColor($r('app.color.text_secondary')).width('100%')
+          }
+          if (this.consentClassLine('required').length > 0) {
+            Text('必需/基线权限: ' + this.consentClassLine('required'))
+              .fontSize(10).fontColor($r('app.color.text_secondary')).width('100%')
+          }
+          Text('同意 = 按上述清单授权并启用;拒绝 = 保持未启用(未授权的插件不能运行)。')
+            .fontSize(10).fontColor($r('app.color.text_secondary')).width('100%')
+          Row({ space: 8 }) {
+            Button('同意并启用', { type: ButtonType.Normal })
+              .height(34).fontSize(12).borderRadius(10)
+              .backgroundColor($r('app.color.brand')).fontColor($r('app.color.inverse_text'))
+              .onClick((): void => { this.consentEnable(); })
+            Button('暂不启用', { type: ButtonType.Normal })
+              .height(34).fontSize(12).borderRadius(10)
+              .backgroundColor($r('app.color.soft_surface')).fontColor($r('app.color.text_primary'))
+              .onClick((): void => { this.declineConsent(); })
+          }
+          .width('100%')
         }
         .width('100%').alignItems(HorizontalAlign.Start)
         .padding(10).backgroundColor($r('app.color.soft_surface')).borderRadius(10)

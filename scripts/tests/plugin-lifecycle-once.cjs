@@ -192,6 +192,13 @@ ok('L6.4 onload 失败/超时 markFailed', /markFailed\(/.test(runtimeSrc),
 ok('L6.5 disablePlugin 走 beginStop/markStopped', /beginStop\(/.test(runtimeSrc) && /markStopped\(/.test(runtimeSrc));
 ok('L6.6 停用即吊销凭据(既有语义保留)', /revokePluginTokens\(/.test(runtimeSrc));
 ok('L6.7 装载超时落 failed(强制回收语义)', /withTimeout\(done, LOAD_TIMEOUT_MS, 'onload'\)/.test(runtimeSrc));
+// P5-004:授权前置进入状态机语义——未授权 = 不进入 starting(停在 installed 面)。
+ok('L6.8 P5-004 enablePlugin 授权前置:未授权声明型清单拒绝启用', /插件权限尚未授权/.test(runtimeSrc) &&
+  /decision !== PERMISSION_GRANTED[\s\S]{0,600}插件权限尚未授权/.test(runtimeSrc),
+  'P5-004 后 enablePlugin 必须拒绝未授权的声明型清单(安装链不再自动 enable)');
+ok('L6.9 P5-004 同意通道存在:consentEnablePlugin = grant→enable', /async consentEnablePlugin\(/.test(runtimeSrc) &&
+  /permissionStateOf\(pluginId: string\)/.test(runtimeSrc),
+  '授权面板同意入口与授权状态查询必须接在 manager 上');
 
 // ---------------------------------------------------------------- 汇总
 console.log('\n[summary] 通过 ' + passed + ' 项 / 失败 ' + failures.length + ' 项');

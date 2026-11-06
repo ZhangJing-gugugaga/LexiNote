@@ -50,7 +50,7 @@ import {
 import { LexiPluginLifecycleManager } from './LexiPluginLifecycleManager';
 import { LexiContextKind } from './LexiPluginExecutionContext';
 import { LexiExtensionRegistry } from './LexiExtensionRegistry';
-import { LexiPermissionStore, PERMISSION_GRANTED, PERMISSION_REGRANT_REQUIRED } from './LexiPermissionStore';
+import { LexiPermissionStore, PERMISSION_GRANTED, PERMISSION_REGRANT_REQUIRED, PERMISSION_NOT_GRANTED } from './LexiPermissionStore';
 import { LexiViewSessionTable } from './LexiViewSessionState';
 import { LexiInspectorInput, LexiInspectorReport, LexiPluginInspector } from './LexiPluginInspector';
 
@@ -669,7 +669,17 @@ export class LexiPluginManager {
     return new LexiPluginInstaller(this.context, this.pluginsRoot());
   }
 
-  /** Installs a plugin from a local zip (path or file URI), rescans and enables it. */
+  /**
+   * Installs a plugin from a local zip (path or file URI) and rescans it.
+   * P5-004(RFC §4.5/§8.2 展示权限清单→用户授权→启用):安装只落盘,不再自动 enable。
+   * 首装默认停在 installed(在盘未启用)态,由授权面板(MarketSheet consent)展示 v2
+   * 细粒度权限清单(capabilityTagsOfV2Caps 正典标签),用户显式同意(consentEnablePlugin
+   * = grant 落账 + enable)后才运行;拒绝 → 不启用,不能运行(降级语义见 enablePlugin)。
+   * 两条既有通路保留:
+   *   - grantApproved(P2-008 升级重授权通道):用户已确认本次权限变化 → 落账并启用;
+   *   - 升级重启:已启用插件(enabledIds 在册)按 §4.6「版本更新权限不变沿用授权」经
+   *     enablePlugin 重启进新版本;权限变化在安装口就被 LexiUpdatePolicy 拦下走重授权。
+   */
   async installZip(zipSource: string, expectedSha256: string = '', optionsJson: string = ''): Promise<string> {
     // P2-008(§9.5):optionsJson.grantApproved = 用户已在 UI 确认本次权限变化。
     // 此前该缝从 UI 不可达(审计确认的死端):grantApproved 安装后 enablePlugin 的
@@ -681,14 +691,25 @@ export class LexiPluginManager {
       } catch { /* 非法 options 视为未批准 */ }
     }
     const manifest = await this.ensureInstaller().installZip(zipSource, expectedSha256, optionsJson);
+    // 升级重启判定必须在 scanPluginDir 重建记录之前取:enabledIds 是启用的持久真源。
+    const wasEnabled = this.enabledIds.has(manifest.id);
     await this.scanPluginDir();
     pluginLog('插件安装完成: ' + manifest.id + ' v' + manifest.version);
     if (grantApproved) {
       this.permissionStore.grant(manifest.id, manifest.version, this.capabilityFingerprintOf(manifest));
       this.persistPermissions();
       pluginLog('权限已按用户确认落账: ' + manifest.id + ' v' + manifest.version);
+      await this.enablePlugin(manifest.id);
+      return manifest.id;
     }
-    await this.enablePlugin(manifest.id);
+    if (wasEnabled) {
+      await this.enablePlugin(manifest.id);
+      return manifest.id;
+    }
+    // P5-004 首装默认路径:装完不启用。授权面板展示权限清单后由用户决定;
+    // bumpPluginRevision 让宿主增量渲染出这条"已安装未启用"的新行。
+    pluginLog('插件已安装(未启用,等待用户授权): ' + manifest.id + ' v' + manifest.version);
+    this.bumpPluginRevision();
     return manifest.id;
   }
 
@@ -821,15 +842,27 @@ export class LexiPluginManager {
     this.plugins.forEach((record: LexiInstalledPlugin): void => {
       this.lifecycle.markInstalled(record.manifest.id, record.manifest.version);
     });
-    // 首次运行自动启用官方示范插件(仅一次;用户可在设置中停用)
+    // 首次运行自动启用官方示范插件(仅一次;用户可在设置中停用)。
+    // P5-004(B-004 待审设计):内置开发夹具显式白名单——随 HAP 签名分发、不经用户
+    // 安装链,首启逐个落账授权,使「启用必须先授权」新门下沙箱探针冷启动链(Round 22
+    // 恢复的首启自动启用)不断。白名单闭合于代码:仅此处三个 id,用户安装插件不走该通路。
     const bundledInit = await LexiStorageService.getSetting('lexiPluginBundledInit', 'false');
     if (bundledInit !== 'true' && !this.safeMode && this.plugins.has('lexi-sample-plugin')) {
-      this.enabledIds.add('lexi-sample-plugin');
+      const bundledAllowList: Array<string> = ['lexi-sample-plugin'];
       // P1-003b 方案 B:沙箱探针随首启启用(容器页就绪即走沙箱轨;失败仅 errorState 无系统影响)。
-      if (this.plugins.has('sandbox-probe')) { this.enabledIds.add('sandbox-probe'); }
-      if (this.plugins.has('sandbox-sample-min')) { this.enabledIds.add('sandbox-sample-min'); }
+      if (this.plugins.has('sandbox-probe')) { bundledAllowList.push('sandbox-probe'); }
+      if (this.plugins.has('sandbox-sample-min')) { bundledAllowList.push('sandbox-sample-min'); }
+      for (const bundledId of bundledAllowList) {
+        this.enabledIds.add(bundledId);
+        const bundledRecord = this.plugins.get(bundledId);
+        if (bundledRecord) {
+          this.permissionStore.grant(bundledId, bundledRecord.manifest.version,
+            this.capabilityFingerprintOf(bundledRecord.manifest));
+        }
+      }
       await LexiStorageService.setSetting('lexiPluginBundledInit', 'true');
-      pluginLog('首次运行:自动启用官方示范插件');
+      this.persistPermissions();
+      pluginLog('首次运行:自动启用官方示范插件(内置白名单落账: ' + bundledAllowList.join(', ') + ')');
     }
     pluginLog('插件管理器初始化完成: 已发现 ' + this.plugins.size + ' 个插件, safeMode=' + this.safeMode);
     this.registerRpcHandlers();
@@ -1898,13 +1931,30 @@ export class LexiPluginManager {
     }
   }
 
-  /** 用户重新授权(设置页/启用确认):按当前清单能力落账,返回是否成功。 */  grantPluginPermissions(pluginId: string): boolean {
+  /** 用户重新授权(设置页/启用确认):按当前清单能力落账,返回是否成功。 */
+  grantPluginPermissions(pluginId: string): boolean {
     const record = this.plugins.get(pluginId);
     if (!record) { return false; }
     const ok = this.permissionStore.grant(pluginId, record.manifest.version,
       this.capabilityFingerprintOf(record.manifest));
     if (ok) { this.persistPermissions(); }
     return ok;
+  }
+
+  /** P5-004:授权决定状态查询(granted/revoked/not-granted;UI 判定是否要展示授权面板)。 */
+  permissionStateOf(pluginId: string): string {
+    const grant = this.permissionStore.grantOf(pluginId);
+    return grant !== null ? grant.state : PERMISSION_NOT_GRANTED;
+  }
+
+  /**
+   * P5-004(§4.5):用户对权限清单显式同意 → 落账并启用。安装链不再自动 enable,
+   * 本方法是与授权面板绑定的同意入口;设置页开关对未授权插件的开启同样走这里
+   * (行内权限标签可见,开关即同意)。对已授权插件重复调用幂等(grant 同指纹刷新时间戳)。
+   */
+  async consentEnablePlugin(pluginId: string): Promise<boolean> {
+    if (!this.grantPluginPermissions(pluginId)) { return false; }
+    return await this.enablePlugin(pluginId);
   }
 
   /** P2-008:已安装插件当前能力标签(UI 授权展示面;未安装返回空)。 */
@@ -2186,10 +2236,14 @@ export class LexiPluginManager {
         return false;
       }
       if (decision !== PERMISSION_GRANTED) {
-        // 首次启用:用户显式启用即授权(记录版本+能力指纹),宿主据此落账。
-        this.permissionStore.grant(pluginId, record.manifest.version, fingerprint);
-        this.persistPermissions();
-        pluginLog('插件首次授权: ' + pluginId + ' v' + record.manifest.version);
+        // P5-004(RFC §4.5):「首次启用即授权」废除——启用以已落账的授权为前提。
+        // 安装后由授权面板展示权限清单,用户显式同意(consentEnablePlugin)才落账;
+        // 未同意的插件拒绝启用。降级语义(本轮定案):授权是整体性的,不完整授权 =
+        // 不运行(停在 installed/permission-pending 面),按能力部分授权的降级运行留给
+        // P2-009 状态机(v2 权限清单的必需/可选/高风险分档仅作呈现,不拆分授权)。
+        record.errorState = '插件权限尚未授权,请在授权面板同意后启用';
+        pluginError('插件启用被拒 ' + pluginId + ': ' + record.errorState);
+        return false;
       }
     }
     const mainPath = `${record.dir}/main.js`;

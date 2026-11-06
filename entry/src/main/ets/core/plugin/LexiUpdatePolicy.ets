@@ -5,7 +5,8 @@
 //   - 同版本 + 同字节 → 幂等放行;
 //   - 降级 → ERR_DOWNGRADE_BLOCKED(与安装器既有语义同码);
 //   - 升级 + 权限集合变化(新增任一能力标签)→ ERR_PERMISSION_REGRANT_REQUIRED(§9.5/T2.2);
-//   - 首次安装(无版本指针)→ 放行,授权由 T2.2 启用即授权语义承接;
+//   - 首次安装(无版本指针)→ 放行,用户授权由 P5-004 安装后授权面板承接
+//     (同意 → grant 落账 → 启用;ADR-R25-01 登记的「首装不询问」衔接点已复审收口);
 //   - revoked 命中(pluginId@version 或 pluginId@*)→ ERR_SIGNATURE_INVALID(§9.2 下架/撤销)。
 // 纯逻辑、零 @kit 依赖,可在 Node 转译真跑(plugin-update-policy.cjs)。
 
