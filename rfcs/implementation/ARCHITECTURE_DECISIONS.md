@@ -102,6 +102,86 @@
 - 定案 4·SEC 探针进业务路径：新增夹具 plugins/sandbox-sec-probe（v2+sandbox: 声明,与 sandbox-* 探针同批:gitignore 本地暂存+首启白名单+随 HAP 内置/发布剥离）,onload 里穷举 RFC §14 T0.2 的 10 条逃逸向量（parent-dom/parent-globals/sibling-iframe/window-opener/opaque-storage/network-fetch/network-xhr/remote-import/function-escape/credential-hunt）,报告经 saveData 业务数据通道落盘（这条 RPC 本身就是探针在业务链里活着的证据）。**离线门禁与设备共用同一份夹具源码**:plugin-context-isolation E3/E3b 在 vm 里真跑沙箱表面代码（lexinote_plugin_sandbox.html 引导脚本提取）+夹具经 bootPlugin 装载（CJS 与 shim 包装 IIFE 双分支）,断言:全向量 blocked+报告帧在案+plugin.onload.done+帧不带身份字段。E3 同时修复了既有 E1/E2 段的结构性缺陷:async 探针段此前排在 process.exit 之后,结果从未被计入汇总（本轮起 main() 统一 await,E1/E2 真正生效）。
 - 门禁锚点：plugin-context-isolation S19b（夹具对账,缺席显式跳过）/S31/S31b/S32/S32b/S33/E3/E3b（76 项）;plugin-dist-regression +5（track 政策矩阵真跑/enablePlugin 接线+refused fail-closed/设置页双面/lexi-sample opt-in 对账/SEC 夹具+内置链）32 项;plugin-manifest-v2 V7(内置沙箱轨夹具清单真解析)55 项;release-gate --ci 29/29+assembleHap BUILD SUCCESSFUL。
 - 复审条件：R28 设备验收（P1-003d 收口）通过后①翻 lexiPluginLegacyTrack 默认为 false②S31 随 P1-004 收敛后复看③SEC 夹具报告与 vm 门禁报告逐向量对账（设备 ArkWeb 真实行为 vs vm 模拟,差异进 BLOCKERS）。
+## ADR-R29-01（草案,待人工评审）P1-004 Workspace 轨道收敛：混合模型——Track2 纳入单一轨政策真源 + 视图面沙箱化 + CM6/editor 扩展残留面进 Trusted 策略
+
+- 状态：**Proposed（草案）**。HUMAN_QUEUE#3 人工评审批准前不得动任何代码（EXECUTION_PLAN R29 裁定:按 Goal §10 技术论证先行）。本 ADR 只产出论证,零代码改动。
+
+### 依据（RFC 与 ADR 谱系）
+
+- RFC §3.2 硬规则「不允许为了兼容插件而在宿主运行页面开放 unsafe-eval」；§3.6「安全 PoC 通过≠业务运行时安全,最终必须在真实业务加载路径中验证」；§5.4 第三阶段「CM6 代码如果需要在宿主编辑器上下文执行,必须进入 Trusted 扩展策略,不能让普通不可信 iframe 获得宿主编辑器对象」；§11.1 审核三级（Community/Verified/Trusted,等级不是用户授权的替代品）；§5.2 Internal=宿主内部不允许第三方依赖。
+- ADR-R18-01 定案 4：两轨策略——Track1（runtime 页）已收敛（R25 eval 清零 + R28 停用开关）；Track2（workspace 容器）现状保留、P1-004 收敛。
+- ADR-R21-02：runtime 宿主页形态的跨帧通道（iframe→parent postMessage、容器页 MessageChannel onmessage）静默丢帧,沙箱容器必须是**独立 Web 组件**——由此认定:在工作区页内直接嵌插件 iframe 属被真机证伪的形态,收敛设计不得重蹈。
+- ADR-R25-01 复审条件:「P1-004 收敛工作区页 CSP 时必须同轮删除过渡通道（S28 的恰好 1 处预期归零）」。
+- ADR-R26-01：授权同意是运行的唯一前提（not-granted 一律拒绝启用）。
+- ADR-R28-01：LexiPluginTrackPolicy.resolvePluginTrack 三值单一真源；复审条件②「S31 随 P1-004 收敛后复看」。
+- 平台事实备查：KI-5（runtime 页 onConsole 哑——工作区页 onConsole 正常,LexiWorkspacePage.ets:326-332）、KI-1（市场 sheet 塌陷,LexiPluginMarketSheet.ets:556）、P2-013（设置页 toggle uitest 多击——设备证据设计必须绕开）。
+
+### 现状盘点（编辑器页第三方代码求值面,HEAD file:line 全对账）
+
+编辑器页 = LexiWorkspacePage（手机开笔记默认路由:Index.ets:442-446 openNoteContainer → pushUrl 'workspace/LexiWorkspacePage'）→ `Web(lexinote_workspace.html)`。ArkTS 侧无 eval（onConsole 仅日志转发,LexiWorkspacePage.ets:326-332）；第三方代码求值全部发生在页面装载的脚本里,**与 CM6 编辑器、会话令牌、全部页面全局同一 realm**:
+
+1. **CSP**：`lexinote_workspace.html:6` `script-src 'self' 'unsafe-eval'`——全应用唯一保留 unsafe-eval 的宿主页（runtime 页已清零,ADR-R25-01）。:93-94 同时装载共享 shim（lexinote_plugin_shim.js）与工作区 shim（lexinote_workspace_shim.js）。
+2. **求值点 A（工作区 shim 自有求值器）**：`lexinote_workspace_shim.js:224-227` `new Function('module','exports','require', code)`；配套页内执行面:命令回调页内直调（:299-313 runCommand）、插件视图渲染直挂页面 DOM（:263-289 mountView）、会话令牌页内持有（:135-143 adoptSessionToken → window.LexiObsidian/LexiPluginShim.setSessionToken）。消费方:内联 demo 插件 `lexinote.demo-status`（源码硬编码于 WorkspacePluginCatalog.ets:12-44）+ 启动序列第一个 plugin.load 条目（tools/workspace-bundle/src/main.ts:676-682）。
+3. **求值点 B（共享 shim 过渡通道）**：`lexinote_plugin_shim.js:2451-2453` new Function（loadPlugin 双通道的过渡分支）;obsidian 兼容路由 `window.LexiObsidian.loadPlugin`（:2787/:2800）由 bundle 逐插件调用（main.ts:577-584）。注入通道能力探测（:2285-2300）在工作区页恒 false——该页 CSP 无 'unsafe-inline' → **obsidian 路由今天全部走 new Function**。
+4. **装载范围 = 全量已装插件**：WorkspacePluginCatalog.ets:76-98 loadFromManager 把 files/plugins/<id> 下**每一个已安装插件**的 manifest+main.js 拷入注册表（仅 errorState 非空跳过）,bundle 启动逐个 plugin.load+求值（main.ts:676-694:首个 + 其余循环）;启动序列还跑 forged-pluginId 身份自检帧（main.ts:751）。
+5. **两道既有闸门在 Track2 全部失效（本 ADR 的核心事实）**：①R28 的 lexiPluginLegacyTrack 停用开关只在 enablePlugin 裁决（LexiPluginRuntime.ets:2389-2424）——WorkspaceBridge.plugin.load（WorkspaceBridge.ets:530-554）不查 LexiPluginTrackPolicy,**开关关死也拦不住编辑器页求值**;②ADR-R26-01 的同意门——installed-but-未启用（errorState 为空）的插件照样进注册表被求值。即:编辑器页今天是一个**不受轨政策、不受授权同意约束**的第三方代码执行面（验收行「编辑器页不再直接求值第三方代码」的对现状描述即此）。
+6. **身份流**：channel.auth 铸会话令牌（WorkspaceBridge.ets:302-331,CSPRNG）进页面持有;每插件桥令牌随 plugin.load 描述符下发页面（WorkspaceBridge.ets:538-546）;宿主运行时凭据（sessionCredentialToken/tokenForPlugin,WorkspaceBridge.ets:679-697）保在宿主侧,经 delegate 以 LexiWebRuntime.call 第四参转发（:699-743,call 在 :721）——P1-005 的废弃形态。
+7. **RPC 形态**：WorkspaceBridge 自持第二 broker 实例（:100-101）+ 自有 token 表 + delegate 转发（P1-007 的第二入口）;页面↔宿主走 createWebMessagePorts（LexiWorkspacePage.ets:194-225,真机久验形态）。
+8. **依赖方**：demo-status（工作区 shim 专属 api.commands/views.register/host.call 面）;经 obsidian 路由依赖直接 DOM/CM6 访问的存量夹具 = calendar（workspace leaves/ItemView）、editor-outliner（editor 视图）、compat-probe（editor 扩展注册）;lexi-sample（workspace.getRightLeaf;沙箱轨 view 面已挂 fail-visible 桩,归 P4-005）;sandbox-*/cap-probe-* 探针（无 UI 面诉求）。
+
+### 备选方案
+
+**方案 A——全量迁移 runtime 轨容器模型**（workspace UI 作 manager 客户端,全部插件执行面进独立容器 Web 的 iframe）：
+- 安全性质最优:与 Track1 同构,编辑器页零第三方求值,身份全走 contextRegistry 端口反查。
+- 缺口一（可见性）:ItemView/workspace-leaf 类插件（calendar 等）的可见 UI 必须出现在工作区叶里,而沙箱容器 Web 是 1×1 offscreen（LexiSandboxContainerHost.ets:44-45）——可见视图要求把容器改造成可见/可布局组件或每叶一个 Web,两者都超出已验证形态;ADR-R18-01 备选回退（每插件独立 Web+native createWebMessagePorts）只证明了机制,未验证多实例的内存/状态成本。
+- 缺口二（CM6）:声明 editor 扩展的插件无法在 opaque iframe 里获得宿主编辑器对象（RFC §5.4 明文）,最终仍要为 CM6 开 Trusted 面——「全量」并不全量。
+- 风险:把可见布局问题与安全问题耦合进一个大迁移,一次翻车=一次大规模真机回归（ADR-R21-02 教训）。
+
+**方案 B——页内求值保留,整页进 Trusted 策略**（RFC 的替代项,验收行后半句的极端读法）：
+- 操作语义必须定义:Trusted = P6-001 审核等级（专项安全审查）+ P5-002/P5-009 签名链（依赖 B-002,当前 BLOCKED）+ manifest 显式声明高风险面 + P2-008 授权面板显式同意 + P4-004 CM6 门。
+- 兼容性零损、迁移成本最低——但**作为整页策略被否决**:①信任根不存在——B-002 未决、P5-002 零接线,"Trusted"今天就等于「随 HAP 发的 + 用户侧载的」,整页安全外包给尚不存在的审核体系;②与 RFC §3.2 硬规则冲突——整页 unsafe-eval 不是"为兼容插件"的最小授权,是把所有插件（含不可信）升格 Trusted;③RFC §3.1 三级隔离在共享 realm 全不成立,插件互访仍靠约定;④与 Track1 已完成的收敛倒挂——同一插件两个执行面,一个隔离一个不隔离。
+- 其**作为 CM6/editor 扩展残余面的策略框架被本 ADR 采纳**（见定案 3）。
+
+**方案 C（推荐）——混合**:轨政策/同意门先行收口 → 可见视图面沙箱化（已验证载体形态）→ 求值器退役+CSP 收紧 → CM6/editor 扩展残留面进 Trusted 策略（P4-004 域）。终态:普通插件代码在编辑器页零求值;唯一残余求值面 = Trusted 级 editor 扩展（RFC §5.4 明文允许的形态,验收行「或该面进入 Trusted 策略」的后半句）,且过渡期信任根 = 随 HAP 分发的内置白名单（ADR-R26-01 同款纪律,不依赖 B-002）。
+
+### 定案（草案,每条待人工批准）
+
+1. **Track2 纳入单一轨政策真源（第一优先,纯 ArkTS 可先行）**：WorkspaceBridge.plugin.load / WorkspacePluginRegistry.loadFromManager 接 resolvePluginTrack + ADR-R26-01 授权态——sandbox 声明插件代码不再下发页面（其命令/事件经既有 manager 端口链）;legacy 轨关死时编辑器页同样拒绝装载;未获同意（not-granted）不下发。此切片独立成立,后续切片无论如何调整均不返工。
+2. **可见视图/命令执行面收敛到已验证载体**：可见插件视图不进编辑器页 realm——按 ADR-R18-01 备选形态（独立 Web 组件 + native createWebMessagePorts;本页自家通道即该形态）做可见视图容器实验,设备先行 PoC 裁决「单可见容器 Web 多 iframe vs 每叶一 Web」（真机布局/内存证据,裁决补记 ADR）;headless 面（命令/vault/事件）走既有容器 Web 端口链,零新载体;任何新 Web 组件从第一天挂 onConsole（KI-5 教训）。
+3. **CM6/editor 扩展残留面 = Trusted 策略（P4-004 域）**：操作定义——manifest v2 新增 editor 扩展声明面 + 审核等级 Trusted（P6-001）+ 签名验证（P5-002/009）+ 用户显式同意（ADR-R26-01 面）+ 运行时门:非 Trusted 级插件的编辑器扩展注册调用 fail-visible 拒绝。**过渡信任根 = 内置白名单**（与 R26 夹具同纪律）:B-002 落地前只有随 HAP 分发的夹具可进该面,第三方一律拒绝。编辑器扩展本体求值仍在页内（Trusted 级专属）,故工作区页 CSP 最终保留**仅服务 Trusted 面的最小求值通道**——通道形态（保留 unsafe-eval 供白名单 vs 复用 ADR-R25-01 的 'unsafe-inline' 注入机制）随切片真机证据定,是留给实施轮的决策点,本 ADR 不预设。
+4. **工作区 shim/求值器退役路径**：lexinote_workspace_shim.js:224 求值器与共享 shim 过渡分支（lexinote_plugin_shim.js:2451）在视图面就绪后删除;lexinote_workspace.html CSP 同轮收紧（兑现 ADR-R25-01 复审条件,context-isolation 工作区页断言 eval 计数归零）;demo-status 夹具迁移到端口化视图面（workspace-tools-regression 锚点随迁）——若迁移成本超预算,备选是 demo 暂入 Trusted 白名单残留面（需人工点头,见开放问题 4）。
+5. **身份/端口（P1-005 接口约定）**：本 ADR 的一切新通道禁止新增「报文带身份字段」形态;工作区上下文（view/editor kind）进 contextRegistry 记账;桥 token 表只减不增;P1-005 落地时 Track2 与 Track1 同按「端口↔身份」结算。本 ADR 不提前实现 P1-005,只保证不产生新的迁移负债。
+
+### 迁移切片与验收证据（设备先行纪律,每片有独立验收）
+
+- **S1 轨政策+同意门收口（纯 ArkTS）**：门禁 = plugin-dist-regression 轨矩阵扩 Track2 行 + workspace-tools-regression 扩断言;真机 = ①legacy 开关关死→工作区页 plugin.load 拒载（errorState/日志可见,零求值）②开关开→行为 diff 零回归③未同意插件在编辑器页不求值（与 ADR-R26-01 共用证据面）。注意 P2-013:开关置位用设置直写或键盘,不用 uitest 单击。
+- **S2 可见视图载体 PoC（设备轮）**：真机证据 = 工作区叶内可见视图渲染 + 帧往返 + 布局/内存数据;产出载体选型补记。
+- **S3 求值器退役+CSP 收紧+demo 迁移**：门禁 = context-isolation 新增工作区页断言（CSP 无 unsafe-eval/eval 计数归零,对齐 S26-S29 形状）+ workspace-tools-regression 迁移后断言;真机 = 编辑器页冷启零 eval 违规 + demo 新路径行为等价（或残留白名单形态经批准）。
+- **S4 CM6 Trusted 面（P4-004 域,排期属 Phase 4）**：门禁 = 非 Trusted 拒注册负例;真机 = calendar/editor-outliner 兼容定级（并入 P4-005 夹具批次）。
+
+### 与 P1-005/P1-007 的编排（执行顺序裁定 R29-R31 的衔接）
+
+S1 先于 R30（P1-005）落地:Track2 先并入单一政策真源,P1-005 的端口↔身份结算只需面对一条桥;P1-007（Gateway 归一）在 Track2 不再有独立 broker 分支后成本大降——WorkspaceBridge 第二 broker（:100）与 token 表按 S1/S3 节奏裁撤。本 ADR 不改变 R30/R31 轮次,只要求两任务设计把 Track2 计入。
+
+### 明示开放问题（须人工裁决,均不阻塞 S1 批准本身）
+
+1. **残留面规模**：验收行允许「或该面进入 Trusted 策略」——请确认 CM6/editor 扩展保留页内求值（Trusted 门内）可接受为终态;若要求编辑器页**零**第三方求值,editor 扩展面须整体延期至可行方案出现,calendar/editor-outliner 类兼容降级为不可用（P4-005 C 级定级口径随之改变）。
+2. **过渡信任根**：B-002 前以「随 HAP 签名分发的内置白名单」充当 Trusted 信任根,是否可接受（与 ADR-R26-01 夹具白名单同构,单点回退=删白名单块）。
+3. **可见视图载体**：单可见容器 Web 多 iframe vs 每叶一 Web——需设备 PoC 预算（本轮不动设备,仅申请下一轮设备批次时加入）。
+4. **demo-status 夹具归宿**：迁移端口化视图面（推荐,成本高）vs 暂入 Trusted 白名单残留面（成本低,留一个页内求值特例）vs 退役（门禁锚点改挂新夹具）。
+5. **工作区 shim 容器 API 的公开性**：api.commands/views.register/host.call 是否继续作为第三方公开面,还是收归 Internal（RFC §5.2:宿主内部不允许第三方依赖）——影响 SDK 面承诺与 P3 阶段文档。
+
+### 未决声明
+
+本 ADR 不决定：可见视图载体的最终选型（S2 证据后补记）；工作区页 CSP 的最终通道形态（S3 证据后定）；P4-004 Trusted 等级的审核清单细则（P6-001 域）；任何代码改动（本轮零代码）。
+
+### 复审条件
+
+- 本 ADR 获人工批准（HUMAN_QUEUE#3）后 S1 才可进代码轮;S2/S3 依赖 S1 验收;S4 属 Phase 4 排期。
+- B-002 落地后 Trusted 信任根从白名单切换到签名链,定案 3 回访。
+- P4-004 实施时回读定案 3 的通道形态决策点。
+- ADR-R25-01 复审条件（S28 计数归零）在 S3 验收;ADR-R28-01 复审条件②（S31 复看）随 S1;ADR-R26-01 的同意门在 Track2 的适用性随 S1 落地闭合。
+
 ## 历史决策登记（迁移自既有代码语义,防遗失）
 
 - Manifest v1 无 capabilities → `capabilitiesDeclared=false` → 跳过 T2.2 授权门且 legacy 分支放行 fs。此为兼容策略,但等于"旧插件默认高权"——P2 权限闭环须将其收敛为显式兼容权限集（RFC §18.1）。

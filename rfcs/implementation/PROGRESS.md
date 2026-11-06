@@ -711,3 +711,31 @@ install 19/0、upgrade 11/0、rollback 7/0、uninstall 6/0（evidence `20261107-
 **R29 = P1-004 技术论证+ADR（不动代码——人工评审 gate 在 HUMAN_QUEUE#3）**。
 
 最近更新时间：2026-11-07（Round 28）。
+
+---
+
+## Round 29 — 2026-11-07（P1-004 技术论证 + ADR-R29-01 草案 → **待人工评审**（ADR 轮,零代码改动））
+
+**当前 Phase：** Phase 1 收口推进。P1-004 仍为 TODO（本 ADR 不标 VERIFIED——Goal §10 技术论证先行,HUMAN_QUEUE#3 批准后才动代码）。
+
+### 本轮完成
+
+1. **现状盘点（编辑器页第三方求值面,file:line 全对账）**：编辑器页（LexiWorkspacePage→lexinote_workspace.html,手机开笔记默认路由 Index.ets:442-446）CSP 保留 unsafe-eval（lexinote_workspace.html:6,全应用唯一宿主页残留）;两个页内求值点——工作区 shim 自有求值器（lexinote_workspace_shim.js:224 new Function,demo 路由+首个 plugin.load 条目）与共享 shim 过渡通道（lexinote_plugin_shim.js:2451,obsidian 路由经 window.LexiObsidian.loadPlugin,注入探测在该页恒 false 故今天全走 new Function）;装载范围=全量已装插件（WorkspacePluginCatalog.ets:76-98,bundle 启动逐个求值,tools/workspace-bundle/src/main.ts:676-694）。**核心事实：R28 的 lexiPluginLegacyTrack 停用开关与 ADR-R26-01 同意门在 Track2 全部失效**——WorkspaceBridge.plugin.load（:530-554）不查 LexiPluginTrackPolicy、installed-but-未启用（errorState 空）插件照样被求值,编辑器页今天是不受轨政策/授权约束的第三方代码执行面。
+2. **ADR-R29-01 草案定稿**（ARCHITECTURE_DECISIONS.md）：三方案对比（A 全量迁容器模型——可见性+CM6 双缺口,否;B 整页 Trusted——信任根不存在+违反 RFC §3.2,否;**C 混合（推荐）**:S1 Track2 纳入单一轨政策真源+同意门 → S2 可见视图载体设备 PoC（独立 Web+native ports,ADR-R18-01 备选形态,不碰 ADR-R21-02 证伪的页内 iframe）→ S3 求值器退役+工作区页 CSP 收紧（兑现 ADR-R25-01 复审条件）→ S4 CM6 Trusted 面（P4-004 域,过渡信任根=内置白名单,不依赖 B-002））;五项开放问题明示;与 P1-005/P1-007 编排（S1 先行,R30/R31 设计须把 Track2 计入）。
+3. **登记文件更新**：HUMAN_QUEUE#3 改指向 ADR-R29-01 并列明 5 项待裁决问题；EXECUTION_PLAN P1-004 状态改「ADR 草案就绪待评审」（非 VERIFIED）。
+
+### 明确不做（本轮纪律）
+
+- 零代码改动（.ets/rawfile/门禁全部未触碰）；不动设备；不跑有写副作用的命令。release-gate --ci 只读复跑确认树未动绿（结果见下）。
+
+### 实际执行的测试
+
+| 命令 | 结果 |
+|---|---|
+| `release-gate --ci`（只读复跑,确认树未动） | **PASS 29/29** |
+
+### 下一轮
+
+**R30 = P1-005 + P1-006b**（身份纯端口化 + __receive dispatch 鉴权）——前提:HUMAN_QUEUE#3 对 ADR-R29-01 完成评审;若 S1（Track2 轨政策收口,纯 ArkTS）获批,可与 R30 并行排入（本 ADR 编排节）。
+
+最近更新时间：2026-11-07（Round 29）。

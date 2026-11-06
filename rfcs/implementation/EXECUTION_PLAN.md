@@ -36,7 +36,7 @@
 | P1-003c | 构建期 CommonJS→IIFE + 宿主页面 CSP 收紧（移除 unsafe-eval） | **VERIFIED**(Round 25,ADR-R25-01) | P0 | P1-003b | tools/lexi-cli, template, runtime.html CSP | 宿主页面无 eval ✔(S26-S29+C6,48 项);真机:新 CSP 下 lexi-sample 装载运行+沙箱轨回归×4 冷启零违规(差分证明注入通道);残差:通道直接标记(console 观测哑 KI-5)、legacy 命令回环未再驱动(路径不在 diff) |
 | P1-003d | 真实业务插件迁移验收（lexi-sample/calendar 真机 + SEC 探针进业务路径;范围修正:calendar 归 P4-005） | **VERIFIED**(R28:离线面+真机验收表三件套全过——①lexi-sample v2 opt-in 沙箱轨真机 ctx-6 bootPlugin+8 命令注册(首启容器未就绪回落 legacy=开关 ON 设计行为,重启用即上沙箱轨)②SEC 探针业务路径 data.json **10/10 blocked credentialHits=0** passed=true③legacy 停用开关 fail-closed 真机拒载(`插件装载被拒(legacy 轨停用)…fail-closed` 零派发);沙箱轨 require 管线收口 ADR-R25-01 遗留(IIFE 直载+一次性 require 上下文,E3/E3b vm 行为级);**开关默认翻转=ADR-R28-01 复审条件待人工(HUMAN_QUEUE)**;残差:事件投递+workspace 叶面桩在案;E1/E2 vacuous 门禁缺陷顺手修复) | P0 | P1-003a..c | 设备批次 | RFC §3.6 验收表通过 ✔;旧共享 realm 路径停用=开关落地+fail-closed 已证,默认翻转待 ADR 复审 |
 | P2-013 | **新(R28)**:设置页 Toggle 在 uitest 单击下产生 2-3 次 onChange(legacy 轨开关无法经 UI 稳定置位,偶数次净零变化;真实触摸/键盘待验)——P1-003d 开关的可用性缺陷 | TODO | P2 | — | LexiSettingsTab/Window toggle 接线 | 单击=单次切换;开关 UI 可稳定操作(真机触摸验证) |
-| P1-004 | Workspace 轨道收敛：插件执行面从编辑器页面剥离/同构接入 | TODO | P0 | P1-002, P1-003a, P1-003b | LexiWorkspacePage, WorkspaceBridge, lexinote_workspace_shim.js | 编辑器页不再直接求值第三方代码，或该面进入 Trusted 策略 |
+| P1-004 | Workspace 轨道收敛：插件执行面从编辑器页面剥离/同构接入 | **ADR 草案就绪待评审**（R29=ADR-R29-01,混合模型:Track2 纳入轨政策真源+视图面沙箱化+CM6 残留面 Trusted;HUMAN_QUEUE#3 五项开放问题待裁决;批准前零代码） | P0 | P1-002, P1-003a, P1-003b | LexiWorkspacePage, WorkspaceBridge, lexinote_workspace_shim.js | 编辑器页不再直接求值第三方代码，或该面进入 Trusted 策略 |
 | P1-005 | 宿主端 port↔PluginExecutionIdentity 绑定；废弃 credential 第四参经页面传递的形态 | TODO | P0 | P1-003a | LexiWebRuntime.call, WorkspaceBridge | 插件侧报文不含任何身份字段；身份仅由端口解析 |
 | P1-006 | **移除插件可及身份暴露面**（方案见 ADR-R10-01；含 restore-leaf 会话凭据修复） | VERIFIED | P0 | — | lexinote_plugin_shim.js, cap-probe fixtures, bridge-security/identity-model/delivery | bridge-security 34/34、identity-delivery 30/30 traced、真机四流程链全 PASS(230728-231445)+冷启 denied 无新模式 ✔(Round 10) |
 | P1-006b | 残余暴露面(ADR-R10-01 登记):①`window.lexiRuntime.__receive` 可被他插件调用触发 invoke.command 跨插件回调执行——需 dispatch 通道鉴权(.ets 协议面,技术论证先行);②`setSessionToken` 他插件可乱写(DoS 回话,非提权) | TODO | P1 | — | LexiWebRuntime.dispatch + shim __receive 门卫 | SEC-007 负向用例进门禁;dispatch 携带不可读的一次性通道凭据 |
@@ -44,6 +44,7 @@
 | P1-008 | 执行环境销毁闭环：停用→关端口→销毁 iframe→吊销凭据→清 pending | TODO | P1 | P1-003..005 | LifecycleManager, ExtensionRegistry | 卸载后旧通道 RPC 一律拒绝（SEC-009/013 自动化） |
 | P1-009 | 真实业务路径安全测试套件（RFC §13.4 SEC-001..008/011..013 自动化） | TODO | P0 | P1-003 | scripts/tests | 每条 SEC 有正/负用例，进 release-gate |
 | P1-010 | Phase 1 真机安全验收 | BLOCKED | P0 | P1-001..009 | — | 依赖可用设备（B-001） |
+| P1-011 | **新(R29,ADR-R29-01 勘察发现)**:Track2(workspace 页)同时绕过 R28 轨政策与 R26 授权门——`WorkspaceBridge.ets:530 onPluginLoad` 无 resolvePluginTrack 查阅、无 permissionState 门,已装未授权插件在工作区 bundle 被自动求值(WorkspacePluginCatalog.ets:76-98 + workspace bundle tools/workspace-bundle/src/main.ts:676-694);**P5-004"未授权插件不能运行"验收仅在 runtime 轨成立**。S1 修补=把已定案的 ADR-R26-01/ADR-R28-01 既有机制接到该旁路 caller(非新架构,不受 P1-004 评审 gate 约束) | TODO | P1 | — | WorkspaceBridge.ets, WorkspacePluginCatalog.ets | 未授权/被拒轨插件在工作区页 fail-visible 拒载;门禁断言两闸在 Track2 生效 |
 
 ## Phase 2 — 权限与生命周期闭环（RFC P0-03，总目标 3.2/3.3）
 
