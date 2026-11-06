@@ -15,7 +15,8 @@
 | P0-004 | 八篇公开开发者文档纳入 Git | TODO | P1 | — | `docs/`→`rfcs/` 或解除 docs 忽略 | 公开克隆可得全部 8 篇；忽略规则调整最小范围 |
 | P0-005 | 修 `tools/contract/generate.cjs` 解析器与对账器不一致缺陷（Round 7 发现：重生成会弄坏 shim 锚点，7 项假脱节） | TODO | P2 | — | tools/contract | `generate.cjs` 产物直接过 `plugin-contract-matrix`；幂等 |
 | P0-006 | 测试入口健壮化：Windows 下 node 坏 shim、LEXI_TYPESCRIPT 探测、统一 `test` 入口 | TODO | P2 | — | scripts/, tools/plugin-dist | 新环境按 README 一条命令可跑 28 门禁 |
-| P0-008 | **新(Round 10)**:手工门禁 bit-rot 修复——`plugin-shim-regression.cjs` 在 HEAD 上即红(harness 缺 document/DOM 链 stub,ViewShim 构造 ReferenceError;非本轮引入,stash 对照证实)。同类:手动批次 15 个脚本无 CI 覆盖,bit-rot 无人知 | TODO | P2 | P0-003 | scripts/tests/plugin-shim-regression.cjs | harness 补 DOM stub 后全绿;或明确退役并入现有 CI 门禁 |
+| P0-008 | **新(Round 10)**:手工门禁 bit-rot 修复——`plugin-shim-regression.cjs` 在 HEAD 上即红(harness 缺 document/DOM 链 stub,ViewShim 构造 ReferenceError;非本轮引入,stash 对照证实)。同类:手动批次 15 个脚本无 CI 覆盖,bit-rot 无人知 | **VERIFIED**(Round 25:harness 补 DOM stub+host-first 顺序+启动预热,8/8 确定性绿×2;根因含 267ad04 后契约漂移) | P2 | P0-003 | scripts/tests/plugin-shim-regression.cjs | harness 补 DOM stub 后全绿;或明确退役并入现有 CI 门禁 ✔(修复本体);CI 纳管归 P0-003 |
+| P4-007 | **新(Round 25,P0-008 修复中发现,仅登记未修)**:shim vault 同步索引两缺陷——①rename 分支 `knownFiles.delete(rawFile.path)` 误删(主机发的是重命名后路径,与 payload.file.path 相同,`lexinote_plugin_shim.js:301-304`+`LexiVaultFacade.ets:67-78`),重命名文件直到下一 vault 事件前对 getAbstractFileByPath/getMarkdownFiles 不可见;②注释承诺"启动拉一次 vault.files"(`:815-816`)但无启动拉取,冷启首调 getMarkdownFiles 返回 `[]`(惰性拉取仅在全空时触发) | TODO | P2 | — | lexinote_plugin_shim.js | rename 后索引可见性回归用例;启动拉取补齐(或注释修正)+getMarkdownFiles 首调语义定案 |
 | P0-009 | **新(Round 10)**:`plugin-dist-flows.cjs` 单进程 `--flow all` 在默认市场源上线后首步即失联(演示源列表空;独立进程链式 install→upgrade→rollback→uninstall 同构建全绿,23:07-23:09 证据)。怀疑 server/状态机跨流程复用或时序缺陷;需最小复现定位 | TODO | P3 | — | scripts/tests/plugin-dist-flows.cjs | `--flow all` 单进程四流程 PASS,或文档化"必须分进程链式运行"并改 --ci 计划 |
 
 ## Phase 1 — 安全执行环境（RFC P0-01/P0-02，总目标 3.1）
