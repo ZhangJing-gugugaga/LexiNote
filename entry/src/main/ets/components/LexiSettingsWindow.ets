@@ -105,6 +105,8 @@ export struct LexiSettingsWindow {
   @State private category: string = 'appearance';
   @State private pluginRows: LexiSettingsPluginRow[] = [];
   @State private pluginSafeMode: boolean = false;
+  // P1-003d(R28):旧共享 realm 轨开关 UI 态(默认 true,随 manager 读回)。
+  @State private pluginLegacyTrack: boolean = true;
   @State private pluginBusy: boolean = false;
   @State private pluginHint: string = '';
   @State private settingsPluginId: string = '';
@@ -132,6 +134,7 @@ export struct LexiSettingsWindow {
     }
     this.pluginHint = '';
     this.pluginSafeMode = manager.isSafeMode();
+    this.pluginLegacyTrack = manager.isLegacyTrackEnabled();
     const existing: Map<string, LexiSettingsPluginRow> = new Map();
     for (const row of this.pluginRows) { existing.set(row.id, row); }
     const rows: LexiSettingsPluginRow[] = [];
@@ -197,6 +200,19 @@ export struct LexiSettingsWindow {
     this.pluginBusy = true;
     try {
       await manager.setSafeMode(safeMode);
+    } finally {
+      this.pluginBusy = false;
+      this.refreshPlugins();
+    }
+  }
+
+  /** P1-003d(R28):legacy 共享 realm 轨开关(关闭 = 非沙箱轨装载 fail-closed)。 */
+  private async toggleLegacyTrack(enabled: boolean): Promise<void> {
+    const manager = LexiPluginManager.shared;
+    if (!manager) { return; }
+    this.pluginBusy = true;
+    try {
+      await manager.setLegacyTrackEnabled(enabled);
     } finally {
       this.pluginBusy = false;
       this.refreshPlugins();
@@ -291,6 +307,22 @@ export struct LexiSettingsWindow {
           .enabled(!this.pluginBusy)
           .selectedColor($r('app.color.brand'))
           .onChange((isOn: boolean): void => { this.toggleSafeMode(isOn); })
+      }
+      .width('100%')
+
+      // P1-003d(R28):旧共享 realm 轨(runtime 页共享求值面)停用开关。默认开(沙箱轨
+      // 真机验收完成前行为不回归);关闭后未声明沙箱轨的插件装载一律 fail-closed。
+      Row({ space: 10 }) {
+        Column({ space: 2 }) {
+          Text('旧版插件轨(共享 realm)').fontSize(13).fontColor($r('app.color.text_primary'))
+          Text('关闭后仅沙箱轨插件可装载，其余拒绝启用（fail-closed）').fontSize(11).fontColor($r('app.color.text_secondary'))
+        }
+        .layoutWeight(1).alignItems(HorizontalAlign.Start)
+        Toggle({ type: ToggleType.Switch, isOn: this.pluginLegacyTrack })
+          .id('plugin-legacy-track-toggle')
+          .enabled(!this.pluginBusy)
+          .selectedColor($r('app.color.brand'))
+          .onChange((isOn: boolean): void => { this.toggleLegacyTrack(isOn); })
       }
       .width('100%')
 

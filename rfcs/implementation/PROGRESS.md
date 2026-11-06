@@ -676,3 +676,38 @@ install 19/0、upgrade 11/0、rollback 7/0、uninstall 6/0（evidence `20261107-
 **R28 = P1-003d（范围修正版）**：lexi-sample 沙箱轨真机验收 + SEC 探针进业务路径 + 旧共享 realm 停用开关（calendar 归 P4-005）。
 
 最近更新时间：2026-11-07（Round 27）。
+
+---
+
+## Round 28 — 2026-11-07（P1-003d 范围修正版 → **VERIFIED**（离线全绿 + 真机验收表三件套））
+
+### 本轮完成
+
+1. **沙箱轨 require 管线收口（ADR-R25-01 遗留）**：sandbox.html 提供 `window.lexiRuntime.__lexiAcquireRequire`（与宿主 shim 同名=同一份 `lexi-iife:v1` 产物两 realm 按字节消费）；bootPlugin 双分支（原生 CJS 工厂管线不变 / IIFE 标记→new Function→registry 读回）；一次性 require 上下文对齐 shim 纪律；凭据绝不进 iframe（归属由 contextRegistry 按 contextId→容器网关裁定）。vm 双路验证 lexi-sample 原码+CLI 包装产物 onload+8 命令+editor 回环零 evalError。
+2. **lexi-sample v2 opt-in**：manifest 升 v2（`entrypoints.service:'sandbox:'`）+ capabilities 与真实 RPC 面逐项对账，main.js 零改动；沙箱 obsidian 面补齐求值期依赖（ItemView/PluginSettingTab 最小基类、vault.on 登记语义、vault.process 组合、workspace 叶面 fail-visible 桩）。
+3. **旧共享 realm 停用开关**：新零依赖纯函数 `LexiPluginTrackPolicy.resolvePluginTrack`（单一真源,sandbox/legacy/refused 三值;开关关死=refused fail-closed 不派发不静默回落）;设置页 Tab+Window 双面 Toggle;默认 ON（RFC §3.6:沙箱轨过真实业务验收前不关旧门;ADR-R28-01 复审条件=验收通过后翻默认）。
+4. **SEC 探针进业务路径**：新夹具 sandbox-sec-probe（10 逃逸向量,onload 穷举,经 saveData 业务通道落 data.json）;门禁与设备共用同一夹具源码（E3/E3b vm 真跑沙箱表面+夹具双分支装载）;**顺手修复既有门禁缺陷:E1/E2 探针段原排在 process.exit 之后从未计入（vacuous）**——修复后真跑全绿。既有 S 断言零削弱。
+5. **门禁**：context-isolation **76 项**、dist-regression **32/32**、manifest-v2 **55 项**、contract-matrix 绿、shim-regression 9、release-gate **29/29**（主线独立复跑）、构建绿。
+
+### 真机验收（lexi_2in1,RFC §3.6 三件套）
+
+| 项 | 证据 |
+|---|---|
+| lexi-sample 沙箱轨 | 设置页重载→`沙箱轨装载: lexi-sample context=ctx-6`→`bootPlugin: lexi-sample-plugin`→8 命令注册（首启时容器未就绪走 legacy 回落=开关 ON 设计行为;重启用即上沙箱轨） |
+| SEC 探针业务路径 | **data.json: `{"passed":true,"total":10,"blockedCount":10,"credentialHits":0}`** — 10 逃逸向量（parent-dom/sibling-iframe/credential-hunt/network-fetch/xhr/remote-import 等）在真实业务沙箱链上全阻断 |
+| legacy 停用 fail-closed | 开关 false→启用 legacy-only cap-probe-open→**`插件装载被拒(legacy 轨停用)…装载被拒绝(fail-closed)`** 零派发 |
+
+### 产品发现（本轮登记）
+
+- **P2-013（新）**：设置页 Toggle 在 uitest 单击下产生 2-3 次 onChange（legacy 开关无法经 UI 稳定置位,偶数次净零变化）;真实触摸/键盘待验。归 Phase 2 设置 UI。
+- 沙箱轨已知残差（在案）：事件投递未接入（vault.on 登记语义）、workspace 叶面 fail-visible 桩——lexi-sample `open-panel` 命令沙箱轨收到明确错误通知,其余 7 命令可用。
+
+### 实际执行的测试
+
+`release-gate --ci` 29/29 ×2、context-isolation 76、dist-reg 32/32、manifest-v2 55、`hvigorw assembleHap` PASS、真机三件套如上。
+
+### 下一轮
+
+**R29 = P1-004 技术论证+ADR（不动代码——人工评审 gate 在 HUMAN_QUEUE#3）**。
+
+最近更新时间：2026-11-07（Round 28）。

@@ -339,6 +339,40 @@ if (!tsPath5) { throw new Error('需要 LEXI_TYPESCRIPT'); }
   })(), '未声明能力的插件授权面板显示"未声明能力"而不是编造条目');
 }
 
+// --- V7 P1-003d(R28) 内置沙箱轨夹具清单对账(真解析,不是文本正则) ----------------
+section('V7 内置沙箱轨夹具清单(真跑)');
+{
+  const ts7 = require(process.env.LEXI_TYPESCRIPT);
+  const load7 = (file, requireShim) => {
+    const js = ts7.transpileModule(fs.readFileSync(file, 'utf8'),
+      { compilerOptions: { module: ts7.ModuleKind.CommonJS, target: ts7.ScriptTarget.ES2021 } }).outputText;
+    const mod = { exports: {} };
+    vm.runInThisContext('(function(require,module,exports){' + js + '\n})', { filename: file })(requireShim, mod, mod.exports);
+    return mod.exports;
+  };
+  const v2mod7 = load7(V2_ETS, () => { throw new Error('V2 模型必须零依赖'); });
+  const manifestMod7 = load7(MANIFEST_ETS, (spec) => {
+    if (String(spec).indexOf('LexiPluginManifestV2') >= 0) { return v2mod7; }
+    throw new Error('意外依赖: ' + spec);
+  });
+  const fixtureIds = ['lexi-sample-plugin', 'sandbox-probe', 'sandbox-sample-min',
+    'sandbox-editor-min', 'sandbox-sec-probe'];
+  for (const fixtureId of fixtureIds) {
+    const manifestPath = path.join(ROOT, 'entry', 'src', 'main', 'resources', 'rawfile', 'plugins',
+      fixtureId, 'manifest.json');
+    if (!fs.existsSync(manifestPath)) { continue; }
+    try {
+      const normalized = manifestMod7.parsePluginManifest(fs.readFileSync(manifestPath, 'utf8'));
+      ok('V7.' + fixtureId + ' 内置夹具清单严格解析通过且声明沙箱轨', normalized.manifestVersion === 2 &&
+        normalized.sandboxService === true && normalized.id === fixtureId,
+        '内置沙箱轨夹具必须 v2 严格清单 + entrypoints.service="sandbox:"(声明式 opt-in)');
+    } catch (error) {
+      ok('V7.' + fixtureId + ' 内置夹具清单严格解析通过且声明沙箱轨', false,
+        'parsePluginManifest threw: ' + error.message);
+    }
+  }
+}
+
 console.log('\n[summary] 通过 ' + passed + ' 项 / 失败 ' + failures.length + ' 项');
 for (const f of failures) { console.log('  ✗ ' + f); }
 console.log(failures.length === 0

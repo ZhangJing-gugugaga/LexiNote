@@ -694,6 +694,127 @@ test('P5-004 内置夹具白名单：首启显式落账授权,沙箱探针冷启
   assert.ok(block.indexOf('sandbox-probe') >= 0, 'sandbox-probe 冷启动链不得回归(Round 22)');
 });
 
+// --- 8. P1-003d(R28) 装载轨政策：沙箱轨主路径 + 旧共享 realm 停用开关 -------------------
+const RAWFILE_PLUGINS = path.join(REPO_ROOT, 'entry', 'src', 'main', 'resources', 'rawfile', 'plugins');
+
+test('P1-003d 装载轨决策真跑(LexiPluginTrackPolicy)：开关两种朝向逐格断言', () => {
+  const trackMod = loadEts('plugin/LexiPluginTrackPolicy', kits);
+  const resolve = trackMod.resolvePluginTrack;
+  const SANDBOX = trackMod.TRACK_SANDBOX;
+  const LEGACY = trackMod.TRACK_LEGACY;
+  const REFUSED = trackMod.TRACK_REFUSED;
+  // 开关默认(true/''/任意非 'false')→ 行为与 R27 前一致:沙箱声明+轨就绪走沙箱,其余 legacy。
+  assert.equal(resolve(true, true, 'true'), SANDBOX, '沙箱声明+容器就绪 → 沙箱轨');
+  assert.equal(resolve(true, false, 'true'), LEGACY, '沙箱声明但轨未就绪+开关默认 → legacy(历史回落保留)');
+  assert.equal(resolve(false, false, 'true'), LEGACY, '非沙箱声明+开关默认 → legacy');
+  assert.equal(resolve(false, true, 'true'), LEGACY, '非沙箱声明不受沙箱轨就绪影响');
+  assert.equal(resolve(false, false, ''), LEGACY, '空落盘值 = 默认 true');
+  assert.equal(resolve(true, true, 'nonsense'), SANDBOX, '非 false 值一律视为允许 legacy');
+  // 开关关死('false')→ 旧共享 realm 路径 fail-closed:只有沙箱轨可达的装载放行。
+  assert.equal(resolve(true, true, 'false'), SANDBOX, '开关关死不拦沙箱轨主路径');
+  assert.equal(resolve(true, false, 'false'), REFUSED, '开关关死:沙箱声明但轨未就绪 → 拒绝(不得溜进共享 realm)');
+  assert.equal(resolve(false, false, 'false'), REFUSED, '开关关死:非沙箱声明 → 拒绝(旧共享 realm 停用)');
+  assert.equal(resolve(false, true, 'false'), REFUSED, '开关关死:非沙箱声明即使容器就绪也 → 拒绝');
+  // 沙箱轨是主路径:拒绝面只吃非沙箱装载,沙箱声明+就绪永不拒绝。
+  assert.equal(trackMod.TRACK_REFUSED, 'refused', '拒绝轨字面量(错误态判定对账用)');
+});
+
+test('P1-003d enablePlugin 接线：resolvePluginTrack 单一真源,refused 路径 fail-closed 不派发', () => {
+  const text = runtimeEts();
+  const body = text.slice(text.indexOf('async enablePlugin('), text.indexOf('async disablePlugin('));
+  assert.ok(body.length > 0, 'enablePlugin 必须存在');
+  // 决策单一真源:enablePlugin 必须调用 resolvePluginTrack,不得内联第二份判定。
+  assert.match(body, /const track = resolvePluginTrack\(/, 'enablePlugin 必须经 LexiPluginTrackPolicy 决策');
+  assert.match(body, /track === TRACK_SANDBOX/, '沙箱轨分支必须以决策字面量路由');
+  // refused 检查必须位于 legacy 派发(load.plugin)之前,且不派发、不静默回落。
+  const refusedPos = body.indexOf('track === TRACK_REFUSED');
+  const dispatchPos = body.indexOf("'load.plugin'");
+  assert.ok(refusedPos > 0, 'refused 分支必须存在');
+  assert.ok(dispatchPos > refusedPos, 'refused 检查必须先于 load.plugin 派发(不得先派发再补救)');
+  const legacyDispatchComment = body.indexOf('// 大源码经 runJavaScript 直传会静默挂起');
+  const refusedBlock = body.slice(refusedPos,
+    legacyDispatchComment > refusedPos ? legacyDispatchComment : dispatchPos);
+  assert.match(refusedBlock, /record\.errorState = /, '拒绝必须写错误态(用户可见,不是静默)');
+  assert.match(refusedBlock, /lexiPluginLegacyTrack=false/, '错误态必须点名开关(可诊断)');
+  assert.match(refusedBlock, /fail-closed/, '错误态必须明示 fail-closed 语义');
+  assert.match(refusedBlock, /this\.lifecycle\.markFailed\(/, '拒绝必须走生命周期 markFailed');
+  assert.match(refusedBlock, /return false/, '拒绝必须 return false');
+  assert.doesNotMatch(refusedBlock, /dispatchWithTimeout\(|dispatchSandboxBoot\(|dispatch\(/,
+    '拒绝路径不得派发任何执行面');
+  // 开关:落盘键 + 默认 true + manager 存取面(设置页可达)。
+  assert.match(text, /const KEY_LEGACY_TRACK: string = 'lexiPluginLegacyTrack'/, '落盘键必须收敛为常量');
+  assert.match(text, /getSetting\(KEY_LEGACY_TRACK, 'true'\)/, '默认值必须是 true(R28 真机验收前不回归)');
+  assert.match(text, /isLegacyTrackEnabled\(\): boolean/, 'manager 必须暴露开关读取');
+  assert.match(text, /async setLegacyTrackEnabled\(enabled: boolean\): Promise<void> \{[\s\S]{0,400}setSetting\(KEY_LEGACY_TRACK/,
+    'manager 必须暴露开关写入并即刻落盘');
+});
+
+test('P1-003d 设置页接线：legacy 轨开关 Toggle(与 safe-mode 同形,双设置面)', () => {
+  for (const name of ['LexiSettingsTab.ets', 'LexiSettingsWindow.ets']) {
+    const text = fs.readFileSync(path.join(REPO_ROOT, 'entry', 'src', 'main', 'ets', 'components', name), 'utf8');
+    assert.match(text, /@State private pluginLegacyTrack: boolean = true/, name + ': UI 态默认 true');
+    assert.match(text, /isLegacyTrackEnabled\(\)/, name + ': UI 读 manager 开关态');
+    assert.match(text, /toggleLegacyTrack\((isOn|enabled): boolean\)/, name + ': Toggle 回调必须走 manager 写入');
+    assert.match(text, /setLegacyTrackEnabled\(enabled\)/, name + ': Toggle 必须落到 manager 落盘写入');
+    assert.match(text, /\.id\('plugin-legacy-track-toggle'\)/, name + ': Toggle 必须带测试锚 id');
+    assert.match(text, /旧版插件轨/, name + ': 行文案必须可读(共享 realm 轨语义)');
+    assert.match(text, /fail-closed/, name + ': 行文案必须披露关死后 fail-closed');
+  }
+});
+
+test('P1-003d lexi-sample 沙箱轨 opt-in：v2 严格清单 + entrypoints.service="sandbox:" + 能力与 RPC 面对账', () => {
+  const manifestText = fs.readFileSync(path.join(RAWFILE_PLUGINS, 'lexi-sample-plugin', 'manifest.json'), 'utf8');
+  const manifestMod2 = loadEts('plugin/LexiPluginManifest', kits);
+  const manifest = manifestMod2.parsePluginManifest(manifestText);
+  assert.equal(manifest.manifestVersion, 2, 'lexi-sample 必须是 manifestVersion 2(严格解析)');
+  assert.equal(manifest.sandboxService, true, '声明式 opt-in:entrypoints.service="sandbox:" → sandboxService');
+  assert.equal(manifest.capabilitiesDeclared, true, 'v2 清单必须声明能力(授权面板可见)');
+  assert.equal(manifest.v2.vault.read.enabled, true, 'vault.read(sample-notice 统计/日志读取)');
+  assert.equal(manifest.v2.vault.write.enabled, true, 'vault.write(sample-create 创建日志笔记)');
+  assert.equal(manifest.v2.editor.readActive, true, 'editor.readActive(editor-stats 读正文)');
+  assert.equal(manifest.v2.editor.writeSelection, true, 'editor.writeSelection(wrap-selection/insert-demo-block)');
+  assert.equal(manifest.v2.editor.writeDocument, true, 'editor.writeDocument(write-chart/write-case 全文写)');
+  assert.equal(manifest.v2.workspace.commands, true, 'workspace.commands(7 个命令注册)');
+  assert.equal(manifest.v2.notifications, true, 'notifications(Notice → ui.notice 域)');
+  assert.equal(manifestApiCompatibleOk(manifest), true, 'compatibility 必须与宿主 API 线兼容');
+  // 代码仍在:sample 主代码不被本轮改写(迁移动作只在清单声明与沙箱面,业务代码保持真实插件形状)。
+  const sampleMain = fs.readFileSync(path.join(RAWFILE_PLUGINS, 'lexi-sample-plugin', 'main.js'), 'utf8');
+  assert.match(sampleMain, /module\.exports = class SamplePlugin extends Plugin/, 'main.js 保持 CJS Plugin 子类形状');
+  assert.ok(sampleMain.includes('require(' + String.fromCharCode(39) + 'obsidian' + String.fromCharCode(39) + ')'), 'main.js 经 require("obsidian") 取面');
+  // 沙箱表面代码必须提供 lexi-sample 求值期依赖的最小面(ItemView/PluginSettingTab 基类)。
+  const sandboxHtml = fs.readFileSync(path.join(REPO_ROOT, 'entry', 'src', 'main', 'resources', 'rawfile',
+    'lexinote_plugin_sandbox.html'), 'utf8');
+  assert.ok(sandboxHtml.includes('ItemView: SandboxItemView') && sandboxHtml.includes('PluginSettingTab: SandboxPluginSettingTab'),
+    '沙箱 obsidian 面缺基类则 lexi-sample 求值期 TypeError');
+});
+
+test('P1-003d SEC 探针进业务路径：夹具随 HAP 内置+首启白名单+沙箱轨声明', () => {
+  // 夹具本体按仓约定是 gitignore 的本地暂存物:在场时全量断言,缺席时跳过夹具部分
+  // (宿主接线断言无条件执行——那是提交内代码,任何环境都必须成立)。
+  const fixtureDir = path.join(RAWFILE_PLUGINS, 'sandbox-sec-probe');
+  const fixtureMainPath = path.join(fixtureDir, 'main.js');
+  const fixtureManifestPath = path.join(fixtureDir, 'manifest.json');
+  if (fs.existsSync(fixtureMainPath) && fs.existsSync(fixtureManifestPath)) {
+    const main = fs.readFileSync(fixtureMainPath, 'utf8');
+    const manifest = JSON.parse(fs.readFileSync(fixtureManifestPath, 'utf8'));
+    assert.equal(manifest.manifestVersion, 2, '探针必须是 v2');
+    assert.equal(manifest.entrypoints && manifest.entrypoints.service, 'sandbox:', '探针必须走业务装载链(bootPlugin)');
+    for (const vector of ['parent-dom', 'parent-globals', 'sibling-iframe', 'window-opener', 'opaque-storage',
+      'network-fetch', 'network-xhr', 'remote-import', 'function-escape', 'credential-hunt']) {
+      assert.ok(main.includes("'" + vector + "'"), '探针缺向量 ' + vector);
+    }
+    assert.match(main, /saveData\(\{ sec: report \}\)/, '报告必须经业务数据通道落盘');
+    assert.match(main, /sandbox-sec-probe-ok/, '通过标记必须存在(设备 data.json 对账)');
+  } else {
+    console.log('  [skip] SEC 探针夹具本体未暂存(plugins/sandbox-sec-probe,夹具环境约定)');
+  }
+  // 内置链:BUNDLED_PLUGIN_DIRS + bundledAllowList(探针是设备验收对象,不经用户安装链)。
+  const text = runtimeEts();
+  assert.match(text, /'plugins\/sandbox-sec-probe'/, 'BUNDLED_PLUGIN_DIRS 必须包含 SEC 探针');
+  assert.match(text, /if \(this\.plugins\.has\('sandbox-sec-probe'\)\) \{ bundledAllowList\.push\('sandbox-sec-probe'\); \}/,
+    '首启白名单必须包含 SEC 探针');
+});
+
 test('P2-005/P1-003b 编辑器切片：editor 分级档位接线(域映射+精判+脱敏+沙箱路由)', () => {
   const text = runtimeEts();
   // broker capabilityGate 域映射(方法→档位):state→readActive;selection→writeSelection;

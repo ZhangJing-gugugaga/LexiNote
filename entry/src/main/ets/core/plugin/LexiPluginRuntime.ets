@@ -53,6 +53,7 @@ import { LexiExtensionRegistry } from './LexiExtensionRegistry';
 import { LexiPermissionStore, PERMISSION_GRANTED, PERMISSION_REGRANT_REQUIRED, PERMISSION_NOT_GRANTED } from './LexiPermissionStore';
 import { LexiViewSessionTable } from './LexiViewSessionState';
 import { LexiInspectorInput, LexiInspectorReport, LexiPluginInspector } from './LexiPluginInspector';
+import { resolvePluginTrack, TRACK_REFUSED, TRACK_SANDBOX } from './LexiPluginTrackPolicy';
 
 const LOAD_TIMEOUT_MS: number = 20000;
 /** 源码分片通道的身份错误码:与 capability_denied / integrity_mismatch 区分开,便于定点断言。 */
@@ -61,6 +62,12 @@ const SOURCE_CHUNK_SIZE: number = 48 * 1024;
 const PLUGIN_DIR_NAME: string = 'plugins';
 const KEY_ENABLED: string = 'lexiPluginEnabled';
 const KEY_SAFE_MODE: string = 'lexiPluginSafeMode';
+/**
+ * P1-003d(R28):旧共享 realm 轨(runtime 页 shim load.plugin 求值面)停用开关。
+ * 默认 'true'——沙箱轨真机验收(RFC §3.6 验收表)完成前 legacy 轨保持可用,行为不回归;
+ * 置 'false' 后所有非沙箱轨装载一律 fail-closed(见 LexiPluginTrackPolicy.resolvePluginTrack)。
+ */
+const KEY_LEGACY_TRACK: string = 'lexiPluginLegacyTrack';
 /** 随 HAP 内置、启动时复制进 files/plugins 的插件目录(演示插件 + 兼容层探针)。 */
 const BUNDLED_PLUGIN_DIRS: Array<string> = [
   'plugins/lexi-sample-plugin',
@@ -75,7 +82,10 @@ const BUNDLED_PLUGIN_DIRS: Array<string> = [
   // P1-003b:最小业务面验收夹具(命令注册回环+数据往返真机验收对象)。
   'plugins/sandbox-sample-min',
   // R27(P1-003b 编辑器切片 + P2-005):editorCallback 经沙箱 Editor 读写正文的验收夹具。
-  'plugins/sandbox-editor-min'
+  'plugins/sandbox-editor-min',
+  // P1-003d(R28):SEC 逃逸探针进业务路径——经 bootPlugin 业务装载链在真实 iframe 内
+  // 穷举逃逸向量,data.json 落逐向量报告(RFC §3.6 真实业务加载路径验证)。
+  'plugins/sandbox-sec-probe'
 ];
 const HI_DOMAIN: number = 0x1051;
 const HI_TAG: string = 'LexiPlugin';
@@ -471,6 +481,8 @@ export class LexiPluginManager {
   private plugins: Map<string, LexiInstalledPlugin> = new Map();
   private enabledIds: Set<string> = new Set();
   private safeMode: boolean = false;
+  /** P1-003d:旧共享 realm 轨可用(lexiPluginLegacyTrack,默认 true;false 时 fail-closed)。 */
+  private legacyTrackEnabled: boolean = true;
   private ready: boolean = false;
   private pendingOnload: Map<string, () => void> = new Map();
   private pendingUnload: Map<string, () => void> = new Map();
@@ -558,6 +570,23 @@ export class LexiPluginManager {
       for (const id of ids) { await this.disablePlugin(id); }
     }
     await this.persistSafeMode();
+  }
+
+  /** P1-003d:旧共享 realm 轨当前是否可用(设置页 Toggle 直读)。 */
+  isLegacyTrackEnabled(): boolean {
+    return this.legacyTrackEnabled;
+  }
+
+  /**
+   * P1-003d:切换旧共享 realm 轨开关。关闭不停用已运行插件(只影响后续装载决策);
+   * 已启用的 legacy 轨插件在下次 enable/重启恢复时才会被拒——这是显式操作的结果,
+   * 不是静默回落。开关状态即刻落盘。
+   */
+  async setLegacyTrackEnabled(enabled: boolean): Promise<void> {
+    this.legacyTrackEnabled = enabled;
+    await LexiStorageService.setSetting(KEY_LEGACY_TRACK, enabled ? 'true' : 'false');
+    pluginLog('legacy 轨开关已切换: lexiPluginLegacyTrack=' + (enabled ? 'true' : 'false') +
+      ' (停用后非沙箱轨装载 fail-closed,P1-003d)');
   }
 
   /** 插件声明式设置:定义列表(JSON)与 data.json 读写。 */
@@ -831,6 +860,8 @@ export class LexiPluginManager {
     // 权限授予持久化(T2.2):重启后授权与撤销状态保留。
     this.loadPermissionStore();
     this.safeMode = (await LexiStorageService.getSetting(KEY_SAFE_MODE, 'false')) === 'true';
+    // P1-003d(R28):legacy 轨开关落盘读回(默认 true;R28 真机验收通过后按 ADR-R28-01 翻默认)。
+    this.legacyTrackEnabled = (await LexiStorageService.getSetting(KEY_LEGACY_TRACK, 'true')) !== 'false';
     const enabledRaw = await LexiStorageService.getSetting(KEY_ENABLED, '[]');
     try {
       const parsed = JSON.parse(enabledRaw) as string[];
@@ -856,6 +887,9 @@ export class LexiPluginManager {
       if (this.plugins.has('sandbox-sample-min')) { bundledAllowList.push('sandbox-sample-min'); }
       // R27:编辑器切片夹具随首启启用(编辑器命令需编辑器页面在场,回调无编辑器时自然空转)。
       if (this.plugins.has('sandbox-editor-min')) { bundledAllowList.push('sandbox-editor-min'); }
+      // P1-003d(R28):SEC 探针随首启启用——逃逸向量经业务装载链(bootPlugin)在真实
+      // iframe 内执行,data.json 落逐向量报告(RFC §3.6 业务路径验收对象)。
+      if (this.plugins.has('sandbox-sec-probe')) { bundledAllowList.push('sandbox-sec-probe'); }
       for (const bundledId of bundledAllowList) {
         this.enabledIds.add(bundledId);
         const bundledRecord = this.plugins.get(bundledId);
@@ -2350,7 +2384,13 @@ export class LexiPluginManager {
       // 独立 Web 组件(方案 B,ADR-R21-02)前,此轨由运行开关显式启用,默认回落旧轨。
       const sandboxTrackOn = this.sandboxController !== null ||
         (await LexiStorageService.getSetting('lexiPluginSandboxTrack', 'false')) === 'true';
-      if (record.manifest.sandboxService && sandboxTrackOn) {
+      // P1-003d(R28):装载轨决策单一真源(LexiPluginTrackPolicy.resolvePluginTrack)。
+      // 沙箱轨为主路径;legacy 共享 realm 轨是 lexiPluginLegacyTrack 开关下的过渡保留
+      // (默认 true,行为不回归)——开关 false 时旧共享 realm 路径 fail-closed,不派发
+      // load.plugin、不静默回落,错误态可见(RFC §3.6 真实业务路径验收后的停用语义)。
+      const track = resolvePluginTrack(record.manifest.sandboxService, sandboxTrackOn,
+        this.legacyTrackEnabled ? 'true' : 'false');
+      if (track === TRACK_SANDBOX) {
         // 容器页 onPageEnd 的 attach 可能晚于 runtime.ready(竞态,Round 22 真机实测):
         // 短等待直至控制器登记;超时按 fail-closed 拒装(声明沙箱的插件不悄悄跑旧轨)。
         const containerReady = await this.waitForSandboxContainer(5000);
@@ -2372,6 +2412,15 @@ export class LexiPluginManager {
         pluginLog('插件已启用(沙箱轨): ' + pluginId + ' activation=' + activationId);
         this.bumpPluginRevision();
         return true;
+      }
+      // P1-003d(R28):legacy 轨开关关死 → 一律拒绝(fail-closed)。错误态 + 生命周期
+      // markFailed,绝不派发 load.plugin,也不悄悄回落沙箱轨——两个执行面互不替代。
+      if (track === TRACK_REFUSED) {
+        record.errorState = '旧共享 realm 轨已停用(lexiPluginLegacyTrack=false):插件未声明沙箱轨入口' +
+          '(entrypoints.service="sandbox:"),装载被拒绝(fail-closed)';
+        pluginError('插件装载被拒(legacy 轨停用,P1-003d) ' + pluginId + ': ' + record.errorState);
+        if (activationId.length > 0) { this.lifecycle.markFailed(activationId, record.errorState); }
+        return false;
       }
       // 大源码经 runJavaScript 直传会静默挂起,改为分片拉取
       const payloadBody: Record<string, Object> = {

@@ -6,7 +6,10 @@
        网络全部断绝（connect-src 'none'），一切宿主交互只能走宿主转移进来的 MessagePort。
        P1-003c（ADR-R25-01）：本 iframe 的 'unsafe-eval' 是按设计保留的过渡形态（ADR-R18-01
        定案 4）——opaque origin 沙箱才是插件求值的真实隔离边界，宿主 runtime 页已移除
-       unsafe-eval；沙箱内 bootPlugin/evalInContext 的 new Function 待后续切片（IIFE 直载）收口。 -->
+       unsafe-eval。P1-003d（R28）：bootPlugin 的 new Function 面收口为双分支——原生 CJS
+       走工厂管线；CLI-wrapped 产物（lexi-iife:v1）按字节原样求值，require 管线由 IIFE
+       自带，经 window.lexiRuntime.__lexiAcquireRequire（沙箱一次性上下文,取用即烧毁）
+       获取——ADR-R25-01 遗留的"沙箱轨不可载已包装产物"就此关闭。 -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>lexinote-plugin-sandbox</title>
 </head>
@@ -295,6 +298,35 @@
   // 最小 obsidian 面:Plugin 基类(onload/onunload 生命周期)+ this.app.request 直通宿主 RPC。
   // 完整 namespace 随 P1-003b 后续轮逐步扩面(EXECUTION_PLAN);本切片验证
   // "业务代码在 iframe 内以端口身份完成 onload + data 往返"。
+  //
+  // P1-003d(R28):沙箱轨 require 管线(ADR-R25-01 收口项)。CLI-wrapped 产物
+  // (lexi-iife:v1,自执行 IIFE 自带 module/exports/require 管线)此前在沙箱轨不可载——
+  // 包装文本引用 window.lexiRuntime.__lexiAcquireRequire(id),沙箱 iframe 没有该对象,
+  // require 回调只能抛"require 不可用"。现在沙箱提供同名 acquire 面:包装产物按字节
+  // 原样进 new Function(沙箱 CSP 按设计保留 unsafe-eval,S29/ADR-R18-01 定案 4),IIFE
+  // 自执行后把 exports 登记进本 iframe 的 window.__lexiPluginRegistry,bootPlugin 从
+  // 注册表读回。语义对齐宿主 shim 的 requireContextsById:每次装载登记一次性上下文,
+  // 取用即烧毁(盗调 fail-closed 抛错);凭据(token)绝不进 iframe——沙箱 require 只
+  // 服务 obsidian 命名空间,请求归属完全由宿主 contextRegistry 按 contextId→容器网关裁定。
+  var sandboxRequireContextsById = new Map();
+  window.lexiRuntime = {
+    __lexiAcquireRequire: function (pluginId) {
+      var key = String(pluginId || '');
+      var ctx = sandboxRequireContextsById.get(key);
+      if (!ctx || ctx.acquired) {
+        return function () { throw new Error('require 上下文不可用(已消费或不存在): ' + key); };
+      }
+      ctx.acquired = true;
+      return function (name) {
+        if (name === 'obsidian' || name === 'lexinote') { return ctx.namespace; }
+        throw new Error('沙箱模块未提供: ' + String(name) + '(依赖请随 main.js 打包)');
+      };
+    }
+  };
+  function isIifeWrappedSource(code) {
+    return /^\s*\/\*\s*lexi-iife:v1\s*\*\//.test(String(code || ''));
+  }
+
   function bootPlugin(plugin) {
     var manifest = {};
     try { manifest = JSON.parse(plugin.manifestJson || '{}'); } catch (err) { manifest = {}; }
@@ -308,6 +340,24 @@
       var path = String(value || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
       return path;
     }
+    // P1-003d(R28):真实业务代码在模块顶层 `class X extends ItemView` / `class Y extends
+    // PluginSettingTab`(类定义在求值期就需要基类存在,否则 lexi-sample 求值即抛 TypeError)。
+    // 视图/设置面板的宿主执行面仍是后续切片(P1-003b 剩余面):registerView/addSettingTab
+    // 存根永不实例化它们,这里只保证求值期类定义成立 + 意外实例化时退化为 no-op 面。
+    function SandboxItemView(leaf) {
+      this.leaf = leaf || null;
+      this.contentEl = { empty: function () {}, setText: function () {},
+        createEl: function () { return {}; }, createDiv: function () { return {}; } };
+    }
+    SandboxItemView.prototype.getViewType = function () { return ''; };
+    SandboxItemView.prototype.getDisplayText = function () { return ''; };
+    function SandboxPluginSettingTab(appRef, pluginRef) {
+      this.app = appRef;
+      this.plugin = pluginRef;
+      this.containerEl = { empty: function () {} };
+    }
+    SandboxPluginSettingTab.prototype.display = function () {};
+    SandboxPluginSettingTab.prototype.hide = function () {};
     function SandboxPlugin(appRef) {
       this.app = appRef;
       this.manifest = manifest;
@@ -356,7 +406,11 @@
     SandboxPlugin.prototype.registerMarkdownCodeBlockProcessor = function () { return {}; };
     var obsidian = {
       Plugin: SandboxPlugin,
-      // 最小面(本轮切片):view/settings/codeblock/ribbon 属 UI 域,宿主面就绪后在后续切片提供。
+      // P1-003d(R28):可构造的最小 ItemView/PluginSettingTab(见上方注释;宿主执行面
+      // 属 view/settings 域,P4-005 批次)。
+      ItemView: SandboxItemView,
+      PluginSettingTab: SandboxPluginSettingTab,
+      // 最小面(本轮切片):codeblock/ribbon 属 UI 域,宿主面就绪后在后续切片提供。
       Notice: function Notice(message) { this.show = function () { makeNotice(String(message)); }; },
       normalizePath: normalizeSandboxPath,
       moment: function () {
@@ -389,24 +443,60 @@
         read: function (pathOrFile) {
           var path = pathOrFile && pathOrFile.path ? pathOrFile.path : pathOrFile;
           return request('vault.read', { path: normalizeSandboxPath(path) });
-        }
+        },
+        // P1-003d(R28):vault.process 组合面(读→改写)。两段各走既有门禁 RPC
+        // (vault.read / vault.modify,宿主侧授权语义不变),不新增宿主处理器。
+        process: function (pathOrFile, fn) {
+          var path = pathOrFile && pathOrFile.path ? pathOrFile.path : pathOrFile;
+          var target = normalizeSandboxPath(path);
+          return request('vault.read', { path: target }).then(function (content) {
+            return request('vault.modify', { path: target, data: String(fn(String(content))) });
+          });
+        },
+        // P1-003d(R28):事件订阅面。事件投递尚未接入沙箱轨(P1-003b 剩余面,与
+        // registerEvent 存根同语义):登记并返回注销句柄,不产生回调——lexi-sample 的
+        // vault.on('modify') 在 onload 里完成登记即返回,装载不再抛 ReferenceError。
+        on: function (_event, _callback) { return { unregister: function () {} }; }
       };
     }
     var sandboxVault = makeVaultApi();
+    // P1-003d(R28):require 一次性上下文登记(与宿主 shim requireContextsById 同纪律)。
+    // 两条求值分支共用:CJS 分支经 acquire 回调消费,IIFE 分支经 window.lexiRuntime
+    // .__lexiAcquireRequire 消费;取用即烧毁,finally 统一注销。
+    sandboxRequireContextsById.set(String(manifest.id || ''), { acquired: false, namespace: obsidian });
     var moduleObj = { exports: {} };
-    var factory = new Function('require', 'module', 'exports',
-      plugin.code + '\n//# sourceURL=lexi-sandbox-plugin.js');
+    var exported = null;
     try {
-      factory(function (name) {
-        if (name === 'obsidian' || name === 'lexinote') { return obsidian; }
-        throw new Error('沙箱模块未提供: ' + name + '(依赖请随 main.js 打包)');
-      }, moduleObj, moduleObj.exports);
+      if (isIifeWrappedSource(plugin.code)) {
+        // CLI-wrapped 产物(lexi-iife:v1):按字节原样求值——IIFE 自执行,自带
+        // module/exports/require 管线,经 window.lexiRuntime.__lexiAcquireRequire 拿到
+        // 本上下文的 require,把 exports(或求值错误)登记进本 iframe 注册表。宿主
+        // runtime 页(ADR-R25-01 注入通道)消费同一形状产物;此处求值通道是沙箱 iframe
+        // 按设计保留的 new Function(S29),宿主页面零求值不变。
+        var wrappedFactory = new Function(plugin.code + '\n//# sourceURL=lexi-sandbox-plugin.js');
+        wrappedFactory();
+        var registry = window.__lexiPluginRegistry;
+        var entry = registry && manifest.id ? registry[manifest.id] : null;
+        if (registry && entry) { try { delete registry[manifest.id]; } catch (err) { registry[manifest.id] = null; } }
+        if (entry && entry.error) { throw new Error('插件脚本求值失败: ' + manifest.id + ' — ' + entry.error); }
+        if (!entry) { throw new Error('插件脚本求值未完成: ' + manifest.id); }
+        exported = entry.exports;
+      } else {
+        var factory = new Function('require', 'module', 'exports',
+          plugin.code + '\n//# sourceURL=lexi-sandbox-plugin.js');
+        factory(function (name) {
+          if (name === 'obsidian' || name === 'lexinote') { return obsidian; }
+          throw new Error('沙箱模块未提供: ' + name + '(依赖请随 main.js 打包)');
+        }, moduleObj, moduleObj.exports);
+        exported = moduleObj.exports;
+      }
     } catch (err) {
       slog('factory threw: ' + String(err));
       postToHost({ type: 'sandbox.evalError', message: String(err) });
       return;
+    } finally {
+      sandboxRequireContextsById.delete(String(manifest.id || ''));
     }
-    var exported = moduleObj.exports;
     var Ctor = typeof exported === 'function' ? exported :
       (exported && typeof exported.default === 'function' ? exported.default : null);
     if (!Ctor) {
@@ -416,7 +506,18 @@
     }
     var sandboxApp = { request: parentRequest, vault: sandboxVault,
       metadataCache: { getFileCache: function (f) { return parentRequest('metadata.get', { path: f && f.path ? f.path : '' }); } },
-      workspace: {} };
+      // P1-003d(R28):workspace 叶面(P4-005 view 域)未接入沙箱轨——给显式失败的桩,
+      // 不留 undefined(裸 TypeError 会被误读成插件代码 bug;显式错误指明面缺失)。
+      workspace: {
+        getRightLeaf: function () {
+          return {
+            setViewState: function () {
+              return Promise.reject(new Error('workspace 叶面未接入沙箱轨(view 域=P4-005);视图命令在沙箱轨不可用'));
+            }
+          };
+        },
+        on: function () { return { unregister: function () {} }; }
+      } };
     var instance = new Ctor(sandboxApp, manifest);
     // 编辑器命令的 ctx.app 复用本上下文 app 面(RFC §3.1 一 iframe 一上下文)。
     sandboxAppRef = sandboxApp;

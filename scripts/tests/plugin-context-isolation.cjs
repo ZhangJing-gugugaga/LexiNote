@@ -132,6 +132,36 @@ if (fs.existsSync(SANDBOX_HTML)) {
       (sandbox.match(/type: 'sandbox\.command'[\s\S]{0,200}/) || [''])[0]) &&
     /data\.editor/.test(sandbox),
     'sandbox.command 帧只允许 fullId/editor;pluginId 等身份字段必须留在容器/宿主侧');
+  // P1-003d(R28,ADR-R25-01 收口):沙箱轨 require 管线——CLI-wrapped 产物(lexi-iife:v1)
+  // 经 bootPlugin 按字节原样装载,一次性 require 上下文对齐宿主 shim 纪律(取用即烧毁)。
+  ok('S31 沙箱轨 require 管线在案(IIFE 直载+一次性上下文)',
+    /sandboxRequireContextsById = new Map\(\)/.test(sandbox) &&
+    /window\.lexiRuntime = \{/.test(sandbox) &&
+    /__lexiAcquireRequire/.test(sandbox) &&
+    /function isIifeWrappedSource\(/.test(sandbox) &&
+    /lexi-iife:v1/.test(sandbox) &&
+    /__lexiPluginRegistry/.test(sandbox) &&
+    /require 上下文不可用\(已消费或不存在\)/.test(sandbox),
+    '缺失任一形状即 CLI-wrapped 产物回退为不可载(ADR-R25-01 遗留项未收口)');
+  ok('S31b 沙箱 require 只服务 obsidian 命名空间,凭据不进 iframe',
+    !/token/.test((sandbox.match(/__lexiAcquireRequire[\s\S]{0,600}function \(name\)/) || [''])[0]),
+    '沙箱 acquire 面不得绑定任何令牌/凭据;身份归属只在宿主 contextRegistry(contextId→容器网关)');
+  // P1-003d(R28):lexi-sample 真实业务代码求值期依赖的 obsidian 最小面(类定义期就要
+  // 基类存在);视图/设置宿主执行面仍属 P4-005,这里只保证求值成立。
+  ok('S32 沙箱 obsidian 面含 ItemView/PluginSettingTab 最小基类',
+    /function SandboxItemView\(/.test(sandbox) && /function SandboxPluginSettingTab\(/.test(sandbox) &&
+    /ItemView: SandboxItemView/.test(sandbox) && /PluginSettingTab: SandboxPluginSettingTab/.test(sandbox),
+    '真实业务代码 `class X extends ItemView` 在沙箱轨求值即 TypeError(lexi-sample 迁移阻塞)');
+  ok('S32b 沙箱 vault 补 on 订阅面与 process 组合面(读→改写两段门禁 RPC)',
+    /on: function \(_event, _callback\) \{ return \{ unregister/.test(sandbox) &&
+    /process: function \(pathOrFile, fn\)/.test(sandbox) &&
+    /'vault\.read'[\s\S]{0,200}'vault\.modify'/.test(
+      (sandbox.match(/process: function \(pathOrFile, fn\)[\s\S]{0,600}/) || [''])[0]),
+    'vault.on 缺失=onload 抛 ReferenceError;vault.process 必须组合既有门禁 RPC,不得新增宿主处理器');
+  ok('S33 沙箱 workspace 叶面显式失败桩(不留 undefined)',
+    /getRightLeaf: function \(\)/.test(sandbox) &&
+    /叶面未接入沙箱轨/.test(sandbox),
+    'workspace 叶面缺失面(P4-005)必须 fail-visible,裸 TypeError 会被误读成插件代码 bug');
 }
 {
   const runtimeHtml = fs.readFileSync(path.join(RAWFILE, 'lexinote_plugin_runtime.html'), 'utf8');
@@ -198,6 +228,27 @@ if (fs.existsSync(PROBE_JS)) {
     'opaque-storage', 'network-fetch', 'network-xhr', 'remote-import', 'function-escape', 'credential-hunt']) {
     ok('S19 探针向量 ' + vector, probe.indexOf("'" + vector + "'") >= 0 || probe.indexOf('"' + vector + '"') >= 0,
       '探针缺少逃逸向量 ' + vector);
+  }
+  // P1-003d(R28):业务链探针夹具(经 bootPlugin 装载)必须携带同一组向量——设备验收与
+  // 本门禁共用同一探针源,防"门禁探针 ≠ 设备探针"的漂移。夹具按仓约定是 gitignore 的
+  // 本地暂存物(sandbox-* 同批):在场时全量断言,缺席时显式打印跳过行(非隐形跳过)。
+  const secFixturePath = path.join(RAWFILE, 'plugins', 'sandbox-sec-probe', 'main.js');
+  const secManifestPath = path.join(RAWFILE, 'plugins', 'sandbox-sec-probe', 'manifest.json');
+  if (fs.existsSync(secFixturePath) && fs.existsSync(secManifestPath)) {
+    const secFixture = fs.readFileSync(secFixturePath, 'utf8');
+    let missing = [];
+    for (const vector of ['parent-dom', 'parent-globals', 'sibling-iframe', 'window-opener',
+      'opaque-storage', 'network-fetch', 'network-xhr', 'remote-import', 'function-escape', 'credential-hunt']) {
+      if (secFixture.indexOf("'" + vector + "'") < 0 && secFixture.indexOf('"' + vector + '"') < 0) { missing.push(vector); }
+    }
+    ok('S19b 业务链探针向量与 PoC 探针对齐(10/10)', missing.length === 0,
+      '夹具缺少向量: ' + missing.join(','));
+    const secManifest = JSON.parse(fs.readFileSync(secManifestPath, 'utf8'));
+    ok('S19b 业务链探针声明沙箱轨入口(bootPlugin 业务链)',
+      secManifest.manifestVersion === 2 && secManifest.entrypoints && secManifest.entrypoints.service === 'sandbox:',
+      'SEC 探针必须走业务装载链(entrypoints.service="sandbox:"),不得走 PoC 通道');
+  } else {
+    console.log('  [skip] S19b/E3 业务链探针: plugins/sandbox-sec-probe 未暂存(夹具环境约定;设备验收前必须就位)');
   }
 }
 
@@ -276,36 +327,215 @@ async function runProbe(hostile) {
   return env.window.__lexiProbeReport || env.__lexiProbeReport;
 }
 
-(async () => {
-try {
-  const report = await runProbe(true);
-  ok('E1a 探针在沙箱环境产出报告', !!report && Array.isArray(report.vectors), '缺少 __lexiProbeReport.vectors');
-  if (report && Array.isArray(report.vectors)) {
-    ok('E1b 探针向量齐备(≥10)', report.vectors.length >= 10, 'vectors=' + report.vectors.length);
-    const unblocked = report.vectors.filter((v) => !v.blocked);
-    ok('E1c 沙箱环境全部向量被阻断', unblocked.length === 0,
-      '未被阻断: ' + unblocked.map((v) => v.id + '(' + String(v.detail).slice(0, 60) + ')').join(', '));
-    ok('E1d 报告 passed 为真', report.passed === true, 'passed=' + report.passed);
-    ok('E1e 报告不在 window 外留宿主凭据', report.credentialHits === 0,
-      '凭据扫描命中 ' + report.credentialHits);
-  }
-} catch (error) {
-  ok('E1a 探针在沙箱环境产出报告', false, 'threw: ' + error.message);
-}
-try {
-  const leaky = await runProbe(false);
-  const leaked = (leaky && leaky.vectors || []).filter((v) => !v.blocked);
-  ok('E2 探针诚实性：漏风环境必须报出未阻断向量', leaked.length >= 3,
-    '漏风环境只报出 ' + leaked.length + ' 个未阻断向量（探针可能在写死 blocked=true）');
-} catch (error) {
-  ok('E2 探针诚实性：漏风环境必须报出未阻断向量', false, 'threw: ' + error.message);
-}
-})();
+// ------------------------------------------------------- E3 业务链探针(P1-003d/R28)
+//
+// RFC §3.6:「安全 PoC 测试通过不等于业务运行时已经安全;最终必须在真实业务加载路径中验证」。
+// E1/E2 用的是手工模拟环境 + PoC 通道探针;E3 把沙箱表面代码(lexinote_plugin_sandbox.html
+// 的真实引导脚本)放进 vm,再让业务链探针夹具(plugins/sandbox-sec-probe/main.js,与设备
+// 验收同一份源码)经 bootPlugin 业务装载链(CJS/IIFE 双分支)装载执行:逃逸向量逐条必须
+// blocked,业务 RPC(data.save 报告落盘/plugin.onload.done)必须经受控请求帧完成。
+const SEC_FIXTURE_DIR = path.join(RAWFILE, 'plugins', 'sandbox-sec-probe');
+const SEC_FIXTURE_MAIN = path.join(SEC_FIXTURE_DIR, 'main.js');
+const SEC_PLUGIN_ID = 'sandbox-sec-probe';
 
-// ---------------------------------------------------------------- 汇总
-console.log('\n[summary] 通过 ' + passed + ' 项 / 失败 ' + failures.length + ' 项');
-for (const f of failures) { console.log('  ✗ ' + f); }
-console.log(failures.length === 0
-  ? 'plugin-context-isolation: PASS'
-  : 'plugin-context-isolation: FAIL (' + failures.length + ')');
-process.exit(failures.length === 0 ? 0 : 1);
+/** 提取沙箱页内联引导脚本(文档本体唯一脚本,与真机同源)。 */
+function sandboxPageScript() {
+  const html = fs.readFileSync(SANDBOX_HTML, 'utf8');
+  const m = html.match(/<script>([\s\S]*?)<\/script>/);
+  if (!m) { throw new Error('lexinote_plugin_sandbox.html 内联引导缺失(S20 同型的外置不变量在此页按设计豁免:沙箱 iframe 才是求值边界)'); }
+  return m[1];
+}
+
+/**
+ * 容器轨 vm 环境:opaque-origin iframe(env)+ 容器父窗口(parentWin)。
+ * 父窗口对 iframe 只暴露 postMessage(规范允许的跨源合法通道);document/globals/frames
+ * 一律 SecurityError(容器页与宿主页同为跨源)。sandbox.request 帧自动应答(容器网关的
+ * vm 等价物),业务 RPC 全程走这条受控帧链。
+ */
+function makeBusinessSandboxEnv() {
+  const frames = [];
+  const handlers = [];
+  const securityError = () => {
+    throw new Error('SecurityError: Blocked a frame with origin "null" from accessing a cross-origin frame.');
+  };
+  const respond = (msg) => {
+    if (!msg || msg.type !== 'sandbox.request' || !msg.requestId) { return; }
+    Promise.resolve().then(() => {
+      env.__deliver({ __lexiSandbox: true, type: 'sandbox.response',
+        requestId: msg.requestId, ok: true, result: null });
+    });
+  };
+  const parentWin = {
+    // 容器页(lexinote_sandbox_container.js)对 iframe 暴露的唯一面。
+    postMessage: (msg) => { frames.push(msg); respond(msg); }
+  };
+  Object.defineProperty(parentWin, 'document', { get() { securityError(); } });
+  Object.defineProperty(parentWin, 'LexiObsidian', { get() { securityError(); } });
+  Object.defineProperty(parentWin, 'window', { get() { securityError(); } });
+  Object.defineProperty(parentWin, 'frames', { get() { securityError(); } });
+  const env = {
+    console: { log: () => {}, warn: () => {}, error: () => {} },
+    setTimeout: (fn) => { fn(); return 0; },
+    clearTimeout: () => {},
+    setInterval: () => { return 0; },
+    clearInterval: () => {},
+    Promise: Promise,
+    JSON: JSON,
+    Math: Math,
+    Date: Date,
+    Map: Map,
+    __frames: frames
+  };
+  env.window = env;
+  env.self = env;
+  env.parent = parentWin;
+  env.top = parentWin;
+  Object.defineProperty(env.window, 'opener', { value: null });
+  Object.defineProperty(env, 'localStorage', {
+    get() { throw new Error('SecurityError: The document is sandboxed and lacks the allow-same-origin flag.'); }
+  });
+  env.document = { get cookie() { return ''; } };
+  env.fetch = () => Promise.reject(new TypeError("Failed to fetch: Refused to connect because 'connect-src none' violates CSP"));
+  env.XMLHttpRequest = function () {
+    this.open = function () {};
+    this.send = function () { setTimeout(() => { this.onerror && this.onerror(new Error('NetworkError')); }, 0); };
+  };
+  env.addEventListener = (type, fn) => { if (type === 'message') { handlers.push(fn); } };
+  env.removeEventListener = () => {};
+  env.location = { pathname: 'lexinote_plugin_sandbox.html' };
+  // 容器 → iframe 帧投递(event.source=父窗口;容器轨无 port 转移,window 通道)。
+  env.__deliver = (data) => {
+    const event = { source: parentWin, data: data, ports: [] };
+    for (const h of handlers.slice()) { h(event); }
+  };
+  vm.createContext(env);
+  return env;
+}
+
+/** 宿主 shim 的单一真源包装器(vm 复用,与 lexi-cli build 同一技术)。 */
+function wrapViaShim(code, pluginId) {
+  const shimSource = fs.readFileSync(path.join(RAWFILE, 'lexinote_plugin_shim.js'), 'utf8');
+  const sb = {
+    console: { log: () => {}, warn: () => {}, error: () => {} },
+    setTimeout: () => 0, clearTimeout: () => {}, setInterval: () => 0, clearInterval: () => {},
+    Promise: Promise, JSON: JSON, Math: Math, Date: Date, Map: Map, Set: Set,
+    document: { createElement: () => ({ style: {}, classList: { add: () => {} } }) },
+    location: { href: 'about:blank' }
+  };
+  sb.window = sb;
+  vm.createContext(sb);
+  vm.runInContext(shimSource, sb, { filename: 'lexinote_plugin_shim.js' });
+  const wrap = sb.window.lexiRuntime && sb.window.lexiRuntime.__lexiWrapPluginSource;
+  if (typeof wrap !== 'function') { throw new Error('宿主 shim 未发布 __lexiWrapPluginSource'); }
+  return wrap(code, pluginId);
+}
+
+/** 把探针夹具经业务装载链(bootPlugin)装入 vm 沙箱并驱动 onload。 */
+async function runBusinessProbe(mode) {
+  const env = makeBusinessSandboxEnv();
+  vm.runInContext(sandboxPageScript(), env, { filename: 'lexinote_plugin_sandbox.html#inline' });
+  const code = fs.readFileSync(SEC_FIXTURE_MAIN, 'utf8');
+  const pluginCode = mode === 'iife' ? wrapViaShim(code, SEC_PLUGIN_ID) : code;
+  if (mode === 'iife' && !/^\s*\/\*\s*lexi-iife:v1\s*\*\//.test(pluginCode)) {
+    throw new Error('shim 包装产物缺 lexi-iife:v1 标记');
+  }
+  env.__deliver({
+    __lexiSandbox: true, type: 'sandbox.init', contextId: 'sec-ctx',
+    plugin: {
+      code: pluginCode,
+      manifestJson: JSON.stringify({ id: SEC_PLUGIN_ID, name: '沙箱安全探针(业务链)', version: '1.0.0' })
+    }
+  });
+  // 排空事件轮询直到业务报告落位(data.save 请求帧出现)或超时。
+  for (let i = 0; i < 400; i++) {
+    const done = env.__frames.some((f) => f.type === 'sandbox.request' && f.method === 'plugin.onload.done');
+    if (done) { break; }
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  return env;
+}
+
+function businessReportOf(env) {
+  const frame = env.__frames.find((f) => f.type === 'sandbox.request' && f.method === 'data.save');
+  if (!frame) { return null; }
+  try { return JSON.parse(frame.params.dataJson).sec; } catch { return null; }
+}
+
+async function assertBusinessProbe(label, mode) {
+  let env = null;
+  let bootError = '';
+  try {
+    env = await runBusinessProbe(mode);
+  } catch (error) {
+    bootError = error.message;
+  }
+  ok(label + ' a 业务装载链完成 boot(sandbox.init 已消费)', !!env && bootError === '' &&
+    env.window.lexiSandbox && env.window.lexiSandbox.contextReady === true,
+    bootError || '沙箱表面代码未消费 init(容器轨 boot 记账走请求帧,非 boot 帧——port 缺失时 boot 帧按 B-009b 留痕丢弃)');
+  if (!env) { return; }
+  const report = businessReportOf(env);
+  ok(label + ' b 探针经业务链产出报告(data.save 帧在案)', !!report && Array.isArray(report.vectors),
+    '探针 onload 未走通业务数据通道');
+  if (!report) { return; }
+  const unblocked = (report.vectors || []).filter((v) => !v.blocked);
+  ok(label + ' c 全部逃逸向量在业务链中被阻断', unblocked.length === 0,
+    '未被阻断: ' + unblocked.map((v) => v.id + '(' + String(v.detail).slice(0, 60) + ')').join(', '));
+  ok(label + ' d 报告 passed(向量齐备≥10 且凭据零命中)', report.passed === true,
+    'passed=' + report.passed + ' total=' + report.total + ' credentialHits=' + report.credentialHits);
+  ok(label + ' e 业务链收尾帧(plugin.onload.done)在案',
+    env.__frames.some((f) => f.type === 'sandbox.request' && f.method === 'plugin.onload.done'),
+    'onload 未完成——业务链中途断裂');
+  const leakyIdentity = env.__frames.filter((f) => f && (f.pluginId !== undefined || f.token !== undefined ||
+    f.activationId !== undefined || (f.params && (f.params.pluginId !== undefined || f.params.token !== undefined))));
+  ok(label + ' f iframe 发出的帧不带身份字段(身份只在宿主侧)', leakyIdentity.length === 0,
+    '身份泄漏帧: ' + leakyIdentity.map((f) => f.method || f.type).join(','));
+}
+
+async function main() {
+  try {
+    const report = await runProbe(true);
+    ok('E1a 探针在沙箱环境产出报告', !!report && Array.isArray(report.vectors), '缺少 __lexiProbeReport.vectors');
+    if (report && Array.isArray(report.vectors)) {
+      ok('E1b 探针向量齐备(≥10)', report.vectors.length >= 10, 'vectors=' + report.vectors.length);
+      const unblocked = report.vectors.filter((v) => !v.blocked);
+      ok('E1c 沙箱环境全部向量被阻断', unblocked.length === 0,
+        '未被阻断: ' + unblocked.map((v) => v.id + '(' + String(v.detail).slice(0, 60) + ')').join(', '));
+      ok('E1d 报告 passed 为真', report.passed === true, 'passed=' + report.passed);
+      ok('E1e 报告不在 window 外留宿主凭据', report.credentialHits === 0,
+        '凭据扫描命中 ' + report.credentialHits);
+    }
+  } catch (error) {
+    ok('E1a 探针在沙箱环境产出报告', false, 'threw: ' + error.message);
+  }
+  try {
+    const leaky = await runProbe(false);
+    const leaked = (leaky && leaky.vectors || []).filter((v) => !v.blocked);
+    ok('E2 探针诚实性：漏风环境必须报出未阻断向量', leaked.length >= 3,
+      '漏风环境只报出 ' + leaked.length + ' 个未阻断向量（探针可能在写死 blocked=true）');
+  } catch (error) {
+    ok('E2 探针诚实性：漏风环境必须报出未阻断向量', false, 'threw: ' + error.message);
+  }
+  console.log('== E3 业务链探针(P1-003d:沙箱表面代码×业务装载链) ==');
+  if (!fs.existsSync(SEC_FIXTURE_MAIN)) {
+    console.log('  [skip] E3/E3b: SEC 探针夹具未暂存(plugins/sandbox-sec-probe,夹具环境约定)');
+  } else {
+    // CJS 分支:夹具原样经 bootPlugin 工厂管线(设备验收主路径)。
+    await assertBusinessProbe('E3', 'cjs');
+    // IIFE 分支:同一份夹具经宿主 shim 单一真源包装器包装后,按字节原样经 bootPlugin
+    // 新 require 管线装载(ADR-R25-01 遗留项收口的行为级证明)。
+    await assertBusinessProbe('E3b', 'iife');
+  }
+}
+
+main().then(() => {
+  // ---------------------------------------------------------------- 汇总
+  console.log('\n[summary] 通过 ' + passed + ' 项 / 失败 ' + failures.length + ' 项');
+  for (const f of failures) { console.log('  ✗ ' + f); }
+  console.log(failures.length === 0
+    ? 'plugin-context-isolation: PASS'
+    : 'plugin-context-isolation: FAIL (' + failures.length + ')');
+  process.exit(failures.length === 0 ? 0 : 1);
+}, (error) => {
+  console.log('plugin-context-isolation: 主流程异常 — ' + ((error && error.stack) || error));
+  process.exit(1);
+});

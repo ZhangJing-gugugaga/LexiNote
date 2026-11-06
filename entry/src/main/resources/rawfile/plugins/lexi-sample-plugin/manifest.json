@@ -1,10 +1,35 @@
 {
+  "manifestVersion": 2,
   "id": "lexi-sample-plugin",
   "name": "Sample Plugin",
   "version": "1.0.0",
-  "minAppVersion": "0.1.0",
-  "description": "Demonstrates the Obsidian-compatible plugin API on LexiNote.",
   "author": "LexiNote Team",
+  "description": "Demonstrates the Obsidian-compatible plugin API on LexiNote.",
   "authorUrl": "https://github.com/ZhangJing-gugugaga/LexiNote",
-  "isDesktopOnly": false
+  "license": "MIT",
+  "compatibility": {
+    "min": "1.0.0",
+    "obsidianApiLevel": "1.14.4"
+  },
+  "isDesktopOnly": false,
+  "entrypoints": {
+    "service": "sandbox:"
+  },
+  "capabilities": {
+    "vault": {
+      "read": { "enabled": true, "paths": [] },
+      "write": { "enabled": true, "paths": [] }
+    },
+    "editor": {
+      "readActive": true,
+      "writeSelection": true,
+      "writeDocument": true,
+      "extensions": "none"
+    },
+    "workspace": {
+      "commands": true
+    },
+    "storage": {},
+    "notifications": true
+  }
 }

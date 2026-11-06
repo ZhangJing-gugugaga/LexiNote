@@ -35,6 +35,7 @@ local.properties
 entry/src/main/resources/rawfile/plugins/sandbox-probe/
 entry/src/main/resources/rawfile/plugins/sandbox-sample-min/
 entry/src/main/resources/rawfile/plugins/sandbox-editor-min/
+entry/src/main/resources/rawfile/plugins/sandbox-sec-probe/
 /entry/src/main/resources/rawfile/plugins/cap-probe-unauth/
 *.log
 
