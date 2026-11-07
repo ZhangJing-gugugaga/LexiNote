@@ -961,3 +961,10 @@ P4-005 夹具批次（设备验收:含本面三交互+R36 示例的 runtime 页�
 **实际执行的测试**:release-gate --ci **32/32**、shim-regression **14**、authz-matrix **101**、dist-regression **44/44**、dist-audit --all ok、hvigorw assembleHap **BUILD SUCCESSFUL**。
 
 **诚实边界（IMPLEMENTED ≠ VERIFIED）**:全部离线证据。设备复测归主线程批次:calendar 卸载清理零 authz.denied+命令失败可见通知（P2-014 的设备面还依赖 shim 通知通道——失败命令应出现 toast）。
+
+### Round 39 追记（同日,设备复测批次）
+
+- **P2-015 复测通过**：calendar 启→onload→停全周期 **零 authz.denied**（R38 的 7 条清理拒绝签名消失,卸载清理以原身份成功执行）。
+- **P4-006b 复测通过**：obsidian-outliner **onload 完成+已启用**（eval 失败消失,捆绑依赖生效）——C1→**C3**（视图/命令面待交互复测）;compat-probe onload 通过+探针运行（vault.rename 等如实打点,"没有同页编辑器"如实上报）——C1→**C2**。
+- **P2-014 设备 toast 复测**：受 UI 定位抖动阻（列表重渲染坐标漂移,一次重试未中）——离线行为级+reportCommandDispatchFailure 机制直读已证（pluginError+errorState+toast）,余一步触发验证留台账。
+- **P4-005 复定级**：calendar C2（unload 清理已修复,视图面仍占位）、obsidian-outliner **C3**、compat-probe **C2**、sandbox 系 C4 等价。
