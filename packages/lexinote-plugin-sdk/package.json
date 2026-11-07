@@ -4,15 +4,27 @@
   "description": "LexiNote 插件 SDK:类型、契约快照与能力标签助手(运行时由宿主提供实现,RFC §10.1)",
   "license": "GPL-3.0",
   "repository": "https://github.com/ZhangJing-gugugaga/LexiNote",
-  "main": "src/index.ts",
-  "types": "types/lexinote.d.ts",
-  "files": ["src", "types", "schema", "README.md"],
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist", "src", "types", "schema", "README.md"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./types/lexinote": "./types/lexinote.d.ts",
+    "./schema/*": "./schema/*",
+    "./package.json": "./package.json"
+  },
   "scripts": {
+    "build": "node tools/build-dist.cjs",
+    "prepack": "node tools/build-dist.cjs",
     "sync": "node tools/sync-sdk.cjs",
     "test": "node tests/sdk-smoke.cjs"
   },
   "lexinote": {
     "apiVersion": "1.0.0",
-    "contractSource": "tools/plugin-contract"
+    "stability": "experimental",
+    "contractSource": "schema/(生成自宿主仓库 tools/plugin-contract,经 tools/sync-sdk.cjs 同步;门禁 scripts/tests/plugin-sdk-contract.cjs 对账)"
   }
 }

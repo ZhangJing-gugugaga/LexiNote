@@ -33,6 +33,21 @@ npm run build        # 输出 main.js(esbuild CJS → lexi-iife:v1 自执行包�
 - 只声明**已实现**的 API;未实现项(Modal/Menu/Suggest/Setting builder/代码块处理器/Bases/CM6 扩展)不声明,导入即类型报错,运行时也不保证。
 - Editor API 为 v1:单选区、偏移模型;读方法同步(快照),写方法返回 Promise。
 
+## SDK 包(可选,P3-001)
+
+类型与契约快照已随 `@lexinote/plugin-sdk` 发布为可安装包(**Experimental**,M1 出口前不打 Stable)。
+离线安装与消费方式:
+
+```bash
+cd packages/lexinote-plugin-sdk && npm pack   # → lexinote-plugin-sdk-<version>.tgz(dist 编译产物)
+npm install <path>/lexinote-plugin-sdk-<version>.tgz
+```
+
+- 常量与助手入口:`main: dist/index.js`(编译产物,非源码 ts)——`API_VERSION` / `SDK_METHODS` / `methodsOf` / `capabilityTags`。
+- 运行时类型面仍由模板内 `lexinote.d.ts` 提供;指向 SDK 版本的 tsconfig paths 写法见
+  `packages/lexinote-plugin-sdk/README.md`(类型单一真源翻转归 P3-002,本轮模板仍自带副本)。
+- 安装+消费已固化进门禁:`scripts/tests/plugin-sdk-contract.cjs` S7(离线 pack→install→require→类型编译)。
+
 ## 分发(规划)
 
 `lexinote-releases` 索引仓库将采用与 Obsidian `community-plugins.json` 同构的结构:

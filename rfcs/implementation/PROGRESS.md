@@ -855,3 +855,28 @@ release-gate --ci **31/31**、sec-coverage 282 项(covered=4/partial=14/uncovere
 ### Round 33 追记（同日,设备负例批次第一项）
 
 **SEC-013 销毁闭环真机定案**（设置→市场→卸载 sandbox-editor-min）：`请求停用`→`插件已停用`→`context registry 吊销 1 个上下文`→**`sandbox context destroyed: ctx-4-sandbox-editor-min`**（容器 iframe 拆除）→`plugin tokens 吊销 1 个`→`插件已卸载 → .trash/sandbox-editor-min-<ts>`——P1-008 四步序在真实卸载路径全序触发,旧通道 context 已吊销。P1-010 台账:SEC-013 设备负例关闭;剩余设备负例（Track2 拒载受 P2-013、SEC-002 Track2 面、SEC-014..017 B-002 链）按 sec-coverage ledger 归后续批次/Phase 5。
+
+最近更新时间：2026-11-07（Round 34）。
+
+## Round 34 — 2026-11-07（R34 = Phase 3 开工:P3-001 SDK 构建/发布成型 + P3-004 CLI 命令补全 → 离线全绿）
+
+### 本轮完成
+
+1. **P3-001 SDK 构建/发布成型**：①`packages/lexinote-plugin-sdk/tools/build-dist.cjs`——src/*.ts → dist/ 编译产物（ts.createProgram 严格类型检查,**类型错误即红不发半成品**;产物 index/contract/capabilities × js+d.ts 六文件,锚点齐全,显式检查 dist 无源码 ts 混入;typescript 解析=LEXI_TYPESCRIPT→与 release-gate 同候选列,离线无新依赖）;②package.json 入口改编译产物——`main: dist/index.js`、`types: dist/index.d.ts`（原 `main: src/index.ts` 源码 ts 悬空消除）,补 `exports` 映射（. / ./types/lexinote / ./schema/* / ./package.json）与 files.dist;③**稳定性锚点不打 Stable**（P2-00x 约束）——`lexinote.stability: "experimental"`+README 顶部 Experiment 声明,版本保持 1.0.0（与宿主/shim 三方一致由 S2 继续钉死）;④README 新建零悬空字段（包内容表/入口说明/离线安装两种方式/使用含 tsconfig paths 映射/开发命令/契约对账清单;contractSource 悬空指针落指 schema/ 真源）,模板 README 增 SDK 安装节;⑤dist 入 .gitignore（prepack 按需重建,防陈旧产物入库）。**验收固化进门禁**：plugin-sdk-contract **30→37**——新 S7 四连:npm pack（prepack 自动构建）产出 tarball → 临时 fixture `npm install <tarball> --offline`（零网络）→ require 安装产物验 API_VERSION/capabilityTags/methodsOf → tsconfig paths 双路 ts.createProgram 类型消费（@lexinote/plugin-sdk 入口 + lexinote/obsidian 别名 ambient 面）。npm pack 产物=lexinote-plugin-sdk-1.0.0.tgz。
+2. **P3-004 CLI 命令补全**（tools/lexi-cli/lexi.cjs,build/validate/pack/sign/publish 既有行为逐字节保持,C1-C6 零改动仍绿）：**dev**=validate+build 单次 pass;`--watch` 真 fs.watch 监视循环（debounce 120ms,只盯 main.js/manifest.json/styles.css;单次 pass 失败 fail-visible 打印不退环——坏编辑可恢复）;**test**=运行 `<proj>/test|tests/*.cjs|mjs|js` 真子进程（逐文件 ok/FAIL+退出码+失败输出透传;无测试文件=红,不假造通过）;**inspect**=manifest 摘要+入口（bytes/sha256/iife 标记来自真实文件）+pack 文件清单（与 pack 同一 walk）+授权标签（SDK capabilityTags 经同一转译法复用,单一真源）+宿主 v2 严格解析面（有 LEXI_TYPESCRIPT 则真跑,失败 fail-visible）;`--json` 机器面;**doctor**=八项环境体检（node/typescript/宿主 shim `__lexiWrapPluginSource` vm 复用/宿主解析器/契约快照/SDK schema 导出/zip-store/可选项目 arg）,三态 ok/warn/fail——ts 缺席=warn（体检不装死,退出码 0）,设了但装载失败=fail（退出码 1）;**compatibility**=manifest compatibility 对宿主 API 版本对账（min/maxExclusive 语义比较,不满足即红）+capability-map 授权类别分布+api-surface 状态分布+CM 宿主矩阵读数+能力标签。loadShimWrapper/loadHostModule 重构为抛错形态（doctor 可探针,fail-visible 语义不变）。
+3. **门禁**：cli-contract **18→45**——C7 dev（单次 pass+`--watch` 子进程真跑:改 main.js 触发 change# pass+OS 级进程终止校验,注意父进程 spawnSync 阻塞事件循环时 child.exitCode 不更新、改用 process.kill(pid,0) 探活）/C8 test（无测试红/真过/真败逐文件可见）/C9 inspect（摘要真实+iife 标记+`--json` 解析+缺 manifest 红）/C10 doctor（八项在案+warn 形态）/C11 compatibility（读数+SDK 标签归一化排序+宿主不满足下界必须红+恢复回绿）/C12 **create→validate→build→inspect→pack→sign→publish 全链离线一条龙**（八步退出码+五产物落地断言）。TEST_MATRIX SDK/CLI 行与全量门禁行刷新。
+
+### 诚实边界（IMPLEMENTED ≠ VERIFIED）
+
+- 全部离线证据。SDK 的 npm pack→install 链证明的是**包形态可安装可消费**（真实 npm 11.9.0 离线装包+真实 tsc 4.9.5 全程序类型检查）;真实 registry 发布、外部开发者不读宿主源码的全流程演练=P3-008（依赖 P0-004 文档入 Git）。
+- `stability: experimental` 是包级锚点;方法级 status 仍全部 stable（api-surface 快照面,P3-003 类型硬化时一并复核）。
+- dev --watch 是本地开发循环,热重载（改码→宿主不重启重载）归 P3-005,本轮不做。
+- 兼容性命令的版本对账是**声明面**对账（manifest 声明 vs 契约快照）,不做代码级 API 用量静态分析。
+
+### 实际执行的测试
+
+release-gate --ci **31/31**、plugin-sdk-contract **37**（+S7 npm pack/install 消费）、lexi-cli-contract **45**（C1-C12）、hvigorw assembleHap **BUILD SUCCESSFUL**（33 tasks,无签名配置=既有 WARN）。
+
+### 下一轮
+
+**R35 = P3-002（类型单一真源翻转:SDK 为源、模板消费,对账脚本校验同源）+ P3-003（sdk-contract 真类型检查:注入类型错误必须红）**;P0-004 文档入 Git 待人工决策（docs/ 目前 gitignore 本地账面）。设备批次欠账不变（SEC 矩阵 blocker 清单即清单）。

@@ -71,10 +71,10 @@ clipboard/notifications/editor 分级未接线；授权 UI 缺失（`grant/revok
 
 | ID | 任务 | 状态 | 优先级 | 依赖 | 涉及模块 | 验收标准 |
 |---|---|---|---|---|---|---|
-| P3-001 | SDK 构建/发布成型（编译 dist、入口非源码 ts、README 悬空字段、可安装性） | TODO | P2 | P2-00x（API 稳定前不打 Stable） | packages/lexinote-plugin-sdk | `npm pack` 产物可在模板中安装使用 |
+| P3-001 | SDK 构建/发布成型（编译 dist、入口非源码 ts、README 悬空字段、可安装性） | **IMPLEMENTED(R34,离线)**：build-dist.cjs（src→dist 严格类型检查,js+d.ts 六产物+锚点+无源码 ts 混入检查）;package.json 入口改编译产物 main/types→dist/index.*（原 src/index.ts 源码 ts 悬空消除）+exports 映射+files.dist；稳定性锚点 `lexinote.stability="experimental"`（M1 出口前不打 Stable=P2-00x 约束,版本仍钉 1.0.0 三方一致）；README 新建（包内容/入口/离线安装/使用/契约对账,零悬空字段,contractSource 落指 schema/真源）；模板 README 增 SDK 安装节;dist 入 .gitignore（prepack 按需重建）。门禁 sdk-contract **30→37**（S7 四连:dist 构建→npm pack→离线 npm install tarball→require 运行时消费+ts.createProgram 类型消费双通道,fixture 全临时目录） | P2 | P2-00x（API 稳定前不打 Stable） | packages/lexinote-plugin-sdk | `npm pack` 产物可在模板中安装使用 ✔（S7 固化,离线） |
 | P3-002 | 类型单一真源方向修正：SDK 为源、模板消费（当前 sync 方向是模板→SDK） | TODO | P2 | P3-001 | tools/…/sync-sdk.cjs, template/tsconfig | 模板不再维护类型副本；对账脚本校验同源 |
 | P3-003 | sdk-contract 门禁改真类型检查（现 transpileModule 只查语法） | TODO | P2 | P3-001 | scripts/tests/plugin-sdk-contract.cjs | 注入类型错误必须红 |
-| P3-004 | CLI 补全 dev/build/test/inspect/doctor/compatibility | TODO | P2 | — | tools/lexi-cli | 每命令有契约测试；create→pack 全链离线可跑 |
+| P3-004 | CLI 补全 dev/build/test/inspect/doctor/compatibility | **IMPLEMENTED(R34,离线)**：dev=validate+build 单次 pass＋--watch 真监视循环（fs.watch,坏编辑 fail-visible 不退环）；test=<proj>/test|tests 真子进程运行（真退出码,无测试=红不假造）；inspect=manifest/入口(sha256+iife 标记)/打包面摘要＋--json 机器面＋宿主解析器校验面；doctor=node/ts/宿主 shim(__lexiWrapPluginSource vm 复用)/解析器/契约快照/zip-store/项目（ts 缺席=warn 不装死,装载失败=fail）；compatibility=API 版本对账（min/maxExclusive 语义比较,不满足即红）+能力标签（SDK capabilityTags 经同一转译法复用,单一真源）+capability-map 类别分布+API 面状态分布+CM 矩阵读数。门禁 cli-contract **18→45**（C7-C12:每命令≥1 行为级用例+watch 子进程真跑+doctor warn 形态+兼容红例+C12 create→validate→build→inspect→pack→sign→publish 全链离线一条龙） | P2 | — | tools/lexi-cli | 每命令有契约测试✔；create→pack 全链离线可跑✔（C12） |
 | P3-005 | 本地开发模式与热重载（依赖 P1 通道收敛后设计） | TODO | P3 | P1-004 | runtime, CLI | 改码→重载不重启宿主；dev 信任显式标记 |
 | P3-006 | Plugin Inspector 完整化（RPC 流水、生命周期记录、权限拒绝审计，脱敏红线） | TODO | P3 | P2-010 | LexiPluginInspector.ets | 能回答 RFC §12 七问 |
 | P3-007 | 示例工程组（命令/Vault/视图/Markdown/设置五类）+ 每例可 CLI 构建校验 | TODO | P2 | P3-001..004 | template/examples | CI 构建全部示例 |

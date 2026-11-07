@@ -24,13 +24,13 @@
 | 包结构校验 | plugin-package-verifier | 单元 | PASS | ✘ | 空哈希跳过被固化为期望→仅限本地侧载语义,P5-001 已在外围封死远程 |
 | 生命周期/所有权 | plugin-lifecycle-once, plugin-extension-ownership | 契约 | PASS | ✘ | quarantine 等状态不可达(P2-009) |
 | 契约三脚架/矩阵 | plugin-contract-tripod, plugin-contract-matrix | 契约 | PASS(锚点修正后) | ✘ | generate.cjs 缺陷 P0-005 |
-| SDK/CLI/Inspector/Docs | sdk-contract, lexi-cli-contract, inspector, docs-contract | 契约 | PASS | ✘ | SDK"类型检查"实为语法检查(P3-003) |
+| SDK/CLI/Inspector/Docs | sdk-contract, lexi-cli-contract, inspector, docs-contract | 契约 | **PASS(R34)**:sdk-contract 30→**37**（+S7 P3-001:dist 构建→npm pack→离线 npm install→require+ts.createProgram 双通道消费）;cli-contract 18→**45**（+C7-C12 P3-004:dev/test/inspect/doctor/compatibility 每命令行为级+create→build→pack 全链 C12） | ✘ | SDK src"类型检查"仍为语法检查(P3-003;S7.7 消费者侧已是真 createProgram 全类型检查) |
 | 市场 UI 全流程(KI-1/2/3, 安装升级回滚卸载) | plugin-dist-flows --run | 集成(设备) | **PASS ×4(Round 8, lexi_2in1)** | ✔ | KI-1 规模档位 `--market-repro N=3..8` 仍 NOT RUN；KI-2 幽灵条目仍需真机定位(设备已可用,排 P5-008) |
 | 沙箱性能与驻留(PoC 判据) | plugin-poc-verdict | 真机判据 | NOT RUN | ✘ | 需真机 JSON 输入(B-001) |
 | HAP 构建 | hvigorw assembleHap | 构建 | **PASS**(本轮 BUILD SUCCESSFUL) | ✘ | 签名缺省(仅 unsigned) |
 | 网络宿主代理面(SEC-010/011) | net-request-url(83 断言:origin/method/size/identity/timeout) | 契约+行为(真模块) | **PASS(R33 起进 release-gate)**:未声明拒/越 origin 拒/令牌错配拒/方法白名单(P2-006a-b)/请求响应字节上限(P2-006c-d)/net_timeout 与 transport_failed 可区分 | ✘ | 设备直接外传负例已真机(R28 fetch/XHR blocked);宿主代理面设备负例随下批补(SEC-010 判 covered 的口径见 sec-coverage 矩阵) |
 | SEC 覆盖矩阵(P1-009/R33) | plugin-sec-coverage:RFC §13.4 SEC-001..018 全表 → 证据(门禁+用例 needle+设备指针)逐条对账 | 矩阵门禁 | **PASS 282 项(R33)**:covered=4(SEC-001/003/004/010) partial=14 uncovered=0;用例被删/证据指针腐烂即红 | 部分 | 设备负例缺口逐条写明 blocker(见矩阵输出/RELEASE_READINESS Phase 1 出口评审) |
-| 全量门禁 | release-gate --ci | CI | **PASS 31/31(R33:+net-request-url+sec-coverage)** | ✘ | 无根仓库 CI 自动触发(P0-003) |
+| 全量门禁 | release-gate --ci | CI | **PASS 31/31(R34 复跑全绿;R33:+net-request-url+sec-coverage)** | ✘ | 无根仓库 CI 自动触发(P0-003) |
 
 ## SEC 计划编号映射（RFC §13.4 现状,P1-009/R33 起由 plugin-sec-coverage.cjs 机器对账）
 

@@ -150,6 +150,142 @@ section('S6 冒烟测试可跑');
   ok('S6.1 SDK 冒烟测试通过', r.status === 0, output.split('\n').slice(-2).join(' | '));
 }
 
+// S7 = P3-001 验收面:dist 是真编译产物(入口非源码 ts)、npm pack 产物可离线安装并被
+// 外部工程消费(运行时 require + 类型面 ts 编译双通道)。M1 出口前包级稳定性锚点必须
+// 停在 experimental(不打 Stable——P2-00x 约束)。
+section('S7 dist 产物 + npm pack 离线安装(P3-001)');
+{
+  const { spawnSync } = require('node:child_process');
+  const os = require('node:os');
+
+  ok('S7.1 包入口是编译产物(main/types → dist,不是源码 ts)', sdkPkg !== null &&
+    sdkPkg.main === 'dist/index.js' && sdkPkg.types === 'dist/index.d.ts' &&
+    Array.isArray(sdkPkg.files) && sdkPkg.files.indexOf('dist') >= 0,
+    'main=' + (sdkPkg && sdkPkg.main) + ' types=' + (sdkPkg && sdkPkg.types));
+  ok('S7.2 包级稳定性锚点=experimental(M1 出口前不打 Stable)', sdkPkg !== null &&
+    sdkPkg.lexinote && sdkPkg.lexinote.stability === 'experimental' &&
+    sdkPkg.lexinote.apiVersion === (apiVersion ? apiVersion.apiVersion : ''),
+    'stability=' + (sdkPkg && sdkPkg.lexinote && sdkPkg.lexinote.stability));
+
+  function npmCliPath() {
+    const candidates = [
+      path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js')
+    ];
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) { return candidate; }
+    }
+    return '';
+  }
+  function npmRun(args, cwd) {
+    const cli = npmCliPath();
+    if (!cli) { return { status: -1, output: 'npm-cli.js 不存在(预期 <node>/node_modules/npm/bin/npm-cli.js)' }; }
+    const r = spawnSync(process.execPath, [cli].concat(args), {
+      cwd, encoding: 'utf8',
+      env: Object.assign({}, process.env, { npm_config_update_notifier: 'false' })
+    });
+    return { status: r.status, output: ((r.stdout || '') + '\n' + (r.stderr || '')) };
+  }
+
+  let tmp = '';
+  try {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lexi-sdk-pack-'));
+
+    // 构建失败要在这里显式红,而不是混进 pack 的错误输出里。
+    const built = spawnSync(process.execPath, [path.join(SDK, 'tools', 'build-dist.cjs')],
+      { cwd: SDK, encoding: 'utf8' });
+    const buildOut = ((built.stdout || '') + (built.stderr || '')).trim();
+    ok('S7.3 dist 构建通过(src → js + d.ts,严格类型检查)', built.status === 0 &&
+      fs.existsSync(path.join(SDK, 'dist', 'index.js')) &&
+      fs.existsSync(path.join(SDK, 'dist', 'index.d.ts')),
+      buildOut.split('\n').slice(-2).join(' | '));
+
+    const packed = npmRun(['pack', '--pack-destination', tmp, '--loglevel', 'error', '--no-audit', '--no-fund'], SDK);
+    let tarball = '';
+    if (packed.status === 0 && fs.existsSync(tmp)) {
+      const produced = fs.readdirSync(tmp).filter((f) => f.endsWith('.tgz'));
+      if (produced.length === 1) { tarball = path.join(tmp, produced[0]); }
+    }
+    ok('S7.4 npm pack 产出 tarball', packed.status === 0 && tarball !== '',
+      packed.output.split('\n').filter((l) => l.trim()).slice(-2).join(' | '));
+
+    if (tarball !== '') {
+      // 离线安装:tarball 无外部依赖,--offline 全程不触网。
+      const fixture = path.join(tmp, 'fixture');
+      fs.mkdirSync(fixture, { recursive: true });
+      fs.writeFileSync(path.join(fixture, 'package.json'),
+        JSON.stringify({ name: 'lexi-sdk-pack-fixture', version: '0.0.0', private: true }, null, 2) + '\n');
+      const installed = npmRun(['install', tarball, '--offline', '--no-audit', '--no-fund',
+        '--ignore-scripts', '--loglevel', 'error'], fixture);
+      const pkgDir = path.join(fixture, 'node_modules', '@lexinote', 'plugin-sdk');
+      ok('S7.5 npm install <tarball> 离线可装', installed.status === 0 &&
+        fs.existsSync(path.join(pkgDir, 'dist', 'index.js')),
+        installed.output.split('\n').filter((l) => l.trim()).slice(-2).join(' | '));
+
+      // 运行时消费:装进来的 dist 就是可 require 的真模块。
+      let runtimeDetail = '';
+      let runtimeOk = false;
+      try {
+        const api = require(path.join(pkgDir, 'dist', 'index.js'));
+        const tags = api.capabilityTags({ vault: { write: true }, network: ['https://API.example.com/path'] });
+        runtimeOk = api.API_VERSION === (apiVersion ? apiVersion.apiVersion : '?') &&
+          Array.isArray(api.SDK_METHODS) && api.SDK_METHODS.length > 0 &&
+          JSON.stringify(tags) === JSON.stringify(['network:api.example.com', 'vault.write']) &&
+          api.methodsOf('vault').length > 0;
+        runtimeDetail = 'API_VERSION=' + api.API_VERSION + ' tags=' + tags.join(',');
+      } catch (error) { runtimeDetail = 'threw: ' + error.message; }
+      ok('S7.6 安装产物可 require(API_VERSION/能力标签/方法发现)', runtimeOk, runtimeDetail);
+
+      // 类型面消费:外部工程经 package.json types + tsconfig paths 双路编译通过
+      // (正值编译;注入类型错误必须红属于 P3-003 的真类型检查硬化,不在此前置)。
+      const tsPath2 = process.env.LEXI_TYPESCRIPT;
+      let typeDetail = '';
+      let typeOk = false;
+      try {
+        fs.writeFileSync(path.join(fixture, 'tsconfig.json'), JSON.stringify({
+          compilerOptions: {
+            strict: true, noEmit: true, skipLibCheck: true,
+            module: 'commonjs', target: 'es2020', moduleResolution: 'node',
+            lib: ['es2020', 'dom'], baseUrl: '.',
+            paths: {
+              'lexinote': ['node_modules/@lexinote/plugin-sdk/types/lexinote.d.ts'],
+              'obsidian': ['node_modules/@lexinote/plugin-sdk/types/lexinote.d.ts']
+            }
+          },
+          include: ['consumer.ts', 'ambient.ts']
+        }, null, 2));
+        fs.writeFileSync(path.join(fixture, 'consumer.ts'), [
+          "import { API_VERSION, capabilityTags, methodsOf } from '@lexinote/plugin-sdk';",
+          "const tags: string[] = capabilityTags({ vault: { write: true }, network: ['https://api.example.com'] });",
+          "const vaultMethods: string[] = methodsOf('vault').map((m) => m.method);",
+          "export const fixtureSummary: string = API_VERSION + '|' + tags.join(',') + '|' + vaultMethods.length;",
+          ''
+        ].join('\n'));
+        fs.writeFileSync(path.join(fixture, 'ambient.ts'), [
+          "import { Plugin, Notice } from 'lexinote';",
+          'export class FixturePlugin extends Plugin {',
+          '  async onload(): Promise<void> { new Notice("lexi-sdk-pack-fixture"); }',
+          '}',
+          ''
+        ].join('\n'));
+        const ts = require(tsPath2);
+        // 用 parseJsonConfigFileContent 归一化枚举/lib(tsconfig 语义与 tsc 完全一致)。
+        const parsed = ts.parseJsonConfigFileContent(
+          JSON.parse(fs.readFileSync(path.join(fixture, 'tsconfig.json'), 'utf8')),
+          ts.sys, fixture);
+        const program = ts.createProgram(parsed.fileNames, parsed.options);
+        const diags = ts.getPreEmitDiagnostics(program).filter((d) => d.category === 1);
+        typeOk = diags.length === 0;
+        typeDetail = diags.slice(0, 2).map((d) =>
+          (d.file ? path.basename(d.file.fileName) : '<global>') + ' ' +
+          ts.flattenDiagnosticMessageText(d.messageText, ' ')).join(' | ');
+      } catch (error) { typeDetail = 'threw: ' + error.message; }
+      ok('S7.7 类型面可消费(@lexinote/plugin-sdk 入口 + lexinote/obsidian 别名)', typeOk, typeDetail);
+    }
+  } finally {
+    if (tmp) { fs.rmSync(tmp, { recursive: true, force: true }); }
+  }
+}
+
 console.log('\n[summary] 通过 ' + passed + ' 项 / 失败 ' + failures.length + ' 项');
 for (const f of failures) { console.log('  ✗ ' + f); }
 console.log(failures.length === 0
