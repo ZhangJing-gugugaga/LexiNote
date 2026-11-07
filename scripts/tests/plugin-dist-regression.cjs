@@ -12,6 +12,8 @@
 //   5. structural wiring assertions on LexiPluginRuntime.ets (capability gate in front of
 //      the network/fs handlers, uninstall/rollback/fetchMarketIndex exported)
 //   6. static audit allowlist: @codemirror/* is legal, left-pad is not
+//   7. P1-009(R33) SEC runtime gates 行为级: fsGate/vaultReadGate/storageQuotaGate/
+//      withTimeout 真跑(SEC-005/006/008/009/011/012 的宿主端正/负用例)
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -100,6 +102,24 @@ function makeKitStubs() {
   };
 }
 
+// P1-009(R33):装载 LexiPluginRuntime.ets 这类重依赖模块时,未显式桩化的 @kit/@ohos
+// 模块用递归 no-op 混合代理兜底:属性访问与函数调用都返回新桩(hilog.error(...) 这类
+// 「属性链后调用」可用)。显式 kits 仍优先;此前未登记的 kit 会直接 require 抛错,所以
+// 该兜底只扩大可装载面,不改变任何既有判定。
+const autoKitStubCache = new Map();
+function autoKitStub(name) {
+  if (autoKitStubCache.has(name)) { return autoKitStubCache.get(name); }
+  const hybrid = new Proxy(function () {}, {
+    get(target, prop) {
+      if (prop === 'then' || prop === Symbol.toPrimitive || prop === 'constructor') { return undefined; }
+      return autoKitStub(name + '.' + String(prop));
+    },
+    apply() { return autoKitStub(name + '()'); }
+  });
+  autoKitStubCache.set(name, hybrid);
+  return hybrid;
+}
+
 function loadEts(spec, kits) {
   const target = path.resolve(CORE, spec + '.ets');
   const js = ts.transpileModule(fs.readFileSync(target, 'utf8'), {
@@ -116,11 +136,20 @@ function loadEts(spec, kits) {
       cache.set(key, exports);
       return exports;
     }
+    if (/^@kit\.|^@ohos\./.test(name)) { return autoKitStub(name); }
     return require(name);
   };
   const module = { exports: {} };
   vm.runInThisContext('(function(require,module,exports){' + js + '\n})', { filename: target })(requireShim, module, module.exports);
   return module.exports;
+}
+
+// P1-009(R33) SEC 行为级用例的共享装载:LexiPluginRuntime.ets 只转译装载一次,两个
+// SEC 用例组(fs/storage/超时 gate 与超时语义)复用同一份编译产物。
+let secRuntimeMod = null;
+function loadSecRuntime() {
+  if (secRuntimeMod === null) { secRuntimeMod = loadEts('plugin/LexiPluginRuntime', kits); }
+  return secRuntimeMod;
 }
 
 const kits = makeKitStubs();
@@ -1259,6 +1288,81 @@ test('R32 销毁闭环与状态机接线：五步尾序/quarantine 触发链/per
     '宿主接线带存在性守卫(fail-safe)');
   // 市场安装链携带目标插件 id(完整性失败隔离的归属依据)。
   assert.match(text, /const claimed = parsed\['targetPluginId'\];/, 'installZip 解析 targetPluginId');
+});
+
+// --- 9c. P1-009(R33) SEC runtime gates 行为级真跑(SEC-005/006/008/009/011/012) ------------
+// 此前 P2-003/004/005 的执行面在本门禁只有静态锚(§6),路径白名单另有 manifest 级真跑
+// (manifest-v2 V5.6-9);本节把 LexiPluginRuntime.ets 转译装载,从类原型上真调
+// fsGate/vaultReadGate/storageQuotaGate——判定代码就是交付的同一份编译产物,SEC 的
+// 正/负用例逐格断言(不再只证"gate 存在")。原型提取的合法性:这些 gate 全部只依赖
+// this.manifestFor 与模块级纯函数,不触碰宿主运行时状态。
+test('SEC runtime gates 行为级(P1-009/R33)：fsGate/vaultReadGate/storageQuotaGate 正负用例', () => {
+  const runtimeMod = loadSecRuntime();
+  const proto = runtimeMod.LexiPluginManager.prototype;
+  assert.equal(typeof proto.fsGate, 'function', 'LexiPluginManager.fsGate 必须可提取');
+  const manifests = {
+    // v2 写/读路径白名单都收敛在 notes/draft/ 下;storage 配额 10 字符。
+    p2: { manifestVersion: 2, capabilitiesDeclared: true, capabilities: { fs: true },
+      v2: { vault: { read: { enabled: true, paths: ['notes/draft/'] }, write: { enabled: true, paths: ['notes/draft/'], delete: false } },
+        storage: { quotaBytes: 10 } } },
+    // v2 但未声明 fs 域(路径白名单放行后,应在 checkFsCapability 处拒绝——域声明缺失)。
+    p2n: { manifestVersion: 2, capabilitiesDeclared: true, capabilities: { fs: false },
+      v2: { vault: { read: { enabled: false, paths: [] }, write: { enabled: true, paths: ['notes/draft/'] }, delete: false },
+        storage: { quotaBytes: 10 } } },
+    // v1 带声明的旧语义;v1 不带 fs 声明。
+    v1: { manifestVersion: 1, capabilitiesDeclared: true, capabilities: { fs: true }, v2: null },
+    v1n: { manifestVersion: 1, capabilitiesDeclared: true, capabilities: { fs: false }, v2: null }
+  };
+  const host = { manifestFor: (id) => manifests[id] || null };
+  const denied = (code, message) => {
+    const parsed = JSON.parse(code);
+    assert.equal(parsed.ok, false, '应拒绝: ' + code);
+    assert.equal(parsed.code, 'capability_denied', '拒绝码 capability_denied: ' + code);
+    if (message) { assert.ok(parsed.error.indexOf(message) >= 0, '拒绝文案点名: ' + parsed.error); }
+  };
+  // SEC-005/008 面:身份归属失败 fail-closed(未安装插件的调用方不落任何 fs 判定)。
+  denied(proto.fsGate.call(host, 'ghost-plugin', 'vault.modify', 'notes/draft/a.md'), '无法归属到已安装插件');
+  // SEC-008 负例:v2 未声明 fs 域 → vault.modify 拒;v1 未声明 fs → 拒。
+  denied(proto.fsGate.call(host, 'p2n', 'vault.modify', 'notes/draft/a.md'), '未声明');
+  denied(proto.fsGate.call(host, 'v1n', 'vault.modify', 'notes/draft/a.md'), '未声明');
+  // SEC-008 负例:v2 写路径白名单外拒绝。
+  denied(proto.fsGate.call(host, 'p2', 'vault.modify', 'notes/other/x.md'), '路径不在 vault.write.paths 白名单');
+  // SEC-009 负例:穿越形态路径不得借道写 gate。
+  denied(proto.fsGate.call(host, 'p2', 'vault.modify', '../../../etc/x.md'), '路径不在 vault.write.paths 白名单');
+  // 正例:白名单内放行;v1 带 fs 声明沿用旧语义放行。
+  assert.equal(proto.fsGate.call(host, 'p2', 'vault.modify', 'notes/draft/a.md'), '', '白名单内写入放行');
+  assert.equal(proto.fsGate.call(host, 'v1', 'vault.modify', 'notes/anywhere.md'), '', 'v1 带 fs 声明放行(legacy 语义)');
+  // SEC-006 面:data.* 归 storage 域,与 vault.write 解绑——只带 storage 的 v2 也可读写私有 data.json。
+  assert.equal(proto.fsGate.call(host, 'p2', 'data.save'), '', 'v2 data.save 归 storage 域放行');
+  assert.equal(proto.fsGate.call(host, 'p2', 'data.load'), '', 'v2 data.load 归 storage 域放行');
+  denied(proto.fsGate.call(host, 'v1n', 'data.load'), '未声明');
+  assert.equal(proto.fsGate.call(host, 'v1', 'data.load'), '', 'v1 带 fs 声明的 data.load 沿用旧语义');
+  // SEC-009 读侧:跨段/前缀外读取拒绝,白名单内放行;v1 无此维度放行(design)。
+  denied(proto.vaultReadGate.call(host, 'p2', 'notes/other/x.md'), '路径不在 vault.read.paths 白名单');
+  denied(proto.vaultReadGate.call(host, 'p2', '../../../etc/passwd'), '路径不在 vault.read.paths 白名单');
+  assert.equal(proto.vaultReadGate.call(host, 'p2', 'notes/draft/a.md'), '', '读白名单内放行');
+  denied(proto.vaultReadGate.call(host, 'p2n', 'notes/draft/a.md'), '未声明');
+  assert.equal(proto.vaultReadGate.call(host, 'v1', 'notes/anywhere.md'), '', 'v1 读无白名单维度(既有语义)');
+  // SEC-011 负例:超出 storage.quotaBytes 的 data.save 在落盘前被拒;边界与 v1 语义。
+  const overQuota = proto.storageQuotaGate.call(host, 'p2', 100);
+  denied(overQuota, 'storage: 数据量 100 超出配额 10');
+  assert.equal(proto.storageQuotaGate.call(host, 'p2', 10), '', '恰好等于配额放行(边界)');
+  assert.equal(proto.storageQuotaGate.call(host, 'p2', 5), '', '配额内放行');
+  assert.equal(proto.storageQuotaGate.call(host, 'v1', 1000000), '', 'v1 无配额维度(既有语义)');
+});
+
+test('SEC-012 RPC 超时行为级(P1-009/R33)：LexiWebRuntime.withTimeout 真跑', async () => {
+  const runtimeMod = loadSecRuntime();
+  const withTimeout = runtimeMod.LexiWebRuntime.withTimeout;
+  assert.equal(typeof withTimeout, 'function', 'withTimeout 必须可提取(所有 dispatchWithTimeout/生命周期等待共用)');
+  // 负例:永不完成的 RPC 在超时点被拒绝,错误带标签——宿主不被挂死。
+  await assert.rejects(() => withTimeout(new Promise(() => {}), 20, 'sec-rpc-none'),
+    /插件操作超时: sec-rpc-none/);
+  // 序:超时必须先于慢工作胜出(不是等 work 完成才判超时)。
+  await assert.rejects(() => withTimeout(new Promise((resolve) => { setTimeout(resolve, 200); }), 20, 'sec-rpc-slow'),
+    /插件操作超时: sec-rpc-slow/);
+  // 正例:快工作胜出,结果原样交付(定时器被 finally 清理,不拖住进程)。
+  assert.equal(await withTimeout(Promise.resolve('sec-ok'), 1000, 'sec-rpc-fast'), 'sec-ok');
 });
 
 test('静态审核的模块白名单：@codemirror 放行，其它 require 红灯', () => {

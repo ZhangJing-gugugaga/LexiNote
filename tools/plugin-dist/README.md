@@ -48,6 +48,9 @@ node tools/plugin-dist/release-gate.cjs --strip --strip-staging --apply   # 同�
 2. **依赖夹具的门禁** — `plugin-channel-audit` / `plugin-contract-matrix` / `plugin-dist-audit --all` /
    `plugin-dist-regression` / `plugin-market-regression`，逐个跑、逐个报 exit。
    仓库里没有夹具时这一步会红，那是在提示先跑 `plugin-fixtures-fetch` + `plugin-fixtures-stage`。
+   完整门禁清单（29 个,含 RFC §4.4 网络代理面 `net-request-url` 与 P1-009 SEC 覆盖矩阵
+   `plugin-sec-coverage`——后者对账 RFC §13.4 SEC-001..018 的证据映射,用例删除或证据指针腐烂即红）
+   以 `release-gate.cjs` 内 `gates` 数组为单一真源,此处不重复罗列。
 3. **release 产物剥离自检** — 把每个已构建 HAP 复制到临时目录、strip 一份、重扫，必须 0 处违规。
 
 没装 TypeScript 时 `--ci` 会提示设置 `LEXI_TYPESCRIPT`（指向 hvigor 自带的

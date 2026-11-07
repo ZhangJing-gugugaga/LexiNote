@@ -252,6 +252,7 @@ function ciMode() {
     ['context-isolation: T0.2 沙箱面(RFC)', 'scripts/tests/plugin-context-isolation.cjs', []],
     ['context-registry: P1-003a 上下文网关(RFC)', 'scripts/tests/plugin-context-registry.cjs', []],
     ['authz-matrix: T0.3 授权矩阵(RFC)', 'scripts/tests/plugin-authz-matrix.cjs', []],
+    ['net-request-url: 网络宿主代理面(RFC §4.4,SEC-010/011)', 'scripts/tests/net-request-url.cjs', []],
     ['lifecycle-once: T1.1 生命周期(RFC)', 'scripts/tests/plugin-lifecycle-once.cjs', []],
     ['extension-ownership: T1.2 扩展注册(RFC)', 'scripts/tests/plugin-extension-ownership.cjs', []],
     ['contract-tripod: T1.3 契约三方(RFC)', 'scripts/tests/plugin-contract-tripod.cjs', []],
@@ -269,7 +270,8 @@ function ciMode() {
     ['cli-contract: T5.2 lexi CLI(RFC)', 'scripts/tests/lexi-cli-contract.cjs', []],
     ['inspector: T5.3 观察面(RFC)', 'scripts/tests/plugin-inspector.cjs', []],
     ['docs-contract: T5.4 文档对账(RFC)', 'scripts/tests/plugin-docs-contract.cjs', []],
-    ['market-regression: v1 索引解析', 'scripts/tests/plugin-market-regression.cjs', []]
+    ['market-regression: v1 索引解析', 'scripts/tests/plugin-market-regression.cjs', []],
+    ['sec-coverage: P1-009 SEC 覆盖矩阵(RFC §13.4 全表对账)', 'scripts/tests/plugin-sec-coverage.cjs', []]
   ];
   const env = Object.assign({}, process.env);
   if (typescript) { env.LEXI_TYPESCRIPT = typescript; }

@@ -825,3 +825,29 @@ release-gate 29/29 ×2、lifecycle-once 71、context-registry 23、context-isola
 **R33 = P1-009 + P1-010**（SEC 全表进门禁;Phase 1 出口评审,RELEASE_READINESS 复核）。设备批次补:P1-008 卸载→旧通道 RPC 真机拒绝负例。
 
 最近更新时间：2026-11-07（Round 32）。
+
+## Round 33 — 2026-11-07（P1-009 + P1-010 → 离线全绿;SEC 覆盖矩阵进 release-gate + Phase 1 出口评审草案 + 逐 SEC 设备证据审计）
+
+### 本轮完成
+
+1. **P1-009 SEC 覆盖矩阵门禁（新 `scripts/tests/plugin-sec-coverage.cjs`）**：RFC §13.4 全表 **SEC-001..018**（任务行口径 001..008/011..013,RFC 实际有 018 一并纳入,防静默漏项）逐条映射→证据→机器对账:离线证据={门禁脚本, 用例 needle 数组},每个 needle 必须仍在门禁源码中（**用例被删/改名=矩阵红,这就是"已覆盖项回归即红"的机制**）;设备证据={label, probe needle},probe 必须仍在 PROGRESS/TEST_MATRIX/RELEASE_READINESS/EXECUTION_PLAN 中（**证据指针不许静默腐烂**）。verdict 规则:covered=离线正/负用例+设备上有"实际攻击被拒"负例;partial=必须写名 blocker(正则强制指名任务号/B-编号/设备批次);uncovered=直接红（P1-009 验收行:每条 SEC 有正/负用例）。RFC §13.4 活体解析对账（RFC 增删 SEC 条目与矩阵双侧漂移都红）。矩阵快照:**covered=4（SEC-001/003/004/010）partial=14 uncovered=0,282 项对账 PASS**。
+2. **离线缺口收口（不造假覆盖）**：①context-registry **23→24**:R3.1b（SEC-006 存储面同轨——data.load 帧自报他插件 id 被剥离,宿主按记录身份归属私有存储;broker 桩补 data.load 域）；②dist-regression **40→42**:新增两组行为级真跑——LexiPluginRuntime.ets 转译装载（loadEts 增 @kit/@ohos 自动桩兜底:混合 Proxy 属性链可调,显式 kits 优先,只扩可装载面不改既有判定）后从类原型真调 `fsGate`/`vaultReadGate`/`storageQuotaGate`（SEC-005 身份归属 fail-closed/SEC-008 无 fs 域拒+白名单外拒/SEC-009 穿越形态拒/SEC-006 data 域解绑正例/SEC-011 配额超限拒+边界放+v1 无配额语义,判定代码=交付的同一份编译产物）;`LexiWebRuntime.withTimeout`（SEC-012:永不完成→超时拒绝带标签/慢工作被超时胜出/快工作原样交付——全部 dispatchWithTimeout 与生命周期等待共用该 helper）；③**net-request-url（83 断言,SEC-010/011 主力门）纳入 release-gate**——此前不在 CI 集,"覆盖矩阵指向不进 CI 的门禁"=假保障,诚实性要求纳入。
+3. **P1-010 逐 SEC 设备证据审计（不跑新设备,只对账 R25-R32 在案证据）**：B-001 已解除（R8 起设备批次持续在跑），行状态 BLOCKED→IN_PROGRESS。**设备已证**（SEC-001 父窗口 DOM/opener、SEC-003 sibling+双插件并发、SEC-004 凭据扫描 0 命中×2 轮、SEC-010 直接外传 fetch/XHR blocked、SEC-014 篡改包 integrity_mismatch、SEC-018 安装链正向）=R9 PoC verdict+R24 并发+R8/R26 flows+R26 授权链+R28 业务路径探针 10/10 blocked credentialHits=0+legacy 停用 fail-closed。**离线已证/设备待批次**（SEC-002 Track2 残面、SEC-005..009/011/012/013/015/016/017 的真机负例）逐条 blocker 写入矩阵;P1-005/P1-007/P1-011/P2-009 的设备复核欠账同批登记。
+4. **Phase 1 出口评审结论草案**（RELEASE_READINESS 新节）:验收五条 1-4 达成有设备背书;第 5 条（撤销立即失效）离线达成设备欠账;出口判 **有条件出口**——欠账=设备负例批次+HUMAN_QUEUE#3 两项 ADR 复审(P1-004/R29-01、默认翻转/R28-01)+B-002 信任链半边;§17.1 DoD 逐行复核(100% RPC 进矩阵=✔ P1-007 口径/0 可读凭据=✔/包 SHA-256=未达发布链/上下文独立生命周期与撤销=离线✔设备欠账)、阻断项清单刷新（原 P0 安全三条收敛出名单:哈希 fail-open R7 封真机 VERIFIED/自动启用 R26 设备回填/共享 realm R25-R32）。
+5. **门禁**：release-gate --ci **29→31**（+net-request-url 第 11 步、+sec-coverage 第 30 步）、sec-coverage 282 项、context-registry 24、dist-regression 42。TEST_MATRIX 主表 +2 行（net-request-url/SEC 覆盖矩阵）+SEC 映射节重写为 R33 矩阵快照。
+
+### 本轮不做的（诚实边界）
+
+- 不跑任何新设备用例（supervisor 职责）;设备欠账只入台账不改判 verdict。
+- SEC-002 不宣 covered：沙箱轨设备负例虽在,Track2 工作区页执行面未收敛（P1-004 ADR 待评审）——残面开口必须显式可见。
+- SEC-014/015/017 的 authenticity/回滚链/撤销源缺口全部如实指名 B-002/P5-002/003（Phase 5 域）,不因模型级负例在案而宣称覆盖。
+
+### 实际执行的测试
+
+release-gate --ci **31/31**、sec-coverage 282 项(covered=4/partial=14/uncovered=0)、context-registry 24、dist-regression 42、bridge-security 50、context-isolation 86、authz-matrix 93、net-request-url 83、update-policy 16、registry-trust 14、package-verifier 26、lifecycle-once 71、identity-delivery traced 32 gaps 0。
+
+### 下一轮
+
+设备批次（supervisor）:SEC 逐项真机负例（矩阵 blocker 列即清单,P1-008 卸载→旧通道 RPC 拒绝为第一优先）+P1-005/P1-007/P1-011/P2-009 设备复核。主线:R34 起 Phase 3(P3-001..004+P0-004),HUMAN_QUEUE#3 两项 ADR 复审催办。
+
+最近更新时间：2026-11-07（Round 33）。

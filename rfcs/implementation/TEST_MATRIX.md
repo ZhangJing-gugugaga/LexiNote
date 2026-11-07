@@ -13,7 +13,7 @@
 | 授权矩阵 (方法→kind) | plugin-authz-matrix | 契约 | PASS | ✘ | fsAuthorizer 为 stub——capability 真实注入未测(P2-011) |
 | 权限存储/指纹 | plugin-permission-store | 单元 | PASS | ✘ | 指纹输入是字面量非真实 tagsOf(P2-002 连带) |
 | Manifest v2 解析 | plugin-manifest-v2 | 契约 | PASS | ✘ | 证明解析,不证明执行面(P2-003..007) |
-| 沙箱隔离 | plugin-context-isolation + **真机 PoC verdict** | 安全(PoC 面,离线 48 项+真机 hilog) | **PASS 48/48(Round 25 +S26-S29 宿主页 CSP/eval 对账)；真机 PASS(Round 9)**：contexts=2/2, vectors 20/20 blocked, credentialHits=0；origin=null/ports=1/ping-pong 为常驻见证 | ✔(载体级) | **B-008 关闭,ADR-R9-01 iframe 载体定案**；业务轨道共享 realm 未覆盖(P1-003/009);SEC 全表待接入 |
+| 沙箱隔离 | plugin-context-isolation + **真机 PoC verdict** | 安全(PoC 面,离线 86 项+真机 hilog) | **PASS 86/86(Round 32 +S41 销毁面)；真机 PASS(Round 9)**：contexts=2/2, vectors 20/20 blocked, credentialHits=0；origin=null/ports=1/ping-pong 为常驻见证 | ✔(载体级) | **B-008 关闭,ADR-R9-01 iframe 载体定案**；业务轨道共享 realm 未覆盖(P1-003/009);SEC 全表已接入(P1-009/R33,见下方映射) |
 | 宿主页 eval 清零(P1-003c/ADR-R25-01) | S26-S29(context-isolation) + C6.1-4(cli-contract) + shim-regression 注入通道用例 + **真机差分** | 契约+行为(vm)+**设备** | **PASS(Round 25)**:runtime CSP 无 unsafe-eval(S26)/HTML 零内联脚本(S27)/runtime 页脚本 eval 对账+shim 过渡通道恰 1 处门控(S28/S28b)/沙箱保留有据(S29);CLI build IIFE 幂等+vm 行为级(C6) | ✔(差分) | 真机×4 冷启:新 CSP 下 lexi-sample 装载运行+沙箱轨回归,零违规;判定=差分(沙箱 iframe eval 可用 vs runtime 页无 eval 仍装载→必经注入);直接标记缺失=KI-5(runtime 页 onConsole 哑);workspace 页过渡通道删除断点=P1-004 |
 | 业务插件沙箱执行(P1-003b) | 真机双插件并发链(容器页 hilog + data.json 落盘) | 集成(设备) | **PASS(Round 24)**：probe+sample-min 双 iframe 并发装载,帧交错双向零丢失;sample-min 全链(loadData/saveData/addCommand×2/vault.files/onload.done);命令面板→容器→iframe window 通道回环 `record-run count=1`;data.json `{"runCount":1,"bootOk":true,"lastRunAt":…}` 铁证;probe 回归 `{"marker":"sandbox-probe-ok"}` 不变 | ✔ | **B-009b 关闭(误诊)**;view/settings/editor 执行面后续切片 |
 | 身份面 | plugin-bridge-security | 安全(真实宿主) | **PASS 34/34(Round 10,+8 断言:R6f-h 行为级 vm、R7a-d WeakMap/fail-closed/显式凭据)**;真机佐证见下 | ✔(负面路径 Round 8/10) | P1-006 收口:currentToken/withToken/hostCall 入口删除、WeakMap 归属令牌、栈空 anonymous;残余 `__receive` 面登记 P1-006b |
@@ -28,10 +28,31 @@
 | 市场 UI 全流程(KI-1/2/3, 安装升级回滚卸载) | plugin-dist-flows --run | 集成(设备) | **PASS ×4(Round 8, lexi_2in1)** | ✔ | KI-1 规模档位 `--market-repro N=3..8` 仍 NOT RUN；KI-2 幽灵条目仍需真机定位(设备已可用,排 P5-008) |
 | 沙箱性能与驻留(PoC 判据) | plugin-poc-verdict | 真机判据 | NOT RUN | ✘ | 需真机 JSON 输入(B-001) |
 | HAP 构建 | hvigorw assembleHap | 构建 | **PASS**(本轮 BUILD SUCCESSFUL) | ✘ | 签名缺省(仅 unsigned) |
-| 全量门禁 | release-gate --ci | CI | **PASS 29/29(Round 25 复跑×2)** | ✘ | 无根仓库 CI 自动触发(P0-003) |
+| 网络宿主代理面(SEC-010/011) | net-request-url(83 断言:origin/method/size/identity/timeout) | 契约+行为(真模块) | **PASS(R33 起进 release-gate)**:未声明拒/越 origin 拒/令牌错配拒/方法白名单(P2-006a-b)/请求响应字节上限(P2-006c-d)/net_timeout 与 transport_failed 可区分 | ✘ | 设备直接外传负例已真机(R28 fetch/XHR blocked);宿主代理面设备负例随下批补(SEC-010 判 covered 的口径见 sec-coverage 矩阵) |
+| SEC 覆盖矩阵(P1-009/R33) | plugin-sec-coverage:RFC §13.4 SEC-001..018 全表 → 证据(门禁+用例 needle+设备指针)逐条对账 | 矩阵门禁 | **PASS 282 项(R33)**:covered=4(SEC-001/003/004/010) partial=14 uncovered=0;用例被删/证据指针腐烂即红 | 部分 | 设备负例缺口逐条写明 blocker(见矩阵输出/RELEASE_READINESS Phase 1 出口评审) |
+| 全量门禁 | release-gate --ci | CI | **PASS 31/31(R33:+net-request-url+sec-coverage)** | ✘ | 无根仓库 CI 自动触发(P0-003) |
 
-## SEC 计划编号映射（RFC §13.4 现状）
+## SEC 计划编号映射（RFC §13.4 现状,P1-009/R33 起由 plugin-sec-coverage.cjs 机器对账）
 
-已覆盖(离线,PoC 或宿主面)：SEC-002 部分(bridge-security)、SEC-003 部分(context-isolation)、SEC-013 卸载残留离线面(P1-008/R32:context-registry 23 含 D 组——销毁后旧通道帧全拒 context_revoked/伪造身份+穿越路径帧先于身份与 fs 层被拒/幂等无僵尸/Gateway unknown_method 分层对账;context-isolation 86 含 S41 容器 iframe 销毁面+宿主五步尾序;设备负例待 P4-005 批次)。
-未覆盖：SEC-001/004/005 在业务轨道(P1-006/009)、SEC-006..008/011/012 部分、SEC-009 路径面(P2-004;P1-008 销毁序中「吊销先于路径判定」已入 D 组断言)、
-SEC-010 origin 之外的 method/size(P2-006)、SEC-014..017 信任链(P5-002/003/009)。
+机器可对账真源 = `scripts/tests/plugin-sec-coverage.cjs`(进 release-gate --ci 第 30 步):SEC→门禁+用例 needle→逐条对账,用例被删/改名或工程记录证据指针腐烂即红。下表为 R33 快照(covered=4 / partial=14 / uncovered=0):
+
+| 编号 | 场景 | verdict | 离线证据(门禁:行为级正/负用例) | 设备证据 | 缺口 blocker |
+|---|---|---|---|---|---|
+| SEC-001 | 父窗口 DOM 访问 | **covered** | context-isolation S4/S5/S6/S14/S11/E1c/E1d + dist-reg 探针向量清单 | R9 verdict + R28 业务路径 10/10(parent-dom/window-opener blocked) | — |
+| SEC-002 | 宿主全局对象访问 | partial | bridge-security R1/R5/R6/R7/R8g.1 + context-isolation S14/S26/S28/S31b + identity-delivery | R9+R28 沙箱轨(parent-globals/function-escape blocked, credentialHits=0) | Track2 工作区页执行面未收敛(P1-004/ADR-R29-01 待评审);视图/设置叶面=P1-003b 剩余切片 |
+| SEC-003 | 跨插件 iframe 访问 | **covered** | context-isolation S7/S11/S12/S13/S41a + dist-reg sibling-iframe | R24 双 iframe 并发 + R28 sibling-iframe + R9 contexts=2/2 | — |
+| SEC-004 | Session Token 获取 | **covered** | bridge-security R2/R5/R6/R7/R8e + net-request-url 4.x/5.x + S30c + identity-delivery | R28 credential-hunt 扫描 0 命中(+R9 credentialHits=0) | — |
+| SEC-005 | 伪造 pluginId | partial | context-registry R1.1/R3.1/R3.2/D3 + bridge R3a/R3b + authz M2.14/M4.10 + net 5.x | 待批次 | 伪造身份/越权帧真机拒绝断言待设备批次 |
+| SEC-006 | 跨插件存储读取 | partial | authz M2.5/M2.32/M2.33/M2.45 + context-registry R3.1b(R33 新增) + dist-reg data 解绑锚+fsGate 行为级 | 待批次 | 跨插件存储归属真机断言待批次(设备现证仅 opaque-storage API 面) |
+| SEC-007 | 跨插件命令删除 | partial | authz M2.14/2.15/2.17/2.18/2.39/M3.4 + bridge R8a/R8b/R8g.1-5 | 待批次 | 跨插件删除/盗用通道凭据真机断言待批次(R30 落地待设备复核) |
+| SEC-008 | 未授权 Vault 写入 | partial | authz M2.22/2.23/2.24/M2.40 + manifest-v2 V5.6/V5.9 + dist-reg fsGate 行为级(R33 新增) | 待批次 | 未授权 vault 写真机拒绝断言待设备批次 |
+| SEC-009 | 路径穿越 | partial | package-verifier A1.2/A1.4 + manifest-v2 V5.7/V5.8 + context-registry D3 + dist-reg fsGate 穿越形态拒(R33 新增) | 待批次 | 穿越路径真机拒绝断言待设备批次 |
+| SEC-010 | 未授权网络请求 | **covered** | net-request-url 83 断言全套(origin/method/size/identity/timeout,R33 起进 release-gate) + authz M2.30/M2.31 + dist-reg | R28 fetch/XHR 直接外传 blocked | —(代理面设备负例随下批补,宿主进程独占执行不构成开口) |
+| SEC-011 | 大请求资源耗尽 | partial | net P2-006c/d(8b.5/8b.7) + package-verifier A1.6-A1.14 + dist-reg storageQuotaGate 行为级(R33 新增)+配额锚 + manifest-v2 V5.5 + permission-store P5.3 | 待批次 | 大载荷/配额超限真机断言待设备批次 |
+| SEC-012 | RPC 超时 | partial | net 10.x/11.x + dist-reg withTimeout 行为级(R33 新增) + lifecycle-once L6.7/L9.4 | 待批次 | 真机 RPC 超时/挂起恢复断言待设备批次 |
+| SEC-013 | 恶意插件卸载残留 | partial | context-registry D1-D8(行为级) + context-isolation S41a-d + lifecycle-once L9.1/9.2/9.5/9.6 | 待批次 | 卸载→旧通道 RPC 真机拒绝(P1-008 验收行设备半边,R32/R33 登记待批次) |
+| SEC-014 | 签名篡改 | partial | package-verifier A2.1-A2.6 + dist-reg 篡改字节→integrity_mismatch + registry-trust T2.8 | R8 flows 篡改包(integrity_mismatch 零残留) | authenticity=B-002(P5-002/009 未接,生产签名链不可测) |
+| SEC-015 | 元数据回滚 | partial | registry-trust T1.1/T2.2/T2.3/T2.8 + update-policy U1.1 | 待批次 | 发布链未接 TUF/快照持久化(P5-002,B-002) |
+| SEC-016 | 插件版本降级 | partial | update-policy U1.3/W1.1/W1.2 + dist-reg 降级必须被拦 | 待批次 | 降级安装真机负例待批次;同版本异哈希不对称(P5-010,依赖 P5-002) |
+| SEC-017 | 发布者密钥撤销 | partial | registry-trust T2.6 + update-policy U1.7 | 待批次 | 撤销数据源未接生产(P5-003;P5-002/009=B-002) |
+| SEC-018 | 恶意依赖与包内容 | partial | package-verifier A1 组(预算/穿越/symlink/炸弹/扩展名白名单) + dist-audit 恶意样本 critical | R26 flows 安装链正向 | 包结构负例待设备批次(未单独上真机) |

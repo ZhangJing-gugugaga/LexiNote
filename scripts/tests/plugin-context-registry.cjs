@@ -6,7 +6,7 @@
 //   R1 未注册 contextId → fail-closed（context_unregistered）；
 //   R2 吊销后（revoke/revokePlugin）一切帧被拒——撤销立即生效的载体级形态（P2-010 联动）；
 //   R3 身份来自记录反查：载荷自证 pluginId 被剥离且不影响判定（冒名邻居 → broker 按
-//      记录身份拒绝 owner 不符）；
+//      记录身份拒绝 owner 不符;R3.1b 把同一纪律对到存储面 data.load,SEC-006）;
 //   R4 响应帧符合 §3.4（ok/data/error{code,message,retryable}）；
 //   R5 协议版本/非请求帧/缺 method 拒绝（context_bad_frame）；
 //   R6 与既有矩阵协同：fs-write 走 fsAuthorizer、capability gate 拒未声明域。
@@ -55,11 +55,12 @@ try {
 
 if (registryMod && brokerMod) {
   const registry = new registryMod.LexiContextRegistry();
-  // 两个插件:cap-a 声明 fs 与 vault.read/editor 域;cap-b 无任何能力。
+  // 两个插件:cap-a 声明 fs 与 vault.read/editor/data 域;cap-b 无任何能力。
   const broker = new brokerMod.LexiPermissionBroker(
     (pluginId) => pluginId === 'cap-a',
     (pluginId, method) => pluginId === 'cap-a' &&
-      (method === 'vault.read' || method === 'vault.modify' || method === 'editor.replace'));
+      (method === 'vault.read' || method === 'vault.modify' || method === 'editor.replace' ||
+        method === 'data.load'));
   // P1-008/R32:D 组需要 Gateway 入口双闸(unknown_method)作分层拒绝对账。
   let gatewayMod = null;
   try {
@@ -115,6 +116,11 @@ if (registryMod && brokerMod) {
     const d = authorizeViaGateway(recA, frame('vault.read', { pluginId: 'cap-b', path: 'notes/a.md' }));
     return d.ok && d.identity === 'cap-a' && JSON.parse(d.payloadJson).pluginId === undefined &&
       d.method === 'vault.read';
+  })());
+  ok('R3.1b 存储面同轨:data.load 帧自报他插件 id 被剥离,宿主按记录身份归属私有存储(SEC-006 跨插件存储读取面)', (() => {
+    const d = authorizeViaGateway(recA, frame('data.load', { pluginId: 'cap-b' }));
+    return d.ok && d.identity === 'cap-a' && JSON.parse(d.payloadJson).pluginId === undefined &&
+      d.method === 'data.load';
   })());
   ok('R3.2 owner 域:记录身份判归属(冒名者删他人资源被拒)', (() => {
     // cap-a 的上下文试图删 cap-b 的命令 → plugin-owned 归属不符 → 拒。
