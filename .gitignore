@@ -22,8 +22,20 @@ local.properties
 *.hap
 *.hsp
 *.app
+# SDK dist = 编译产物(prepack/构建脚本按需重建;门禁 plugin-sdk-contract S7 校验产物+可安装性)
+/packages/lexinote-plugin-sdk/dist/
 /exports/
-/docs/
+# P0-004: 八篇公开开发者文档纳入 git(docs-contract D1 对账名单);docs/ 其余内部账面
+# (round 日志/handoff/桥接规范底稿等)仍不入库。
+/docs/*
+!/docs/plugin-api-reference.md
+!/docs/plugin-manifest-v2.md
+!/docs/plugin-security.md
+!/docs/plugin-marketplace.md
+!/docs/plugin-development.md
+!/docs/plugin-testing.md
+!/docs/obsidian-compatibility.md
+!/docs/plugin-inspector.md
 /*.docx
 /design-qa.md
 /.fixtures-out/
@@ -45,3 +57,6 @@ Thumbs.db
 ~$*
 *.swp
 *.swo
+
+# P0-004/D4: 桥接规范在库(docs-contract D4 明文要求"在库";公开协议文档,敏感扫描通过)
+!/docs/lexinote_plugin_bridge_spec.md

@@ -65,13 +65,14 @@ const vaultMethods = methodsOf('vault');         // 该域全部契约方法
 ## 开发命令(仓库内)
 
 ```bash
-npm run sync    # tools/sync-sdk.cjs:宿主契约快照/类型面 → 本包(单一真源方向暂为模板→SDK,P3-002 翻转)
+npm run sync    # tools/sync-sdk.cjs:契约快照 → 本包;本包 types/lexinote.d.ts → 模板生成副本(P3-002:SDK 为类型单一真源)
 npm run build   # tools/build-dist.cjs:src → dist(js + d.ts,严格类型检查,错误即红)
 npm test        # tests/sdk-smoke.cjs:契约常量与快照对账
 ```
 
 契约对账门禁:`node scripts/tests/plugin-sdk-contract.cjs`(S1 包结构 / S2 版本锚点三方一致 /
-S3 schema 逐字节 / S4 类型面 == 模板 d.ts / S5 类型检查 / S6 冒烟 / S7 dist + npm pack 离线安装消费)。
+S3 schema 逐字节 / S4 模板 d.ts 副本 == SDK 类型(单一真源对账) / S5 SDK 源码真类型检查 +
+注入错误必须红 / S6 冒烟 / S7 dist + npm pack 离线安装消费 / S8 消费端类型检查 + 注入错误必须红)。
 
 ## 许可
 

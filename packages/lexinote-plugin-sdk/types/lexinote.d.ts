@@ -11,6 +11,12 @@
  *   - capability-map.json — 方法 → 授权矩阵类别(与 LexiPermissionBroker 逐条对账)
  * 门禁 scripts/tests/plugin-contract-tripod.cjs 校验三方一致: 类型声明、宿主处理器、契约快照。
  *
+ * Type-surface single source (P3-002): THIS file (packages/lexinote-plugin-sdk/types/lexinote.d.ts).
+ * tools/lexinote-plugin-template/lexinote.d.ts is a GENERATED vendored copy (sync-sdk.cjs,
+ * byte-for-byte) — do not hand-edit the copy; edit here, then rerun
+ * packages/lexinote-plugin-sdk/tools/sync-sdk.cjs. Reconciliation gate:
+ * scripts/tests/plugin-sdk-contract.cjs S4.1.
+ *
  * Import style (aliases are interchangeable):
  *   import { Plugin, Notice } from 'lexinote';
  *   const { Plugin, Notice } = require('obsidian');

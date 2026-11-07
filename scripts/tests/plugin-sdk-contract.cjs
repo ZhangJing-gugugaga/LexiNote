@@ -2,16 +2,18 @@
 // RFC §14 T5.1 Plugin SDK · 门禁（对应 §10.1 SDK 目录 / §6.4 单一真源 / §10.x 版本对应）。
 //
 // 验收目标：SDK 包结构与类型面和 tools/plugin-contract 快照逐一对账;schema 导出;
-// package.json 版本锚点三方一致;SDK 源码类型检查通过。
+// package.json 版本锚点三方一致;SDK 源码真类型检查通过(注入类型错误必须红)。
 //   S1 包结构(§10.1):package.json / src / types / schema / tests。
 //   S2 版本锚点:SDK version == api-version.json == 宿主常量 == shim 常量(重新推导)。
 //   S3 schema 导出:schema/ 五份快照与 tools/plugin-contract 逐字节一致(生成器刷新)。
-//   S4 类型面对账:SDK 类型文件 == 模板 d.ts(单一真源);contract.ts 覆盖全部快照方法;
+//   S4 类型面对账(P3-002:SDK 为类型单一真源,模板消费生成副本):模板 d.ts == SDK
+//      types/lexinote.d.ts 逐字节(同源对账);contract.ts 覆盖全部快照方法;
 //      关键 API 抽查(loadData/saveData/addCommand/requestUrl/Notice/vault.modify)。
-//   S5 类型检查:tsc 转译 SDK src 全量通过。
+//   S5 SDK 源码真类型检查(P3-003):ts.createProgram 严格类型检查(非仅语法转译);
+//      负例:向 SDK src 临时副本注入类型错误,检查器必须报红。
 //
 // 用法：node scripts/tests/plugin-sdk-contract.cjs
-// 依赖：LEXI_TYPESCRIPT
+// 依赖：LEXI_TYPESCRIPT(缺省时回落到 build-dist.cjs 同列候选)
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -93,12 +95,13 @@ section('S3 schema 导出(逐字节一致)');
   }
 }
 
-section('S4 类型面对账');
+section('S4 类型面对账(P3-002:SDK 为单一真源,模板消费生成副本)');
 {
   const templateDts = fs.readFileSync(path.join(ROOT, 'tools/lexinote-plugin-template/lexinote.d.ts'), 'utf8');
   const sdkDtsPath = path.join(SDK, 'types', 'lexinote.d.ts');
-  ok('S4.1 SDK 类型 == 模板 d.ts(单一真源)',
-    fs.existsSync(sdkDtsPath) && fs.readFileSync(sdkDtsPath, 'utf8') === templateDts);
+  ok('S4.1 模板 d.ts == SDK types/lexinote.d.ts(逐字节同源对账;单一真源=SDK)',
+    fs.existsSync(sdkDtsPath) && fs.readFileSync(sdkDtsPath, 'utf8') === templateDts,
+    '模板副本漂移 —— 勿手改 tools/lexinote-plugin-template/lexinote.d.ts;改 packages/lexinote-plugin-sdk/types/lexinote.d.ts 后重跑 tools/sync-sdk.cjs');
   const contractTs = fs.readFileSync(path.join(SDK, 'src', 'contract.ts'), 'utf8');
   let surface = null;
   try { surface = JSON.parse(fs.readFileSync(path.join(SDK, 'schema', 'api-surface.json'), 'utf8')); }
@@ -113,32 +116,74 @@ section('S4 类型面对账');
   }
 }
 
-section('S5 SDK 类型检查');
+section('S5 SDK 源码真类型检查(P3-003:createProgram 严格类型检查,非仅语法转译)');
 {
-  const tsPath = process.env.LEXI_TYPESCRIPT;
-  let srcOk = false;
-  let detail = '';
-  try {
-    const ts = require(tsPath);
-    const files = ['src/index.ts', 'src/contract.ts', 'src/capabilities.ts'];
-    for (const file of files) {
-      const full = path.join(SDK, file);
-      const out = ts.transpileModule(fs.readFileSync(full, 'utf8'), {
-        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, strict: true },
-        reportDiagnostics: true, fileName: file
-      });
-      const diags = (out.diagnostics || []).filter((d) => d.category === 1);
-      if (diags.length > 0) {
-        detail = file + ': ' + diags.map((d) => ts.flattenDiagnosticMessageText(d.messageText, ' ')).slice(0, 2).join(' | ');
-        srcOk = false;
-        break;
-      }
-      srcOk = true;
-    }
-  } catch (error) {
-    detail = 'threw: ' + error.message;
+  // 与 tools/build-dist.cjs 同一候选列(仓库惯例:各门禁各自解析,候选一致即可)。
+  const TYPESCRIPT_CANDIDATES = [
+    process.env.LEXI_TYPESCRIPT,
+    path.join(SDK, '..', '..', 'node_modules', 'typescript'),
+    'E:/dev-tools/harmonyos/command-line-tools/hvigor/hvigor/node_modules/typescript',
+    '/Applications/DevEco-Studio.app/Contents/tools/hvigor/hvigor/node_modules/typescript',
+    'C:/Program Files/Huawei/DevEco Studio/tools/hvigor/hvigor/node_modules/typescript'
+  ];
+  let ts = null;
+  for (const candidate of TYPESCRIPT_CANDIDATES) {
+    if (!candidate) { continue; }
+    try { ts = require(candidate); break; } catch (error) { void error; }
   }
-  ok('S5.1 SDK src 类型检查通过', srcOk, detail);
+  if (!ts) {
+    ok('S5.1 SDK src 类型检查通过(严格 createProgram)', false, 'typescript 不可用——设 LEXI_TYPESCRIPT(或落在候选路径)');
+  } else {
+    // 与 tools/build-dist.cjs 同一严格选项;noEmit 只查类型不落盘(真类型检查:
+    // transpileModule 只过语法,语义错误如 number = string 在旧实现下不会红,P3-003 修)。
+    const compilerOptions = {
+      strict: true,
+      noImplicitReturns: true,
+      noFallthroughCasesInSwitch: true,
+      forceConsistentCasingInFileNames: true,
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2020,
+      skipLibCheck: true,
+      noEmit: true
+    };
+    const typecheckOf = (fileNames) =>
+      ts.getPreEmitDiagnostics(ts.createProgram(fileNames, compilerOptions)).filter((d) => d.category === 1);
+    const formatDiags = (diags) => diags.slice(0, 2).map((d) =>
+      (d.file ? path.relative(SDK, d.file.fileName) : '<global>') + ' ' +
+      ts.flattenDiagnosticMessageText(d.messageText, ' ')).join(' | ');
+
+    const srcFiles = ['src/index.ts', 'src/contract.ts', 'src/capabilities.ts'].map((f) => path.join(SDK, f));
+    let srcDiags = [];
+    try { srcDiags = typecheckOf(srcFiles); }
+    catch (error) { srcDiags = null; ok('S5.1 SDK src 类型检查通过(严格 createProgram)', false, 'threw: ' + error.message); }
+    if (srcDiags !== null) {
+      ok('S5.1 SDK src 类型检查通过(严格 createProgram)', srcDiags.length === 0, formatDiags(srcDiags));
+    }
+
+    // 负例(P3-003):向 SDK src 的临时副本注入刻意类型错误(number = string,TS2322)。
+    // 真类型检查必须报红;若 0 错误说明检查器退化为语法转译,门禁直接红。
+    const os = require('node:os');
+    let tmp = '';
+    try {
+      tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lexi-sdk-typecheck-'));
+      for (const f of ['index.ts', 'contract.ts', 'capabilities.ts']) {
+        fs.copyFileSync(path.join(SDK, 'src', f), path.join(tmp, f));
+      }
+      fs.appendFileSync(path.join(tmp, 'contract.ts'),
+        '\n// P3-003 负例注入(门禁临时副本,不动真源):刻意类型错误,必须被 S5.1 检查器报红。\n' +
+        'export const __p3003Injected: number = API_VERSION;\n');
+      const injected = typecheckOf([path.join(tmp, 'index.ts')]);
+      const caught2322 = injected.some((d) => d.code === 2322);
+      ok('S5.2 SDK src 注入类型错误必须红(负例,证明非仅转译)', injected.length > 0 && caught2322,
+        injected.length === 0
+          ? '注入 TS2322(number = string)未报错——检查器退化为语法转译'
+          : '报错但缺 TS2322: ' + formatDiags(injected));
+    } catch (error) {
+      ok('S5.2 SDK src 注入类型错误必须红(负例,证明非仅转译)', false, 'threw: ' + error.message);
+    } finally {
+      if (tmp) { fs.rmSync(tmp, { recursive: true, force: true }); }
+    }
+  }
 }
 
 section('S6 冒烟测试可跑');
@@ -236,7 +281,7 @@ section('S7 dist 产物 + npm pack 离线安装(P3-001)');
       ok('S7.6 安装产物可 require(API_VERSION/能力标签/方法发现)', runtimeOk, runtimeDetail);
 
       // 类型面消费:外部工程经 package.json types + tsconfig paths 双路编译通过
-      // (正值编译;注入类型错误必须红属于 P3-003 的真类型检查硬化,不在此前置)。
+      // (正值编译;负例见 S7.8 —— P3-003 注入类型错误必须红)。
       const tsPath2 = process.env.LEXI_TYPESCRIPT;
       let typeDetail = '';
       let typeOk = false;
@@ -280,6 +325,47 @@ section('S7 dist 产物 + npm pack 离线安装(P3-001)');
           ts.flattenDiagnosticMessageText(d.messageText, ' ')).join(' | ');
       } catch (error) { typeDetail = 'threw: ' + error.message; }
       ok('S7.7 类型面可消费(@lexinote/plugin-sdk 入口 + lexinote/obsidian 别名)', typeOk, typeDetail);
+
+      // S7.8 = P3-003 负例:同一 fixture 消费者注入刻意类型错误(TS2322)→ 类型检查必须红。
+      // 若这里仍 0 错误,说明消费端检查只是语法转译(语义错误漏网),门禁直接判红。
+      {
+        const ts = require(tsPath2);
+        const badCompilerOptions = {
+          strict: true, noEmit: true, skipLibCheck: true,
+          module: 'commonjs', target: 'es2020', moduleResolution: 'node',
+          lib: ['es2020', 'dom'], baseUrl: '.',
+          paths: {
+            'lexinote': ['node_modules/@lexinote/plugin-sdk/types/lexinote.d.ts'],
+            'obsidian': ['node_modules/@lexinote/plugin-sdk/types/lexinote.d.ts']
+          }
+        };
+        fs.writeFileSync(path.join(fixture, 'tsconfig.bad.json'),
+          JSON.stringify({ compilerOptions: badCompilerOptions, include: ['consumer-bad.ts'] }, null, 2));
+        fs.writeFileSync(path.join(fixture, 'consumer-bad.ts'), [
+          "import { API_VERSION } from '@lexinote/plugin-sdk';",
+          "import { Notice } from 'lexinote';",
+          '// P3-003 负例(门禁临时 fixture):刻意类型错误,真类型检查必须报 TS2322。',
+          'export const broken: number = API_VERSION;',
+          "export const alsoBroken: Notice = 'not-a-notice';",
+          ''
+        ].join('\n'));
+        let negDetail = '';
+        let negOk = false;
+        try {
+          const parsedBad = ts.parseJsonConfigFileContent(
+            JSON.parse(fs.readFileSync(path.join(fixture, 'tsconfig.bad.json'), 'utf8')),
+            ts.sys, fixture);
+          const programBad = ts.createProgram(parsedBad.fileNames, parsedBad.options);
+          const badDiags = ts.getPreEmitDiagnostics(programBad).filter((d) => d.category === 1);
+          negOk = badDiags.some((d) => d.code === 2322);
+          negDetail = badDiags.length === 0
+            ? '注入 TS2322 未报错——消费端检查退化为语法转译'
+            : badDiags.slice(0, 2).map((d) =>
+              (d.file ? path.basename(d.file.fileName) : '<global>') + ' ' +
+              ts.flattenDiagnosticMessageText(d.messageText, ' ')).join(' | ');
+        } catch (error) { negDetail = 'threw: ' + error.message; }
+        ok('S7.8 消费端 fixture 注入类型错误必须红(P3-003 负例)', negOk, negDetail);
+      }
     }
   } finally {
     if (tmp) { fs.rmSync(tmp, { recursive: true, force: true }); }
