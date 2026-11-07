@@ -72,7 +72,34 @@ npm test        # tests/sdk-smoke.cjs:契约常量与快照对账
 
 契约对账门禁:`node scripts/tests/plugin-sdk-contract.cjs`(S1 包结构 / S2 版本锚点三方一致 /
 S3 schema 逐字节 / S4 模板 d.ts 副本 == SDK 类型(单一真源对账) / S5 SDK 源码真类型检查 +
-注入错误必须红 / S6 冒烟 / S7 dist + npm pack 离线安装消费 / S8 消费端类型检查 + 注入错误必须红)。
+注入错误必须红 / S6 冒烟 / S7 dist + npm pack 离线安装消费与消费端类型检查(注入错误必须红) /
+S8 版本策略与废弃对账(P6-002:M1 锚点/包级 stability/废弃登记册))。
+
+## 废弃(Deprecation)约定
+
+生命周期与时间线的权威口径在 `rfcs/plugin-api-evolution-rfc.md`(Experimental → Stable →
+Deprecated → Removed);SDK 侧的标记约定:
+
+1. **JSDoc 标记形状**(types/lexinote.d.ts 与 src/*.ts 中的废弃 API 必须按此标注):
+
+   ```ts
+   /**
+    * …原说明…
+    * @deprecated LexiNote <弃用发生的版本> — 改用 `<迁移目标>`;移除计划: <major 版本>(见 rfcs/plugin-api-evolution-rfc.md 登记册)。
+    */
+   ```
+
+   `@deprecated` 后三要素(**版本号 + 迁移目标 + 移除计划**)缺一即标记不完整,
+   门禁 sdk-contract S8 的登记册对账会红。
+
+2. **移除政策**:Deprecated 最短保留 2 个 minor 版本或 1 个 major 周期(取更晚者);方法移除
+   仅发生在 major 边界,移除前一个 minor 起宿主对被移除方法返回显式错误(fail-visible)。
+   包级锚点 `lexinote.stability` 在 M1 出口评审完成前保持 `experimental`(不标 Stable)。
+
+3. **登记册**:每一个 deprecated/removed 方法同步登记进
+   `rfcs/plugin-api-evolution-rfc.md` 第 5 节(方法级 status 字段同轮改值,sync-sdk 刷新
+   `schema/` 与 `src/contract.ts`);快照与登记册双向对账漂移即红。当前登记册为空
+   (本 SDK 尚无任何废弃条目)。
 
 ## 许可
 

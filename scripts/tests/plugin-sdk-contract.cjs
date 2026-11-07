@@ -372,6 +372,60 @@ section('S7 dist 产物 + npm pack 离线安装(P3-001)');
   }
 }
 
+// S8 = P6-002 版本策略与废弃对账：rfcs/plugin-api-evolution-rfc.md 是生命周期/M1 约束的文档真源，
+// 本节把文档锚点、SDK 包级稳定性锚点与契约快照的 method status 字段逐项对账（语义见该文档 §0/§3/§5）。
+//   S8.1 文档在库；S8.2 M1 出口标记可解析；S8.3 M1 未出口 ⇒ 包级锚点 experimental（M1 出口前不标 Stable）；
+//   S8.4 生命周期状态机行 == statuses 词表；S8.5 README Experimental 声明在；S8.6 README 废弃约定节在；
+//   S8.7 快照 status 不越词表；S8.8 deprecated/removed ↔ 登记册双向一致；S8.9 兼容矩阵稳定性节在库。
+section('S8 版本策略与废弃对账(P6-002)');
+{
+  const rfcPath = path.join(ROOT, 'rfcs', 'plugin-api-evolution-rfc.md');
+  const rfcExists = fs.existsSync(rfcPath);
+  ok('S8.1 版本策略文档在库(rfcs/plugin-api-evolution-rfc.md)', rfcExists);
+  if (rfcExists) {
+    const rfc = fs.readFileSync(rfcPath, 'utf8');
+    const m1 = (rfc.match(/^M1 出口状态: (未出口|已出口)\s*$/m) || [])[1] || '';
+    ok('S8.2 M1 出口标记可解析(未出口|已出口)', m1 === '未出口' || m1 === '已出口', '实为: ' + JSON.stringify(m1));
+    if (m1 === '未出口') {
+      ok('S8.3 M1 未出口 ⇒ 包级锚点=experimental(不标 Stable)', sdkPkg !== null &&
+        sdkPkg.lexinote && sdkPkg.lexinote.stability === 'experimental',
+        'stability=' + (sdkPkg && sdkPkg.lexinote && sdkPkg.lexinote.stability));
+    }
+    const lifecycle = (rfc.match(/^生命周期状态机: (.+)$/m) || [])[1] || '';
+    const docStates = lifecycle.split('→').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    const vocab = apiVersion && Array.isArray(apiVersion.statuses) ? apiVersion.statuses : [];
+    ok('S8.4 生命周期状态机行 == api-version.json statuses 词表', docStates.length === vocab.length &&
+      docStates.every((s) => vocab.indexOf(s) >= 0),
+      '文档=[' + docStates.join(',') + '] 词表=[' + vocab.join(',') + ']');
+    const readme = fs.existsSync(path.join(SDK, 'README.md')) ? fs.readFileSync(path.join(SDK, 'README.md'), 'utf8') : '';
+    ok('S8.5 SDK README 保留 Experimental/不是 Stable 声明', /不是 Stable/.test(readme) && /experimental/i.test(readme));
+    ok('S8.6 SDK README 废弃约定节(JSDoc 三要素形状)在', /@deprecated LexiNote </.test(readme) && readme.indexOf('移除计划') >= 0);
+    let surface = null;
+    try { surface = JSON.parse(fs.readFileSync(path.join(CONTRACT, 'api-surface.json'), 'utf8')); } catch (e) { surface = null; }
+    ok('S8.7 契约快照可解析', surface !== null && Array.isArray(surface.methods));
+    if (surface !== null) {
+      const badStatus = surface.methods.filter((m) => vocab.indexOf(m.status) < 0).map((m) => m.method + '=' + m.status);
+      ok('S8.8 api-surface 方法级 status 全部在词表内(' + surface.methods.length + ' 方法)', badStatus.length === 0,
+        badStatus.slice(0, 5).join(', '));
+      const retired = surface.methods.filter((m) => m.status === 'deprecated' || m.status === 'removed').map((m) => m.method);
+      const ledgerStart = rfc.indexOf('## 5. 废弃登记册');
+      const ledgerEnd = ledgerStart >= 0 ? rfc.indexOf('\n## ', ledgerStart + 1) : -1;
+      const ledgerBody = ledgerStart >= 0 && ledgerEnd > ledgerStart ? rfc.slice(ledgerStart, ledgerEnd) : '';
+      const ledger = new Set();
+      const re = /\| `([^`]+)` \|/g;
+      let m;
+      while ((m = re.exec(ledgerBody)) !== null) { ledger.add(m[1]); }
+      const missingInLedger = retired.filter((x) => !ledger.has(x));
+      const orphanLedger = [...ledger].filter((x) => retired.indexOf(x) < 0);
+      ok('S8.9 快照 deprecated/removed ↔ 登记册双向一致', missingInLedger.length === 0 && orphanLedger.length === 0,
+        '快照缺登记: [' + missingInLedger.join(', ') + '] 登记册孤儿: [' + orphanLedger.join(', ') + ']');
+    }
+    const matrixReport = path.join(ROOT, 'tools', 'contract', 'compat-matrix.md');
+    const matrixText = fs.existsSync(matrixReport) ? fs.readFileSync(matrixReport, 'utf8') : '';
+    ok('S8.10 兼容矩阵稳定性与废弃节在库(report.cjs 渲染面)', matrixText.indexOf('## 稳定性与废弃（RPC 契约 + SDK 包级锚点）') >= 0);
+  }
+}
+
 console.log('\n[summary] 通过 ' + passed + ' 项 / 失败 ' + failures.length + ' 项');
 for (const f of failures) { console.log('  ✗ ' + f); }
 console.log(failures.length === 0

@@ -378,3 +378,13 @@
 | `requestUrl` | function | — | 运行时轨 | 身份与能力双门禁：宿主按插件令牌反查身份（无令牌/令牌归属不符一律 fail-closed 且不触网），并要求清单声明 capability.net 且 host 在列；放行后 GET/POST + headers/body 透传，2xx 与非 2xx 都原样回包，超时报 net_timeout。arrayBuffer 仍恒 reject（占位 promise）。证据 W:requestUrl H:net.requestUrl |
 | `sleep` | function | — | 运行时轨 | setTimeout Promise。证据 W:sleep |
 
+## 稳定性与废弃（RPC 契约 + SDK 包级锚点）
+
+> 本节输入不是 symbols.json：来自 `tools/plugin-contract/api-surface.json`（方法级 status）与
+> `packages/lexinote-plugin-sdk/package.json`（包级稳定性锚点），P6-002。生命周期语义与 M1 约束见
+> `rfcs/plugin-api-evolution-rfc.md`；漂移检测覆盖本节（快照/锚点变更不重渲染即红）。
+
+- SDK 包级稳定性锚点：`experimental`（M1 出口前不标 Stable —— 违反即 sdk-contract S8 红）
+- RPC 方法 status 分布（api-surface.json，共 73 个方法）：stable 73 / experimental 0 / deprecated 0 / removed 0
+- deprecated/removed 方法：无（出现时须与 `rfcs/plugin-api-evolution-rfc.md` 第 5 节登记册双向一致，sdk-contract S8 对账）
+- 方法级 status 字段现状：全部 stable 为 M0 期生成器占位，不构成 Stable 兼容承诺（包级锚点为准，逐方法重标定归 P3-003，见 `rfcs/plugin-api-evolution-rfc.md` §0）

@@ -11,14 +11,59 @@
 //   node tools/contract/report.cjs           # 渲染并写入 tools/contract/compat-matrix.md
 //   node tools/contract/report.cjs --check   # 与已入库报告逐字节比对：漂移/缺失 → exit 1
 //
-// 写入前做双重渲染自检（同一输入渲染两次必须逐字节相同）——渲染器一旦混入非确定源
-// （时间、遍历序、Map 序）就地红灯，不产出半确定性的报告。
+// P6-002：渲染输出的末节（稳定性与废弃）输入不是 symbols.json，而是 RPC 契约快照
+// （tools/plugin-contract/api-surface.json 方法级 status）与 SDK 包级锚点
+// （packages/lexinote-plugin-sdk/package.json 的 lexinote.stability）。同样无时间戳、同输入同字节；
+// api-surface.json 的 generatedAt 不进渲染——重生成快照而方法集未变时报告不变，不产生假漂移。
 // 门禁：scripts/tests/plugin-contract-matrix.cjs 会重新渲染并与入库文件逐字节比对
-// （漂移检测：改了 symbols.json 不重跑 report.cjs 即红）。
+// （漂移检测：改了 symbols.json 或 api-surface.json 不重跑 report.cjs 即红）；
+// 生命周期语义与 M1 约束见 rfcs/plugin-api-evolution-rfc.md（sdk-contract S8 对账）。
 'use strict';
 
 const fs = require('node:fs');
 const path = require('node:path');
+
+const API_SURFACE_FILE = path.join(__dirname, '..', 'plugin-contract', 'api-surface.json');
+const SDK_PACKAGE_FILE = path.join(__dirname, '..', '..', 'packages', 'lexinote-plugin-sdk', 'package.json');
+const EVOLUTION_RFC = 'rfcs/plugin-api-evolution-rfc.md';
+
+// 稳定性节渲染（P6-002）。任何输入缺失 = 抛错 fail-visible，不出半确定性报告。
+function renderStability() {
+  const surface = JSON.parse(fs.readFileSync(API_SURFACE_FILE, 'utf8'));
+  const sdkPkg = JSON.parse(fs.readFileSync(SDK_PACKAGE_FILE, 'utf8'));
+  if (!surface || !Array.isArray(surface.methods)) {
+    throw new Error('api-surface.json 缺少 methods 数组（先跑 tools/plugin-contract/generators/sync-contract.cjs）');
+  }
+  const anchor = sdkPkg && sdkPkg.lexinote && sdkPkg.lexinote.stability;
+  if (!anchor) { throw new Error('SDK package.json 缺少 lexinote.stability 锚点'); }
+  const tally = { stable: 0, experimental: 0, deprecated: 0, removed: 0 };
+  const retired = [];
+  for (const m of surface.methods) {
+    if (!(m.status in tally)) { throw new Error('api-surface.json 方法 ' + m.method + ' status 越词表: ' + m.status); }
+    tally[m.status] += 1;
+    if (m.status === 'deprecated' || m.status === 'removed') { retired.push(m.method + '(' + m.status + ')'); }
+  }
+  const lines = [];
+  lines.push('## 稳定性与废弃（RPC 契约 + SDK 包级锚点）');
+  lines.push('');
+  lines.push('> 本节输入不是 symbols.json：来自 `tools/plugin-contract/api-surface.json`（方法级 status）与');
+  lines.push('> `packages/lexinote-plugin-sdk/package.json`（包级稳定性锚点），P6-002。生命周期语义与 M1 约束见');
+  lines.push('> `' + EVOLUTION_RFC + '`；漂移检测覆盖本节（快照/锚点变更不重渲染即红）。');
+  lines.push('');
+  lines.push('- SDK 包级稳定性锚点：`' + anchor + '`（M1 出口前不标 Stable —— 违反即 sdk-contract S8 红）');
+  lines.push('- RPC 方法 status 分布（api-surface.json，共 ' + surface.methods.length + ' 个方法）：' +
+    ['stable', 'experimental', 'deprecated', 'removed'].map((s) => s + ' ' + tally[s]).join(' / '));
+  lines.push('- deprecated/removed 方法：' + (retired.length ? retired.join(', ') : '无') +
+    '（出现时须与 `' + EVOLUTION_RFC + '` 第 5 节登记册双向一致，sdk-contract S8 对账）');
+  lines.push('- 方法级 status 字段现状：全部 stable 为 M0 期生成器占位，不构成 Stable 兼容承诺' +
+    '（包级锚点为准，逐方法重标定归 P3-003，见 `' + EVOLUTION_RFC + '` §0）');
+  return lines.join('\n');
+}
+
+// 写入前做双重渲染自检（同一输入渲染两次必须逐字节相同）——渲染器一旦混入非确定源
+// （时间、遍历序、Map 序）就地红灯，不产出半确定性的报告。
+// 门禁：scripts/tests/plugin-contract-matrix.cjs 会重新渲染并与入库文件逐字节比对
+// （漂移检测：改了 symbols.json 不重跑 report.cjs 即红）。
 
 const SYMBOLS_FILE = path.join(__dirname, 'symbols.json');
 const OUT_FILE = path.join(__dirname, 'compat-matrix.md');
@@ -100,6 +145,8 @@ function render(matrix) {
     }
     lines.push('');
   }
+  // P6-002 稳定性与废弃节（输入=RPC 契约快照+SDK 包锚点,见文件头注）。
+  lines.push(renderStability());
   return lines.join('\n') + '\n';
 }
 
@@ -159,4 +206,4 @@ function main(argv) {
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
 
-module.exports = { SYMBOLS_FILE, OUT_FILE, render, renderTwice };
+module.exports = { SYMBOLS_FILE, OUT_FILE, API_SURFACE_FILE, SDK_PACKAGE_FILE, render, renderStability, renderTwice };
