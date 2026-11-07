@@ -1,7 +1,7 @@
 {
   "version": 1,
   "contractBaseline": "obsidian@1.14.4（tools/contract/symbols.json，334 条）",
-  "updatedAt": "2026-11-01",
+  "updatedAt": "2026-11-07",
   "outputDir": ".fixtures-out",
   "notes": [
     "所有 commit 都是锁定 sha：拉取 URL 用 sha 而不是分支名，保证同一份源码可复现。",
@@ -120,17 +120,17 @@
         "format": "cjs",
         "target": "es2018",
         "external": [
-          "obsidian",
-          "@codemirror/state",
-          "@codemirror/view",
-          "@codemirror/language"
+          "obsidian"
         ],
+        "sharedCm": true,
+        "vendoredNodePaths": true,
+        "minifyWhitespace": true,
         "define": {
           "PLUGIN_VERSION": "package.json:version",
           "CHANGELOG_MD": "file:CHANGELOG.md"
         },
         "patches": [],
-        "buildNote": "复用仓库自带的 tools/workspace-bundle/node_modules/esbuild（0.24.2），不跑该插件的 npm install：它的 devDependencies 里带 husky（prepare 脚本在没有 .git 的解压树里会失败），且 rollup 配置只是把 TS 打成一个 cjs 包。--define 的两个全局量对应它 rollup.config.mjs 里的 @rollup/plugin-replace。产物与官方 release main.js 不是字节相同（官方带 inline sourcemap，这里关掉），但源码零改动、同一入口。",
+        "buildNote": "复用仓库自带的 tools/workspace-bundle/node_modules/esbuild（0.24.2），不跑该插件的 npm install：它的 devDependencies 里带 husky（prepare 脚本在没有 .git 的解压树里会失败），且 rollup 配置只是把 TS 打成一个 cjs 包。--define 的两个全局量对应它 rollup.config.mjs 里的 @rollup/plugin-replace。产物与官方 release main.js 不是字节相同（官方带 inline sourcemap，这里关掉），但源码零改动、同一入口。P4-006b(R39-B)：宿主两轨都 fail-closed 拒绝外部模块（\"依赖请随 main.js 打包\"），@codemirror/{state,view,language} 不再 external —— sharedCm=true 时经别名桩打进包内，加载期优先取 workspace 页宿主注册表 __lexiCmModules（与编辑器同一份实例），注册表缺席（runtime 轨）才用打包副本；vendoredNodePaths=true 表示依赖解析落在 tools/workspace-bundle/node_modules（与宿主同一份 CM 来源，离线可重建），上游源码零改动；minifyWhitespace=true 压掉随包第三方 dist 里的 JSDoc 文本（『from `from`.』会被 dist-audit 的 ESM from-正则误报成模块导入），语义零变化。",
         "resolved": {
           "esbuild": "0.24.2"
         }
@@ -138,8 +138,8 @@
       "artifacts": [
         {
           "file": "main.js",
-          "bytes": 108865,
-          "sha256": "0c1838c55d44ab23566599f10226362b3f2a715e883cb741867023f120c8e752"
+          "bytes": 548725,
+          "sha256": "76533b17bc279b7961b8f9c18ad8a5016aec9e85e260fccfc95209d781a2dccc"
         },
         {
           "file": "manifest.json",

@@ -2,15 +2,15 @@
 
 > 由 `node tools/plugins-fixtures/api-surface.cjs` 生成（`plugin-fixtures-fetch.cjs` 跑完会自动调它）。
 > 输入：`tools/plugins-fixtures/manifest.lock.json` 锁定的源码 commit 构建出的产物 + `tools/contract/symbols.json`（obsidian@1.14.4，334 条）。
-> 生成时间：2026-11-01T23:02:08.158Z；产物目录：`.fixtures-out/`（gitignore，不进仓库）。
+> 生成时间：2026-11-07T04:35:36.493Z；产物目录：`.fixtures-out/`（gitignore，不进仓库）。
 
 ## 0. 结论摘要
 
 - 4 件夹具都是锁定 commit 的真实产物（`view-calendar`、`editor-outliner`、`markdown-postprocessor-tasks`、`theme-minimal`）：除主题外都是源码零改动、本地构建出的 main.js，主题是原样 CSS。
 - 阅读视图（Markdown 后处理器）由 `markdown-postprocessor-tasks` 承担：它调 `registerMarkdownPostProcessor(` ×1、`new MarkdownRenderChild(` ×0、`ctx.getSectionInfo(` ×1；而宿主侧这条链路整体是 `unsupported/needs-architecture`（第 5 节逐条对账）。
 - 视图型最大缺口：`this.app`×24 → partial、`app.workspace.*`×15 → partial、`moment(`×12 → partial、`window.moment(`×9 → partial。
-- 编辑器增强型最大缺口：`registerEditorExtension(`×11、`Decoration.* / EditorView.decorations|theme|domEventHandlers`×9、`.dispatch(`×5、`EditorView（构造/静态方法）`×3、`StateField.define`×2、`ViewPlugin.fromClass/define`×1、`EditorState.create/transaction/readOnly`×1，这些 CodeMirror 6 对象根本不在 obsidian.d.ts 里，宿主必须把真实 @codemirror 实例交给插件。
-- 主题夹具没有 JS，它对宿主的要求全在 CSS 契约上：`主题背景/文字变量`（宿主 87 处 vs 主题 353 处）、`字体变量`（宿主 17 处 vs 主题 39 处）、`圆角/间距变量`（宿主 20 处 vs 主题 37 处）、`明暗主题类（body.theme-dark/light）`（宿主 19 处 vs 主题 351 处）、`编辑器 DOM 类（.cm-*）`（宿主 31 处 vs 主题 96 处）、`Markdown 视图 DOM 类`（宿主 5 处 vs 主题 528 处）、`工作区 DOM 类`（宿主 16 处 vs 主题 661 处）、`视图外壳 DOM 类`（宿主 3 处 vs 主题 226 处）。
+- 编辑器增强型最大缺口：`.dispatch(`×34、`Decoration.* / EditorView.decorations|theme|domEventHandlers`×23、`EditorView（构造/静态方法）`×18、`syntaxTree(`×14、`registerEditorExtension(`×11、`ViewPlugin.fromClass/define`×7、`StateField.define`×7、`EditorState.create/transaction/readOnly`×5，这些 CodeMirror 6 对象根本不在 obsidian.d.ts 里，宿主必须把真实 @codemirror 实例交给插件。
+- 主题夹具没有 JS，它对宿主的要求全在 CSS 契约上：`主题背景/文字变量`（宿主 102 处 vs 主题 353 处）、`字体变量`（宿主 17 处 vs 主题 39 处）、`圆角/间距变量`（宿主 20 处 vs 主题 37 处）、`明暗主题类（body.theme-dark/light）`（宿主 21 处 vs 主题 351 处）、`编辑器 DOM 类（.cm-*）`（宿主 83 处 vs 主题 96 处）、`Markdown 视图 DOM 类`（宿主 39 处 vs 主题 528 处）、`工作区 DOM 类`（宿主 16 处 vs 主题 661 处）、`视图外壳 DOM 类`（宿主 3 处 vs 主题 226 处）。
 - 全部 4 件夹具同时命中的缺口 0 条；合并排名前 10 见第 8 节。主题不参与 JS 侧交集（它没有 main.js），它的 CSS 缺口单独成行参与合并排名。
 
 ## 1. 夹具概览
@@ -18,7 +18,7 @@
 | 夹具 | 角色 | 来源 | commit | 许可 | 产物 | 调用点标记 | 契约符号 | CSS 契约 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `view-calendar` | view | liamcain/obsidian-calendar-plugin | `ef3f2696da11` | MIT | `main.js` 142387B<br>`manifest.json` 306B<br>`styles.css` 194B | 17 | 20 | 1 |
-| `editor-outliner` | editor | vslinko/obsidian-outliner | `b51918d4eaa7` | MIT | `main.js` 108865B<br>`manifest.json` 286B<br>`styles.css` 2169B | 18 | 12 | 3 |
+| `editor-outliner` | editor | vslinko/obsidian-outliner | `b51918d4eaa7` | MIT | `main.js` 548725B<br>`manifest.json` 286B<br>`styles.css` 2169B | 19 | 19 | 3 |
 | `markdown-postprocessor-tasks` | markdown-postprocessor | obsidian-tasks-group/obsidian-tasks | `83f54fbba0c6` | MIT | `main.js` 1053970B<br>`manifest.json` 518B<br>`styles.css` 28060B | 27 | 46 | 3 |
 | `theme-minimal` | theme | kepano/obsidian-minimal | `93321bdc23fc` | MIT | `manifest.json` 200B<br>`styles.css` 505243B | 0 | 0 | 8 |
 
@@ -52,16 +52,20 @@
 
 | # | 符号 | 命中 | status | gap | owner |
 | --- | --- | --- | --- | --- | --- |
-| 1 | `Setting` | 10 | stub | needs-architecture | 运行时轨 |
-| 2 | `Notice` | 3 | partial | low-risk | 运行时轨 |
-| 3 | `createEl` | 2 | implemented | — | 宿主轨 |
-| 4 | `Platform` | 2 | implemented | — | 运行时轨 |
-| 5 | `Command` | 1 | implemented | — | 运行时轨 |
-| 6 | `editorInfoField` | 1 | unsupported | needs-architecture | 宿主轨 |
-| 7 | `MarkdownView` | 1 | stub | needs-architecture | 运行时轨 |
-| 8 | `Modal` | 1 | stub | needs-architecture | 运行时轨 |
-| 9 | `Plugin` | 1 | implemented | — | 运行时轨 |
-| 10 | `PluginSettingTab` | 1 | partial | needs-architecture | 运行时轨 |
+| 1 | `EditorSelection` | 71 | implemented | — | 运行时轨 |
+| 2 | `Setting` | 10 | stub | needs-architecture | 运行时轨 |
+| 3 | `Notice` | 3 | partial | low-risk | 运行时轨 |
+| 4 | `ViewState` | 3 | unsupported | needs-architecture | 未排期 |
+| 5 | `createEl` | 2 | implemented | — | 宿主轨 |
+| 6 | `Platform` | 2 | implemented | — | 运行时轨 |
+| 7 | `Command` | 1 | implemented | — | 运行时轨 |
+| 8 | `Document` | 1 | partial | low-risk | 宿主轨 |
+| 9 | `editorInfoField` | 1 | unsupported | needs-architecture | 宿主轨 |
+| 10 | `MarkdownView` | 1 | stub | needs-architecture | 运行时轨 |
+| 11 | `Modal` | 1 | stub | needs-architecture | 运行时轨 |
+| 12 | `Plugin` | 1 | implemented | — | 运行时轨 |
+| 13 | `PluginSettingTab` | 1 | partial | needs-architecture | 运行时轨 |
+| 14 | `Window` | 1 | partial | low-risk | 宿主轨 |
 
 ### `markdown-postprocessor-tasks`（markdown-postprocessor）
 
@@ -117,23 +121,24 @@
 
 | 标记 | 命中 | 能力域 | 契约符号 | status | gap |
 | --- | --- | --- | --- | --- | --- |
+| `.dispatch(` | 34 | editor-cm6 | （d.ts 之外） | unsupported | needs-architecture |
+| `Decoration.* / EditorView.decorations|theme|domEventHandlers` | 23 | editor-cm6 | （d.ts 之外） | unsupported | needs-architecture |
 | `Editor.getValue/setValue/replaceRange/listSelections` | 20 | editor-api | `Editor` | partial | needs-architecture |
+| `EditorView（构造/静态方法）` | 18 | editor-cm6 | （d.ts 之外） | unsupported | needs-architecture |
+| `syntaxTree(` | 14 | editor-cm6 | （d.ts 之外） | unsupported | needs-architecture |
 | `registerEditorExtension(` | 11 | editor-cm6 | `Plugin` | implemented | — |
-| `Decoration.* / EditorView.decorations|theme|domEventHandlers` | 9 | editor-cm6 | （d.ts 之外） | unsupported | needs-architecture |
+| `ViewPlugin.fromClass/define` | 7 | editor-cm6 | （d.ts 之外） | unsupported | needs-architecture |
+| `StateField.define` | 7 | editor-cm6 | （d.ts 之外） | unsupported | needs-architecture |
 | `addCommand(` | 7 | commands | `Plugin` | implemented | — |
 | `this.app` | 7 | app-object | `App` | partial | needs-architecture |
 | `editorCallback/editorCheckCallback/editorPaste` | 6 | editor-callback | `Plugin` | implemented | — |
-| `.dispatch(` | 5 | editor-cm6 | （d.ts 之外） | unsupported | needs-architecture |
-| `EditorView（构造/静态方法）` | 3 | editor-cm6 | （d.ts 之外） | unsupported | needs-architecture |
+| `EditorState.create/transaction/readOnly` | 5 | editor-cm6 | （d.ts 之外） | unsupported | needs-architecture |
 | `app.vault.*` | 2 | vault-read | `Vault` | partial | needs-architecture |
-| `StateField.define` | 2 | editor-cm6 | （d.ts 之外） | unsupported | needs-architecture |
 | `loadData(/saveData(` | 2 | persistence | `Plugin` | implemented | — |
 | `createEl/createDiv/createSpan` | 2 | dom | `DomElementInfo` | implemented | — |
 | `Platform.*` | 2 | platform | `Platform` | implemented | — |
 | `app.workspace.*` | 1 | workspace | `Workspace` | partial | needs-architecture |
 | `getActiveViewOfType(` | 1 | workspace | `Workspace` | partial | needs-architecture |
-| `ViewPlugin.fromClass/define` | 1 | editor-cm6 | （d.ts 之外） | unsupported | needs-architecture |
-| `EditorState.create/transaction/readOnly` | 1 | editor-cm6 | （d.ts 之外） | unsupported | needs-architecture |
 | `addSettingTab(` | 1 | settings-ui | `PluginSettingTab` | partial | needs-architecture |
 
 ### `markdown-postprocessor-tasks`（markdown-postprocessor）
@@ -174,16 +179,16 @@
 
 ## 4. 主题夹具：CSS 契约（主题侧 vs 宿主侧）
 
-主题不含 JS，能验证的只有"宿主的 CSS 变量层与 DOM 类名层"。宿主侧计数是本次实测：扫 `entry/` + `rawfile/` 里 151 个 css/ets/ts/json5 文件（排除 node_modules / build / .fixtures-out）。
+主题不含 JS，能验证的只有"宿主的 CSS 变量层与 DOM 类名层"。宿主侧计数是本次实测：扫 `entry/` + `rawfile/` 里 191 个 css/ets/ts/json5 文件（排除 node_modules / build / .fixtures-out）。
 
 | CSS 契约 | 主题引用 | 宿主现有 | status | gap |
 | --- | --- | --- | --- | --- |
-| 主题背景/文字变量 | 353 | 87 | partial | needs-architecture |
+| 主题背景/文字变量 | 353 | 102 | partial | needs-architecture |
 | 字体变量 | 39 | 17 | partial | needs-architecture |
 | 圆角/间距变量 | 37 | 20 | partial | needs-architecture |
-| 明暗主题类（body.theme-dark/light） | 351 | 19 | partial | needs-architecture |
-| 编辑器 DOM 类（.cm-*） | 96 | 31 | partial | needs-architecture |
-| Markdown 视图 DOM 类 | 528 | 5 | partial | needs-architecture |
+| 明暗主题类（body.theme-dark/light） | 351 | 21 | partial | needs-architecture |
+| 编辑器 DOM 类（.cm-*） | 96 | 83 | partial | needs-architecture |
+| Markdown 视图 DOM 类 | 528 | 39 | partial | needs-architecture |
 | 工作区 DOM 类 | 661 | 16 | partial | needs-architecture |
 | 视图外壳 DOM 类 | 226 | 3 | partial | needs-architecture |
 
@@ -216,7 +221,7 @@
 - `MarkdownPostProcessor` → `unsupported` / gap=needs-architecture（宿主轨）：渲染后处理与编辑器 suggest 面缺失：registerMarkdownPostProcessor 只 console.warn、registerEditorSuggest 是空实现，源码已记录。证据 W:PluginShim
 - `MarkdownPostProcessorContext` → `unsupported` / gap=needs-architecture（宿主轨）：渲染后处理与编辑器 suggest 面缺失：registerMarkdownPostProcessor 只 console.warn、registerEditorSuggest 是空实现，源码已记录。证据 W:PluginShim
 - `MarkdownRenderChild` → `partial` / gap=needs-architecture（运行时轨）：基于 ComponentShim 的容器子节点，containerEl 为桩对象。证据 W:MarkdownRenderChildStub
-- `MarkdownRenderer` → `stub` / gap=needs-architecture（运行时轨）：render/renderMarkdown 直接 reject，嵌入与代码块渲染未实现。证据 W:MarkdownRenderer
+- `MarkdownRenderer` → `stub` / gap=needs-architecture（运行时轨）：render/renderMarkdown 直接 reject（entry/src/main/resources/rawfile/lexinote_plugin_shim.js:2191（`MarkdownRenderer`）），嵌入与代码块渲染未实现。obsidian-tasks 有 3 处真实调用点：fixture:markdown-postprocessor-tasks/src/Renderer/QueryRenderer.ts:136（`MarkdownRenderer.render`）、fixture:markdown-postprocessor-tasks/src/Renderer/TaskLineRenderer.ts:85（`MarkdownRenderer.render`）、fixture:markdown-postprocessor-tasks/src/ui/QuickSearchTasksModal.ts:134（`MarkdownRenderer.render`）——查询结果块与每条任务行都走它，stub 等于 tasks 的列表渲染整体抛错，不是可拖项（夹具报告把 TaskLineRenderer 第 94 行也算一个调用点，但那行是 `renderMarkdown()` 的文档注释，不是调用）。证据 W:MarkdownRenderer
 - `MarkdownView` → `stub` / gap=needs-architecture（运行时轨）：[截至 2026-11-01 @ 48f164a] 覆盖插件: 无（本仓无插件依赖该视图；宿主编辑器页承担正文编辑）。空构造（FileViewShim 子类，editor 与 previewMode 恒 null），无编辑/预览双模：打开即空白容器，无 Markdown 渲染管线、无预览滚动同步、无编辑态。证据 W:MarkdownView W:MarkdownViewShim
 members: MarkdownView, MarkdownViewShim
 members(excludes): editor, previewMode, onMarkdownContextMenu, onInternalDrop
@@ -250,17 +255,19 @@ members(excludes): editor, previewMode, onMarkdownContextMenu, onInternalDrop
 | `view-calendar` | `setIcon(` | 调用点 | 1 | stub | low-risk | 空函数，元素上不渲染图标。证据 W:setIcon |
 | `view-calendar` | `ctx.frontmatter` | 调用点 | 1 | unsupported | needs-architecture | 渲染后处理与编辑器 suggest 面缺失：registerMarkdownPostProcessor 只 console.warn、registerEditorSuggest 是空实现，源码已记录。证据 W:Plugi |
 | `view-calendar` | `（partial 汇总）` | 合计 | 114 | partial | needs-architecture | 15 条：moment、Notice、Vault、ItemView、PluginSettingTab、this.app … |
+| `editor-outliner` | `.dispatch(` | 调用点 | 34 | unsupported | needs-architecture | — |
+| `editor-outliner` | `Decoration.* / EditorView.decorations|theme|domEventHandlers` | 调用点 | 23 | unsupported | needs-architecture | — |
+| `editor-outliner` | `EditorView（构造/静态方法）` | 调用点 | 18 | unsupported | needs-architecture | — |
+| `editor-outliner` | `syntaxTree(` | 调用点 | 14 | unsupported | needs-architecture | — |
 | `editor-outliner` | `Setting` | 契约符号 | 10 | stub | needs-architecture | setName/setDesc/addText 等全部空壳（回调收到空桩组件）；设置 UI 实际由 settings.register 声明式渲染。证据 W:Setting H:settings.register |
-| `editor-outliner` | `Decoration.* / EditorView.decorations|theme|domEventHandlers` | 调用点 | 9 | unsupported | needs-architecture | — |
-| `editor-outliner` | `.dispatch(` | 调用点 | 5 | unsupported | needs-architecture | — |
-| `editor-outliner` | `EditorView（构造/静态方法）` | 调用点 | 3 | unsupported | needs-architecture | — |
-| `editor-outliner` | `StateField.define` | 调用点 | 2 | unsupported | needs-architecture | 同上：StateField 依赖宿主持有的 EditorState 类型，跨实例会因构造函数不同而失效。 |
+| `editor-outliner` | `ViewPlugin.fromClass/define` | 调用点 | 7 | unsupported | needs-architecture | CM6 运行时对象不在 obsidian.d.ts 里；宿主必须把同一份 @codemirror/view 实例交给插件，插件才能把 ViewPlugin 挂到真实编辑器上。 |
+| `editor-outliner` | `StateField.define` | 调用点 | 7 | unsupported | needs-architecture | 同上：StateField 依赖宿主持有的 EditorState 类型，跨实例会因构造函数不同而失效。 |
+| `editor-outliner` | `EditorState.create/transaction/readOnly` | 调用点 | 5 | unsupported | needs-architecture | — |
+| `editor-outliner` | `ViewState` | 契约符号 | 3 | unsupported | needs-architecture | 布局/视图状态/悬浮内部类型；宿主没有 pane 模型与视图状态持久化（spec 第 9 节排除多窗 split）。 |
 | `editor-outliner` | `editorInfoField` | 契约符号 | 1 | unsupported | needs-architecture | 需 CM6 编辑器扩展/编辑器 suggest 面，宿主轨负责；registerEditorSuggest 目前是空实现。 |
 | `editor-outliner` | `MarkdownView` | 契约符号 | 1 | stub | needs-architecture | [截至 2026-11-01 @ 48f164a] 覆盖插件: 无（本仓无插件依赖该视图；宿主编辑器页承担正文编辑）。空构造（FileViewShim 子类，editor 与 previewMode 恒 null），无编 |
 | `editor-outliner` | `Modal` | 契约符号 | 1 | stub | needs-architecture | open() 只发 ui.placeholder（该通道当前无宿主处理器），titleEl/contentEl 恒 null，无 DOM 容器。证据 W:Modal |
-| `editor-outliner` | `ViewPlugin.fromClass/define` | 调用点 | 1 | unsupported | needs-architecture | CM6 运行时对象不在 obsidian.d.ts 里；宿主必须把同一份 @codemirror/view 实例交给插件，插件才能把 ViewPlugin 挂到真实编辑器上。 |
-| `editor-outliner` | `EditorState.create/transaction/readOnly` | 调用点 | 1 | unsupported | needs-architecture | — |
-| `editor-outliner` | `（partial 汇总）` | 合计 | 36 | partial | needs-architecture | 8 条：Notice、PluginSettingTab、Editor.getValue/setValue/replaceRange/listSelections、this.app、app.vault.*、app.workspace.* … |
+| `editor-outliner` | `（partial 汇总）` | 合计 | 38 | partial | needs-architecture | 10 条：Notice、Document、PluginSettingTab、Window、Editor.getValue/setValue/replaceRange/listSelections、this.app … |
 | `markdown-postprocessor-tasks` | `setIcon` | 契约符号 | 10 | stub | low-risk | 空函数，元素上不渲染图标。证据 W:setIcon |
 | `markdown-postprocessor-tasks` | `ButtonComponent` | 契约符号 | 8 | unsupported | needs-architecture | Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。 |
 | `markdown-postprocessor-tasks` | `setTooltip` | 契约符号 | 8 | unsupported | needs-architecture | tooltip 机制未接入，元素 setAttribute(title) 可用但无 Obsidian 样式 tooltip。 |
@@ -270,8 +277,8 @@ members(excludes): editor, previewMode, onMarkdownContextMenu, onInternalDrop
 | `markdown-postprocessor-tasks` | `setIcon(` | 调用点 | 6 | stub | low-risk | 空函数，元素上不渲染图标。证据 W:setIcon |
 | `markdown-postprocessor-tasks` | `ctx.frontmatter` | 调用点 | 6 | unsupported | needs-architecture | 渲染后处理与编辑器 suggest 面缺失：registerMarkdownPostProcessor 只 console.warn、registerEditorSuggest 是空实现，源码已记录。证据 W:Plugi |
 | `markdown-postprocessor-tasks` | `getLeaf(` | 调用点 | 4 | stub | needs-architecture | 空构造；插件视图拿到的 leaf 是 makePluginLeaf 的假对象。证据 W:WorkspaceLeaf |
-| `markdown-postprocessor-tasks` | `MarkdownRenderer` | 契约符号 | 3 | stub | needs-architecture | render/renderMarkdown 直接 reject，嵌入与代码块渲染未实现。证据 W:MarkdownRenderer |
-| `markdown-postprocessor-tasks` | `MarkdownRenderer.render*` | 调用点 | 3 | stub | needs-architecture | render/renderMarkdown 直接 reject，嵌入与代码块渲染未实现。证据 W:MarkdownRenderer |
+| `markdown-postprocessor-tasks` | `MarkdownRenderer` | 契约符号 | 3 | stub | needs-architecture | render/renderMarkdown 直接 reject（entry/src/main/resources/rawfile/lexinote_plugin_shim.js:2191（`MarkdownRendere |
+| `markdown-postprocessor-tasks` | `MarkdownRenderer.render*` | 调用点 | 3 | stub | needs-architecture | render/renderMarkdown 直接 reject（entry/src/main/resources/rawfile/lexinote_plugin_shim.js:2191（`MarkdownRendere |
 | `markdown-postprocessor-tasks` | `TextAreaComponent` | 契约符号 | 2 | unsupported | needs-architecture | Obsidian 的 UI 组件/DOM 视图类未移植；需宿主轨在常驻 Web 页提供 DOM 组件库（插件侧 addSettingTab 目前只能走声明式设置）。 |
 | `markdown-postprocessor-tasks` | `ctx.sourcePath` | 调用点 | 2 | unsupported | needs-architecture | 渲染后处理与编辑器 suggest 面缺失：registerMarkdownPostProcessor 只 console.warn、registerEditorSuggest 是空实现，源码已记录。证据 W:Plugi |
 | `markdown-postprocessor-tasks` | `ctx.addChild(` | 调用点 | 2 | unsupported | needs-architecture | 渲染后处理与编辑器 suggest 面缺失：registerMarkdownPostProcessor 只 console.warn、registerEditorSuggest 是空实现，源码已记录。证据 W:Plugi |
@@ -299,11 +306,11 @@ members(excludes): editor, previewMode, onMarkdownContextMenu, onInternalDrop
 | 夹具 | 产物 | 外置模块 | 一级依赖（声明 → 锁定） | node_modules 顶层包数 |
 | --- | --- | --- | --- | --- |
 | `view-calendar` | `main.js` 142387B<br>`manifest.json` 306B<br>`styles.css` 194B | — | `obsidian` 1.14.4 → 1.14.4<br>`obsidian-calendar-ui` 0.3.12 → （未记录）<br>`obsidian-daily-notes-interface` 0.9.0 → （未记录）<br>`svelte` 3.35.0 → 3.35.0<br>`tslib` 2.1.0 → （未记录） | 537 |
-| `editor-outliner` | `main.js` 108865B<br>`manifest.json` 286B<br>`styles.css` 2169B | `obsidian`<br>`@codemirror/state`<br>`@codemirror/view`<br>`@codemirror/language` | — | — |
+| `editor-outliner` | `main.js` 548725B<br>`manifest.json` 286B<br>`styles.css` 2169B | `obsidian` | — | — |
 | `markdown-postprocessor-tasks` | `main.js` 1053970B<br>`manifest.json` 518B<br>`styles.css` 28060B | `obsidian`<br>`electron`<br>`codemirror`<br>`@codemirror/autocomplete`<br>`@codemirror/closebrackets`<br>`@codemirror/commands`<br>`@codemirror/fold`<br>`@codemirror/gutter`<br>`@codemirror/history`<br>`@codemirror/language`<br>`@codemirror/rangeset`<br>`@codemirror/rectangular-selection`<br>`@codemirror/search`<br>`@codemirror/state`<br>`@codemirror/stream-parser`<br>`@codemirror/text`<br>`@codemirror/view` | `@floating-ui/dom` ^1.7.6 → 1.8.0<br>`boon-js` ^2.0.5 → 2.0.5<br>`chrono-node` 2.3.9 → 2.3.9<br>`eventemitter2` ^6.4.5 → 6.4.9<br>`flatpickr` ^4.6.13 → 4.6.13<br>`i18next` ^24.2.1 → 24.2.3<br>`mustache` ^4.2.0 → 4.2.0<br>`mustache-validator` ^0.2.0 → （未记录）<br>`rrule` ^2.8.1 → 2.8.1<br>`safe-regex2` ^5.1.1 → 5.1.2 | 1071 |
 | `theme-minimal` | `manifest.json` 200B<br>`styles.css` 505243B | — | — | — |
 
-- `editor-outliner`：4 个 external，其中 CodeMirror 相关 3 个（`@codemirror/state`、`@codemirror/view`、`@codemirror/language`）—— 宿主必须提供**同一份** `@codemirror/state`/`@codemirror/view` 实例，否则插件 import 到的类与宿主编译器里的不是同一个构造函数，ViewPlugin/StateField 会静默失效；moment 不在 external，若产物里出现 moment 引用就是内联打包。
+- `editor-outliner`：1 个 external；moment 不在 external，若产物里出现 moment 引用就是内联打包。
 - `markdown-postprocessor-tasks`：17 个 external，其中 CodeMirror 相关 15 个（`codemirror`、`@codemirror/autocomplete`、`@codemirror/closebrackets`、`@codemirror/commands`、`@codemirror/fold`、`@codemirror/gutter`、`@codemirror/history`、`@codemirror/language`、`@codemirror/rangeset`、`@codemirror/rectangular-selection`、`@codemirror/search`、`@codemirror/state`、`@codemirror/stream-parser`、`@codemirror/text`、`@codemirror/view`）—— 宿主必须提供**同一份** `@codemirror/state`/`@codemirror/view` 实例，否则插件 import 到的类与宿主编译器里的不是同一个构造函数，ViewPlugin/StateField 会静默失效；moment 不在 external，若产物里出现 moment 引用就是内联打包。
 - 现在宿主的实际情况：`tools/workspace-bundle/node_modules` 里**没有** `moment`（本报告生成时实测），也还没有给插件注入 `@codemirror/*` 实例的通道；这就是"external 列表"对 M2 的待办清单。
 

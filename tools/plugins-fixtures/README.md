@@ -47,7 +47,7 @@ node scripts/tests/plugin-fixtures-fetch.cjs --no-report
 | 夹具 | 依赖策略 | 原因 |
 | --- | --- | --- |
 | `view-calendar` | `npm install --no-audit --no-fund --no-package-lock`，再 `node node_modules/rollup/dist/bin/rollup -c` | 它的构建链就是 rollup + `@rollup/plugin-typescript` + `rollup-plugin-svelte`，绕不开真实安装 |
-| `editor-outliner` | **不装依赖**，复用 `tools/workspace-bundle/node_modules/esbuild`（0.24.2）打包，`external` 掉 `obsidian` 与 `@codemirror/{state,view,language}` | 它的 devDependencies 带 husky，`prepare` 脚本在没有 `.git` 的解压树里会失败；产物只需要一个 cjs bundle，esbuild 一把梭 |
+| `editor-outliner` | **不装依赖**，复用 `tools/workspace-bundle/node_modules/esbuild`（0.24.2）打包，`external` 只留 `obsidian`；`@codemirror/{state,view,language}` 经 `sharedCm` 别名桩随包打进产物（加载期优先取宿主注册表 `__lexiCmModules`，注册表缺席才用打包副本），依赖解析走 `vendoredNodePaths` 指到的 `tools/workspace-bundle/node_modules`，`minifyWhitespace` 压注释（P4-006b：宿主两轨都按 fail-closed 拒绝外部模块，依赖必须随 main.js 打包） | 它的 devDependencies 带 husky，`prepare` 脚本在没有 `.git` 的解压树里会失败；产物只需要一个 cjs bundle，esbuild 一把梭 |
 | `markdown-postprocessor-tasks` | 用**它自己的** `esbuild.config.mjs`：`npm install --legacy-peer-deps` → `node esbuild.config.mjs production`（约 12 分钟，node_modules 顶层 881 包） | 上游构建链是 esbuild + esbuild-svelte（Svelte 5 单文件组件）+ esbuild-sass-plugin（`styles.scss`），换成本机 esbuild 0.24.2 无法编译这个 Svelte 版本；`--legacy-peer-deps` 见 patch 3 |
 | `theme-minimal` | 无构建 | 纯 CSS |
 
@@ -73,7 +73,7 @@ node scripts/tests/plugin-fixtures-fetch.cjs --no-report
 | `view-calendar` | `ef3f2696da11aa1d11a272179caea062d6144640` | `npm install` + `node node_modules/rollup/dist/bin/rollup -c` | 0 | `main.js` | 142387 B | `2be4abe5cdf8d4a76858bb22b256d92df4574e724fdbb028aeb1257b8cb0be16` |
 | `view-calendar` | 同上 | 同上 | 0 | `manifest.json` | 306 B | `3ec2e2666d37fdef152b5e04f07588a143ab44befcd9e03e2838f68212587de4` |
 | `view-calendar` | 同上 | 同上 | 0 | `styles.css` | 194 B | `b52f02b77f723fda3d267b355dc580203e4ef48359c26e82316ba172eda6c6e6` |
-| `editor-outliner` | `b51918d4eaa75223780a404c40f2d9406df6a3c0` | `esbuild src/ObsidianOutlinerPlugin.ts --bundle --format=cjs --target=es2018`（external: obsidian/@codemirror/*） | 0 | `main.js` | 108865 B | `0c1838c55d44ab23566599f10226362b3f2a715e883cb741867023f120c8e752` |
+| `editor-outliner` | `b51918d4eaa75223780a404c40f2d9406df6a3c0` | `esbuild src/ObsidianOutlinerPlugin.ts --bundle --format=cjs --target=es2018`（external: obsidian；sharedCm 别名桩把 @codemirror/{state,view,language} 随包内联 + vendoredNodePaths + minifyWhitespace，P4-006b） | 0 | `main.js` | 548725 B | `76533b17bc279b7961b8f9c18ad8a5016aec9e85e260fccfc95209d781a2dccc` |
 | `editor-outliner` | 同上 | 同上 | 0 | `manifest.json` | 286 B | `277a8887eb959cc7a4ae047608421153b359bdf451c2d66caab91c35ca98b93f` |
 | `editor-outliner` | 同上 | 同上 | 0 | `styles.css` | 2169 B | `7922a264883894e69f22c37f549744f7d46d1de926fc802aa4e94c75cd2fbceb` |
 | `markdown-postprocessor-tasks` | `83f54fbba0c6b9a89952b8bd64172b51b3567c09` | `npm install --legacy-peer-deps` + `node esbuild.config.mjs production` | 0 | `main.js` | 1053970 B | `cf8039c0a2c759ef595a5d06cd68a1313c6acb337bcc5e13f81c1ec75773d1ad` |
@@ -89,8 +89,8 @@ node scripts/tests/plugin-fixtures-fetch.cjs --no-report
 选 `vslinko/obsidian-outliner` @ `b51918d4eaa7`：
 
 - **真的构建期依赖 CodeMirror 6**：源码里 `@codemirror/{state,view,language}` 是 bare import（50 个 `.ts`，138626 B），产物里能数到 `ViewPlugin.fromClass/define` ×1、`StateField.define` ×2、`Decoration.*`／`EditorView.decorations|theme|domEventHandlers` ×9、`EditorView` 构造/静态 ×3、`.dispatch(` ×5、`EditorState.create/transaction/readOnly` ×1。不是"顺手引一个类型"，而是整套 CM6 扩展模型在用。
-- **产物 108865 B ≤ 300 KB**，codeload 可取，带 `manifest.json` + `styles.css`，MIT。
-- 不新增依赖：本机已有 esbuild 0.24.2 与 `@codemirror/*`。
+- **产物（CM 外置时代）108865 B ≤ 300 KB**，codeload 可取，带 `manifest.json` + `styles.css`，MIT。P4-006b 后依赖随包内联，产物涨到 548725 B（含随包的 `@codemirror/{state,view,language}` 与其 `@lezer`/`style-mod`/`w3c-keyname` 传递依赖），仍以同一份源码 + vendored 依赖离线可重建。
+- 不新增依赖：本机已有 esbuild 0.24.2 与 `@codemirror/*`（`tools/workspace-bundle/node_modules` vendored）。
 
 被否的候选：**`artisticat1/obsidian-latex-suite`**。它的 `package.json` `postinstall` 会执行 `npm run generator:latex`（`jiti` + `lezer-generator` 现生成 lezer 语法解析器），意味着构建前必须先跑代码生成，再装上完整工具链；一旦上游生成脚本或工具链版本漂移，夹具就不再"可重复拉取 + 构建"。不符合本轨对夹具的要求，故否。
 

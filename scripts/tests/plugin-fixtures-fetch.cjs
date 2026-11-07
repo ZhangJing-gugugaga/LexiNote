@@ -182,6 +182,51 @@ async function materializeSource(fx) {
 
 // ---- 构建 ----------------------------------------------------------------
 
+// P4-006b(R39-B):宿主两轨(legacy 求值轨与沙箱轨)都按 fail-closed 拒绝外部模块
+// ("依赖请随 main.js 打包"),所以声明了 build.sharedCm 的夹具把 @codemirror/* 一并打进
+// main.js。但 CM6 双副本不会报错、只会让 ViewPlugin/StateField 静默失效,而 workspace 页经
+// window.__lexiCmModules 注入的正是与编辑器同一份实例 —— 别名桩在加载期优先取宿主注册表,
+// 注册表缺席(runtime 轨)才落到随包打包的副本。上游源码零改动,别名只在构建期生效。
+const CM_SHARED_MODULES = ['@codemirror/state', '@codemirror/view', '@codemirror/language'];
+const VENDORED_NODE_MODULES = path.join(ROOT, 'tools', 'workspace-bundle', 'node_modules');
+
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function cmSharedStubPlugin() {
+  const alternatives = CM_SHARED_MODULES.map(escapeRegExp).join('|');
+  return {
+    name: 'lexi-cm-shared-or-bundled',
+    setup(build) {
+      build.onResolve({ filter: new RegExp('^(' + alternatives + ')$') }, (args) => {
+        return { path: args.path, namespace: 'lexi-cm-stub' };
+      });
+      build.onLoad({ filter: /.*/, namespace: 'lexi-cm-stub' }, (args) => {
+        const literal = JSON.stringify(args.path);
+        return {
+          contents: [
+            "'use strict';",
+            'var __lexiRegistry = typeof window !== "undefined" ? window.__lexiCmModules : null;',
+            'module.exports = (__lexiRegistry && Object.prototype.hasOwnProperty.call(__lexiRegistry, ' + literal + ') && __lexiRegistry[' + literal + '])',
+            '  ? __lexiRegistry[' + literal + ']',
+            '  : require(' + JSON.stringify('lexi-cm-real:' + args.path) + ');',
+            '',
+          ].join('\n'),
+          loader: 'js',
+        };
+      });
+      build.onResolve({ filter: new RegExp('^lexi-cm-real:(' + alternatives + ')$') }, (args) => {
+        // 直接落到包的 CJS 入口文件（@codemirror/* 的 main=dist/index.cjs）：
+        // 目录形态的 onResolve 结果在 win32 上 esbuild 读目录会报 Incorrect function。
+        const pkgDir = path.join(VENDORED_NODE_MODULES, args.path.slice('lexi-cm-real:'.length));
+        const pkg = JSON.parse(fs.readFileSync(path.join(pkgDir, 'package.json'), 'utf8'));
+        return { path: path.join(pkgDir, pkg.main || 'dist/index.cjs') };
+      });
+    },
+  };
+}
+
 function resolveDefine(srcDir, spec) {
   if (spec.startsWith('package.json:')) {
     const field = spec.slice('package.json:'.length);
@@ -205,6 +250,8 @@ async function buildEsbuild(fx, srcDir) {
   }
   const outfile = path.join(srcDir, fx.build.artifact);
   fs.mkdirSync(path.dirname(outfile), { recursive: true });
+  const plugins = [];
+  if (fx.build.sharedCm) { plugins.push(cmSharedStubPlugin()); }
   await esbuild.build({
     entryPoints: [path.join(srcDir, fx.build.entry)],
     bundle: true,
@@ -212,7 +259,15 @@ async function buildEsbuild(fx, srcDir) {
     target: fx.build.target || 'es2018',
     platform: 'browser',
     external: fx.build.external || [],
+    // vendoredNodePaths: 夹具源码树没有 node_modules,依赖解析落到仓库内 vendored 的
+    // tools/workspace-bundle/node_modules(与 workspace 页宿主同一份 @codemirror 来源)。
+    nodePaths: fx.build.vendoredNodePaths ? [VENDORED_NODE_MODULES] : [],
+    // minifyWhitespace: 随包的第三方 dist(如 @codemirror/state)带 JSDoc 文本,产物里的
+    // "from `from`." 会被 plugin-dist-audit 的 ESM from-正则当模块导入误报;压掉注释/空白,
+    // 语义零变化,静态审核面保持干净。
+    minifyWhitespace: fx.build.minifyWhitespace === true,
     define: defines,
+    plugins,
     legalComments: 'none',
     logLevel: 'warning',
     outfile,

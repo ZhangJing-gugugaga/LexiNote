@@ -11,6 +11,11 @@ const rawDir = path.join(repoRoot, 'entry/src/main/resources/rawfile/plugins/com
 // esbuild 复用 workspace-bundle 的依赖,避免再装一份
 const { build } = createRequire(path.join(repoRoot, 'tools/workspace-bundle/package.json'))('esbuild');
 
+// P4-006b(R39-B):@codemirror/{state,view} 必须随 main.js 打包 —— 宿主两轨(legacy 求值轨与
+// 沙箱轨)都按 fail-closed 拒绝外部模块("依赖请随 main.js 打包"),external 的探针在真机 eval
+// 即失败。CM6 双副本不会报错、只会让 ViewPlugin/StateField 静默失效,所以 main.ts 里
+// preferSharedCm 在 workspace 页宿主注册表(__lexiCmModules=与编辑器同一份实例)存在时优先取
+// 宿主那份,打包副本只兜底 runtime 轨。依赖解析全部走仓库内 vendored node_modules,离线可重建。
 await build({
   entryPoints: [path.join(fixture, 'main.ts')],
   outfile: path.join(fixture, 'main.js'),
@@ -18,8 +23,11 @@ await build({
   format: 'cjs',
   platform: 'neutral',
   target: ['es2019'],
-  // @codemirror/* 也必须 external:探针要和容器共用同一份 CM6 实例,不能把第二份打进插件包
-  external: ['obsidian', '@codemirror/state', '@codemirror/view', '@codemirror/language'],
+  external: ['obsidian'],
+  nodePaths: [path.join(repoRoot, 'tools/workspace-bundle/node_modules')],
+  // 随包的 @codemirror/state dist 带 JSDoc 文本("from `from`." 会被 dist-audit 的 ESM
+  // from-正则误报成模块导入);压掉注释/空白,语义零变化。
+  minifyWhitespace: true,
   legalComments: 'none',
   logLevel: 'warning',
 });

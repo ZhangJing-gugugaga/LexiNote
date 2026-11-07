@@ -18,6 +18,21 @@ import * as cmView from '@codemirror/view';
 // compat-probe 只使用官方 obsidian.d.ts 里的签名与语义。
 // 任何一处跑不通,都要在兼容层里修,不许在这里绕。
 
+// P4-006b(R39-B):宿主两轨(runtime/legacy 与沙箱)都按 fail-closed 拒绝外部模块,
+// 所以 @codemirror/* 必须随 main.js 打包(esbuild bundle,不再 external)。
+// 但 CM6 双副本不会报错、只会让 ViewPlugin/StateField 静默失效,而 workspace 页经
+// window.__lexiCmModules 注入的正是与编辑器同一份实例 —— 所以注册表里有就优先取宿主
+// 那份,打包副本只做注册表缺席(runtime 轨)时的兜底。两条轨都不需要外部模块。
+function preferSharedCm<T>(name: string, bundled: T): T {
+  const registry = (window as unknown as { __lexiCmModules?: Record<string, unknown> }).__lexiCmModules;
+  if (registry && Object.prototype.hasOwnProperty.call(registry, name) && registry[name]) {
+    return registry[name] as T;
+  }
+  return bundled;
+}
+const cmStateApi = preferSharedCm('@codemirror/state', cmState);
+const cmViewApi = preferSharedCm('@codemirror/view', cmView);
+
 const VIEW_TYPE = 'compat-probe-view';
 // vault 内的路径一律相对 vault 根(宿主把多出来的首段丢掉,写 'probe/...' 会落到别的目录)。
 const COMPAT_DIR = 'compat-probe/';
@@ -202,11 +217,15 @@ export default class CompatProbePlugin extends Plugin {
   /** C2-③:CM6 必须是同一份实例。两份副本时 ViewPlugin/StateField 静默失效,所以只认构造器/模块对象恒等。 */
   private probeCmIdentity(): void {
     // esbuild 的 __toESM 会包一层,所以 namespace 对象本身不相等;可判定的是构造器与实例状态。
+    // P4-006b 后包内自带 CM 打包副本;cmStateApi/cmViewApi 已按 preferSharedCm 优先对齐宿主注册表。
+    // runtime 轨没有 workspace 的 editorIdentity 面,editorIdentity() 会返回 null —— 探针如实
+    // 记 liveSame=false,不得让探针本身崩掉 onload。
     const registry = ((window as any).__lexiCmModules || {}) as Record<string, any>;
-    const live = (window as any).LexiObsidian.editorIdentity();
+    const liveApi = (window as any).LexiObsidian;
+    const live = liveApi && typeof liveApi.editorIdentity === 'function' ? liveApi.editorIdentity() : null;
     const regState = registry['@codemirror/state'] || {};
     const regView = registry['@codemirror/view'] || {};
-    // 构造器恒等只能说明注册表与包内是同一份;真正的行为证据是插件拿到的 editorInfoField
+    // 构造器恒等只能说明注册表与包内选中的模块是同一份;真正的行为证据是插件拿到的 editorInfoField
     // 能在活 EditorView 的 state 上取到值 —— 两份 @codemirror/state 时 StateField 键不同,field() 会抛。
     const editor = this.acquireEditor();
     const cm = editor && editor.cm ? editor.cm : null;
@@ -217,9 +236,9 @@ export default class CompatProbePlugin extends Plugin {
       fieldReadable = false;
     }
     probeLog('editor.identity', {
-      ctorSame: regState.EditorState === cmState.EditorState && regView.EditorView === cmView.EditorView,
-      liveSame: live.stateCtor === cmState.EditorState && live.viewCtor === cmView.EditorView,
-      liveCtorSame: live.liveStateCtorSame === true && live.liveViewCtorSame === true,
+      ctorSame: regState.EditorState === cmStateApi.EditorState && regView.EditorView === cmViewApi.EditorView,
+      liveSame: !!(live && live.stateCtor === cmStateApi.EditorState && live.viewCtor === cmViewApi.EditorView),
+      liveCtorSame: !!(live && live.liveStateCtorSame === true && live.liveViewCtorSame === true),
       fieldReadable,
       hasCm: !!cm,
     });
@@ -234,7 +253,8 @@ export default class CompatProbePlugin extends Plugin {
   /** C2-②:扩展装进活 EditorView(DOM 变了才算装),撤掉后 DOM 必须消失。 */
   private async probeExtensionLifecycle(): Promise<void> {
     // 撤扩展时 CM6 必须调 destroy():属性由插件自己清,才能证明扩展真的被卸掉而不是只是不再更新。
-    const probeExt = cmView.ViewPlugin.fromClass(
+    // cmViewApi = 宿主注册表实例优先(P4-006b),注册表缺席才用打包副本。
+    const probeExt = cmViewApi.ViewPlugin.fromClass(
       class {
         private view: any;
         constructor(view: any) {
@@ -274,29 +294,36 @@ export default class CompatProbePlugin extends Plugin {
 
   /** C2-③:undo/redo 落到 CM6 history,exec/processLines 落到 transaction。 */
   private async probeEditorOps(editor: any): Promise<void> {
-    await editor.setValue('alpha');
-    // CM6 的 history 会把 500ms 内的连续改动并成一组;等过窗口才能证明 undo 回滚的是这一次 replace。
-    await wait(700);
-    editor.replaceRange('beta', { line: 0, ch: 5 });
-    const edited = editor.getValue();
-    editor.undo();
-    const undone = editor.getValue();
-    editor.redo();
-    const redone = editor.getValue();
-    probeLog('editor.undo', {
-      editedOk: edited === 'alphabeta',
-      undoneOk: undone === 'alpha',
-      redoneOk: redone === 'alphabeta',
-    });
+    // P4-006b:与文件里其他探针同一纪律 —— 探针失败要"如实打点",不许炸掉 onload。
+    // runtime 轨宿主可能给出"占位 editor"(有对象无容器),editor.undo 会抛
+    // "editor.undo 需要同页编辑器(容器未就绪)" —— 这本身就是要上报的兼容面读数。
+    try {
+      await editor.setValue('alpha');
+      // CM6 的 history 会把 500ms 内的连续改动并成一组;等过窗口才能证明 undo 回滚的是这一次 replace。
+      await wait(700);
+      editor.replaceRange('beta', { line: 0, ch: 5 });
+      const edited = editor.getValue();
+      editor.undo();
+      const undone = editor.getValue();
+      editor.redo();
+      const redone = editor.getValue();
+      probeLog('editor.undo', {
+        editedOk: edited === 'alphabeta',
+        undoneOk: undone === 'alpha',
+        redoneOk: redone === 'alphabeta',
+      });
 
-    await editor.setValue('one\ntwo\nthree');
-    const ran = editor.exec('selectAll') === true;
-    const selected = editor.getSelection();
-    probeLog('editor.exec', { ran: ran, selLen: selected.length });
+      await editor.setValue('one\ntwo\nthree');
+      const ran = editor.exec('selectAll') === true;
+      const selected = editor.getSelection();
+      probeLog('editor.exec', { ran: ran, selLen: selected.length });
 
-    editor.processLines((line: string, index: number) => (index === 0 ? line.toUpperCase() : line));
-    const processed = editor.getValue();
-    probeLog('editor.processLines', { ok: processed === 'ONE\ntwo\nthree' });
+      editor.processLines((line: string, index: number) => (index === 0 ? line.toUpperCase() : line));
+      const processed = editor.getValue();
+      probeLog('editor.processLines', { ok: processed === 'ONE\ntwo\nthree' });
+    } catch (error) {
+      probeLog('editor.ops.error', { error: String(error) });
+    }
   }
 
   /** C2-⑦:重启后同一 (type, 去 active 的 state) 的 leaf 数必须 ≤1。 */

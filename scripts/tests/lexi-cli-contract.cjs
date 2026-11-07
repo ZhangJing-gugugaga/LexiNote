@@ -354,9 +354,290 @@ if (fs.existsSync(CLI)) {
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 
-console.log('\n[summary] 通过 ' + passed + ' 项 / 失败 ' + failures.length + ' 项');
-for (const f of failures) { console.log('  ✗ ' + f); }
-console.log(failures.length === 0
-  ? 'lexi-cli-contract: PASS'
-  : 'lexi-cli-contract: FAIL (' + failures.length + ')');
-process.exit(failures.length === 0 ? 0 : 1);
+// ---------------------------------------------------------------------------
+// C13: P4-006b legacy 夹具依赖打包(R39-B)。宿主两轨(legacy 求值轨与沙箱轨)对未解析
+// 模块一律 fail-closed("插件沙箱不支持模块: ...(依赖请随 main.js 打包)"),所以暂存的
+// 两个 legacy 夹具(editor-outliner / compat-probe)的 main.js 必须自带 @codemirror 依赖。
+// 验三层:
+//   1) 静态:rawfile 产物没有任何 require("@codemirror/…") 外部调用(依赖已随包内联);
+//   2) CLI:lexi plugin build(包装器单一真源=宿主 shim __lexiWrapPluginSource)通过,
+//      产物带 lexi-iife:v1 标记。注:lexi plugin validate 走宿主 manifest v2 严格解析器,
+//      对 legacy v1 清单按契约本就 fail-closed(§8.2:运行时对 rawfile 插件用 v1
+//      parsePluginManifest),所以清单面用运行时同一解析器验收,不改 v2 契约;
+//   3) 行为:vm 沙箱装真 shim → load.plugin 经 loadPlugin 真链路(script-inject 通道,
+//      runtime 页同款)eval+onload:0 次"不支持模块"、onload.done 交付;负例(未知模块)
+//      仍被宿主 fail-closed 拒绝 —— 宿主拒绝面没有被夹具打包削弱。
+// 夹具未暂存时整节如实跳过(与 contract-matrix 的 fixture citations skipped 同纪律)。
+async function sectionC13() {
+  section('C13 legacy 夹具依赖打包(P4-006b:fail-closed 两轨,main.js 必须自带依赖)');
+  const RAW = path.join(ROOT, 'entry', 'src', 'main', 'resources', 'rawfile');
+  const fixtures = [
+    { id: 'editor-outliner', dir: path.join(RAW, 'plugins', 'editor-outliner') },
+    { id: 'compat-probe', dir: path.join(RAW, 'plugins', 'compat-probe') }
+  ];
+  const present = fixtures.filter((fx) => fs.existsSync(path.join(fx.dir, 'main.js')) &&
+    fs.existsSync(path.join(fx.dir, 'manifest.json')));
+  if (present.length === 0) {
+    console.log('legacy fixture self-contained skipped: ' + fixtures.length +
+      '(夹具未暂存;先跑 plugin-fixtures-fetch.cjs + plugin-fixtures-stage.cjs)');
+    return;
+  }
+  const tmp13 = fs.mkdtempSync(path.join(os.tmpdir(), 'lexi-fixture-'));
+  try {
+    // 1) 静态自含
+    for (const fx of present) {
+      const code = fs.readFileSync(path.join(fx.dir, 'main.js'), 'utf8');
+      ok('C13.1 ' + fx.id + ' main.js 无外部 @codemirror require(依赖随包内联)',
+        !/require\s*\(\s*["'`]@codemirror\//.test(code), 'bytes=' + Buffer.byteLength(code));
+    }
+    // 2) CLI build(IIFE 包装,--out 落临时目录,不改暂存产物)
+    for (const fx of present) {
+      const out = path.join(tmp13, fx.id + '.iife.js');
+      const r = lexi(['plugin', 'build', fx.dir, '--out', out]);
+      let wrapped = '';
+      try { wrapped = fs.readFileSync(out, 'utf8'); } catch (e) { wrapped = ''; }
+      ok('C13.2 lexi plugin build ' + fx.id + '(iife 包装通过)', r.status === 0 &&
+        /^\s*\/\*\s*lexi-iife:v1\s*\*\//.test(wrapped), r.output.split('\n').slice(-1).join('|'));
+    }
+    // 2b) 清单面:运行时同款 v1 解析器(parsePluginManifest,LexiPluginRuntime 装载 rawfile
+    //     插件走的就是它)接受两份 legacy 清单。与宿主同一解析器,CLI 不另写校验。
+    if (process.env.LEXI_TYPESCRIPT) {
+      let v1mod = null;
+      try {
+        const ts = require(process.env.LEXI_TYPESCRIPT);
+        const v1dir = path.join(tmp13, 'v1parser');
+        fs.mkdirSync(v1dir, { recursive: true });
+        for (const name of ['LexiPluginManifest', 'LexiPluginManifestV2']) {
+          let src = fs.readFileSync(path.join(ROOT, 'entry', 'src', 'main', 'ets', 'core', 'plugin', name + '.ets'), 'utf8');
+          src = src.replace(/from '\.\/LexiPluginManifestV2'/g, "from './LexiPluginManifestV2.ts'");
+          fs.writeFileSync(path.join(v1dir, name + '.ts'), src);
+        }
+        v1mod = require(path.join(v1dir, 'LexiPluginManifest.ts'));
+      } catch (error) { v1mod = null; }
+      for (const fx of present) {
+        if (!v1mod) { ok('C13.3 ' + fx.id + ' manifest v1 解析器可用', false, '宿主 v1 解析器转译失败'); continue; }
+        let v1ok = false;
+        let detail = '';
+        try {
+          const m = v1mod.parsePluginManifest(fs.readFileSync(path.join(fx.dir, 'manifest.json'), 'utf8'));
+          v1ok = m && typeof m.id === 'string' && m.id.length > 0;
+          detail = 'id=' + (m && m.id);
+        } catch (error) { detail = String(error && error.message); }
+        ok('C13.3 ' + fx.id + ' manifest 过运行时 v1 解析器', v1ok, detail);
+      }
+    }
+    // 3) 行为:vm 沙箱 + 真 shim + load.plugin 真链路
+    const vm = require('node:vm');
+    const { createDispatchChannel } = require(path.join(__dirname, 'plugin-dispatch-channel.cjs'));
+    const shimSource = fs.readFileSync(path.join(RAW, 'lexinote_plugin_shim.js'), 'utf8');
+
+    class StubNode {
+      constructor(tag) {
+        this.tagName = String(tag || 'div').toUpperCase();
+        this.nodeType = 1;
+        this.parentNode = null;
+        this.childNodes = [];
+        this.style = {};
+        this.id = '';
+        this.className = '';
+        this._text = '';
+        this._listeners = new Map();
+        this.classList = {
+          add: (...names) => { this.className = (this.className + ' ' + names.filter(Boolean).join(' ')).trim(); },
+          remove: (...names) => { this.className = this.className.split(/\s+/).filter((c) => names.indexOf(c) < 0).join(' '); },
+          toggle: (name, force) => {
+            const want = force === undefined ? !this.classList.contains(name) : Boolean(force);
+            if (want) { this.classList.add(name); } else { this.classList.remove(name); }
+            return want;
+          },
+          contains: (c) => this.className.split(/\s+/).indexOf(c) >= 0
+        };
+      }
+      get textContent() {
+        if (this._text !== undefined && this.childNodes.length === 0) { return this._text; }
+        return this.childNodes.map((n) => n.textContent).join('');
+      }
+      set textContent(value) { this._text = String(value); this.childNodes = []; }
+      get innerHTML() { return this.textContent; }
+      set innerHTML(value) { this.textContent = String(value); }
+      get firstChild() { return this.childNodes[0] || null; }
+      appendChild(node) { node.parentNode = this; this.childNodes.push(node); return node; }
+      insertBefore(node, ref) {
+        const index = ref ? this.childNodes.indexOf(ref) : -1;
+        if (index < 0) { this.childNodes.push(node); } else { this.childNodes.splice(index, 0, node); }
+        node.parentNode = this;
+        return node;
+      }
+      removeChild(node) {
+        const index = this.childNodes.indexOf(node);
+        if (index >= 0) { this.childNodes.splice(index, 1); }
+        node.parentNode = null;
+        return node;
+      }
+      addEventListener(type, fn) { if (!this._listeners.has(type)) { this._listeners.set(type, new Set()); } this._listeners.get(type).add(fn); }
+      removeEventListener(type, fn) { const set = this._listeners.get(type); if (set) { set.delete(fn); } }
+      setAttribute(name, value) { if (name === 'class') { this.className = String(value); } else { this[name] = String(value); } }
+      getAttribute(name) { return name === 'class' ? this.className : (this[name] !== undefined ? String(this[name]) : null); }
+      removeAttribute() {}
+      createEl(tag, attrs) { const el = new StubNode(tag); if (attrs && attrs.text) { el.textContent = attrs.text; } this.appendChild(el); return el; }
+      createDiv(attrs) { return this.createEl('div', attrs); }
+      empty() { this.childNodes = []; }
+      detach() { if (this.parentNode) { this.parentNode.removeChild(this); } }
+      querySelector() { return null; }
+      querySelectorAll() { return []; }
+      contains() { return false; }
+      focus() {}
+    }
+    const unref = (t) => { if (t && typeof t.unref === 'function') { t.unref(); } return t; };
+
+    function makeVmHarness() {
+      const calls = [];
+      const injected = [];
+      const consoleLines = [];
+      const channel = createDispatchChannel();
+      const sandbox = {
+        console: {
+          log: (...a) => { consoleLines.push(['log', a.map(String).join(' ')]); },
+          warn: (...a) => { consoleLines.push(['warn', a.map(String).join(' ')]); },
+          error: (...a) => { consoleLines.push(['error', a.map(String).join(' ')]); }
+        },
+        setTimeout: (fn, ms) => unref(setTimeout(fn, ms)),
+        clearTimeout, setInterval: (fn, ms) => unref(setInterval(fn, ms)), clearInterval,
+        location: { href: 'https://lexinote.local/runtime' },
+        navigator: { userAgent: 'lexi-cli-contract-vm' }
+      };
+      const body = new StubNode('body');
+      const head = new StubNode('head');
+      const doc = {
+        nodeType: 9,
+        body, head,
+        // @codemirror/view 加载期读 document.documentElement.style(浏览器嗅探守卫)
+        documentElement: new StubNode('html'),
+        createElement: (tag) => new StubNode(tag),
+        createDocumentFragment: () => new StubNode('#document-fragment'),
+        getElementById(id) { let found = null; walkStub(body, (el) => { if (found === null && el.id === id) { found = el; } }); return found; },
+        querySelector(sel) { let found = null; walkStub(body, (el) => { if (found === null && stubMatches(el, sel)) { found = el; } }); return found; },
+        querySelectorAll(sel) { const out = []; walkStub(body, (el) => { if (stubMatches(el, sel)) { out.push(el); } }); return out; },
+        addEventListener() {}, removeEventListener() {}
+      };
+      sandbox.document = doc;
+      sandbox.window = sandbox;
+      sandbox.addEventListener = () => {};
+      sandbox.removeEventListener = () => {};
+      // runtime 页通道:<script> 文本注入执行;注入文本留证(IIFE 标记断言)。
+      head.appendChild = function (el) {
+        const text = String(el.textContent || '');
+        injected.push(text);
+        el.parentNode = head;
+        try { vm.runInContext(text, sandbox, { filename: 'lexi-injected-fixture.js' }); } catch (err) { /* 浏览器语义:脚本异常走 window error */ }
+        return el;
+      };
+      sandbox.lexiHost = {
+        call(callId, method, payloadJson) {
+          calls.push({ method, payload: safeParseJson(payloadJson, {}) });
+          let result = null;
+          if (method === 'app.isDarkMode') { result = true; }
+          else if (method === 'vault.files') { result = []; }
+          else if (method === 'commands.list') { result = []; }
+          else if (method === 'settings.values') { result = {}; }
+          return Promise.resolve(JSON.stringify({ ok: true, result }));
+        },
+        admitDispatch(credential, method, payloadJson) {
+          return channel.admitDispatch(credential, method, payloadJson);
+        }
+      };
+      vm.createContext(sandbox);
+      vm.runInContext(shimSource, sandbox, { filename: 'lexinote_plugin_shim.js' });
+      const runtime = sandbox.lexiRuntime;
+      return {
+        sandbox, calls, injected, consoleLines, runtime,
+        dispatch(method, payload) {
+          const frame = JSON.stringify(payload);
+          runtime.__receive(method, frame, channel.mint(method, frame));
+          return new Promise((resolve) => setImmediate(resolve));
+        }
+      };
+    }
+    function walkStub(node, visit) { visit(node); node.childNodes.slice().forEach((c) => walkStub(c, visit)); }
+    function stubMatches(el, sel) {
+      const text = String(sel == null ? '' : sel).trim();
+      if (!text || text.includes(' ') || text.includes(',')) { return false; }
+      if (text[0] === '.') { return el.classList.contains(text.slice(1)); }
+      if (text[0] === '#') { return el.id === text.slice(1); }
+      return el.tagName === text.toUpperCase();
+    }
+    function safeParseJson(text, fallback) { try { return JSON.parse(text); } catch (e) { return fallback; } }
+    async function untilVm(condition, label, ms) {
+      const deadline = Date.now() + (ms || 90000);
+      for (;;) {
+        await new Promise((resolve) => setImmediate(resolve));
+        if (condition()) { return; }
+        if (Date.now() > deadline) { throw new Error('等待超时: ' + label); }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
+    async function vmLoadLegacyFixture(fx) {
+      const manifest = JSON.parse(fs.readFileSync(path.join(fx.dir, 'manifest.json'), 'utf8'));
+      const code = fs.readFileSync(path.join(fx.dir, 'main.js'), 'utf8');
+      const h = makeVmHarness();
+      ok('C13.4.0 shim 在 vm 沙箱注册 lexiRuntime(' + fx.id + ')', typeof h.runtime === 'object' && h.runtime !== null);
+      await h.dispatch('load.plugin', { manifest, code });
+      await untilVm(() => h.calls.some((c) => c.method === 'plugin.onload.done' && c.payload.id === manifest.id) ||
+        h.calls.some((c) => c.method === 'plugin.onload.error' && c.payload.id === manifest.id),
+        fx.id + ' onload 落定');
+      const done = h.calls.some((c) => c.method === 'plugin.onload.done' && c.payload.id === manifest.id);
+      const errors = h.calls.filter((c) => c.method === 'plugin.onload.error' && c.payload.id === manifest.id)
+        .map((c) => String(c.payload.error || ''));
+      const moduleReject = errors.some((e) => e.indexOf('不支持模块') >= 0) ||
+        h.consoleLines.some((l) => l[1].indexOf('不支持模块') >= 0);
+      ok('C13.4 ' + fx.id + ' 经 shim loadPlugin 真链路 eval+onload 完成', done && errors.length === 0,
+        (errors[0] || '').slice(0, 160));
+      ok('C13.5 ' + fx.id + ' 求值无"不支持模块"(依赖自含,两轨 fail-closed 不再触发)', done && !moduleReject,
+        'consoleLines=' + h.consoleLines.length);
+      ok('C13.6 ' + fx.id + ' 走 script-inject 注入通道且包装带 lexi-iife:v1 标记(runtime 页同款)',
+        h.injected.length >= 2 && h.injected.some((t) => /^\s*\/\*\s*lexi-iife:v1\s*\*\//.test(t)),
+        'injected=' + h.injected.length);
+      return { done, errors };
+    }
+    for (const fx of present) {
+      try {
+        await vmLoadLegacyFixture(fx);
+      } catch (error) {
+        ok('C13.4/5/6 ' + fx.id + ' vm 装载链路', false, String((error && error.message) || error).slice(0, 200));
+      }
+    }
+    // 负例:未知模块必须仍被宿主 fail-closed 拒绝(拒绝面未被夹具打包削弱)。
+    try {
+      const h = makeVmHarness();
+      const badManifest = { id: 'failclosed-probe' };
+      const badCode = "module.exports = class FailClosedProbe { async onload(){ require('some/unknown-mod'); } };";
+      await h.dispatch('load.plugin', { manifest: badManifest, code: badCode });
+      await untilVm(() => h.calls.some((c) => c.method === 'plugin.onload.error' && c.payload.id === 'failclosed-probe'),
+        'failclosed-probe 拒绝');
+      const err = h.calls.find((c) => c.method === 'plugin.onload.error' && c.payload.id === 'failclosed-probe');
+      ok('C13.7 负例:未知模块仍被宿主 fail-closed 拒绝(不随打包放开口子)',
+        !!err && String(err.payload.error || '').indexOf('插件沙箱不支持模块') >= 0,
+        err ? String(err.payload.error || '').slice(0, 120) : 'no error call');
+    } catch (error) {
+      ok('C13.7 负例:未知模块仍被宿主 fail-closed 拒绝', false, String((error && error.message) || error).slice(0, 200));
+    }
+  } finally {
+    fs.rmSync(tmp13, { recursive: true, force: true });
+  }
+}
+
+(async () => {
+  await sectionC13();
+  console.log('\n[summary] 通过 ' + passed + ' 项 / 失败 ' + failures.length + ' 项');
+  for (const f of failures) { console.log('  ✗ ' + f); }
+  console.log(failures.length === 0
+    ? 'lexi-cli-contract: PASS'
+    : 'lexi-cli-contract: FAIL (' + failures.length + ')');
+  process.exit(failures.length === 0 ? 0 : 1);
+})().catch((error) => {
+  failures.push('C13 harness crashed: ' + String((error && error.message) || error));
+  console.log('\n[summary] 通过 ' + passed + ' 项 / 失败 ' + failures.length + ' 项');
+  for (const f of failures) { console.log('  ✗ ' + f); }
+  console.log('lexi-cli-contract: FAIL (' + failures.length + ')');
+  process.exit(1);
+});

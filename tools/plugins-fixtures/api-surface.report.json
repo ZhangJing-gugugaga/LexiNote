@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-11-01T23:02:08.186Z",
+  "generatedAt": "2026-11-07T04:35:36.508Z",
   "contractBaseline": "obsidian@1.14.4",
   "contractSymbolCount": 334,
-  "lockUpdatedAt": "2026-11-01",
+  "lockUpdatedAt": "2026-11-07",
   "fixtures": [
     {
       "id": "view-calendar",
@@ -48,7 +48,7 @@
           "status": "partial",
           "gap": "needs-architecture",
           "owner": "运行时轨",
-          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。openView/closeView/onLayoutReady/事件、getActiveFile/getActiveViewOfType/getLeavesOfType、iterateAllLeaves/iterateRootLeaves/getMostRecentLeaf、openLinkText（宿主经 metadata.getFirstLinkpathDest 解析后触发 file-open）均已通；仍缺 splitLeaf/createLeafBySplit/getLayout 布局树，revealLeaf 只 resolve 不切页，getLeaf/getRightLeaf 返回新建子叶而非宿主真实 pane。证据 H:workspace.openLinkText H:workspace.onLayoutReady W:iterateAllLeaves W:getMostRecentLeaf\nmembers: workspace.openLinkText, workspace.openView, workspace.closeView, workspace.onLayoutReady, workspace.layoutReady, workspace.loadLayout, workspace.saveLayout, openLinkText, iterateAllLeaves, iterateRootLeaves, getMostRecentLeaf, getLeavesOfType, getActiveFile, getActiveViewOfType, revealLeaf\nmembers(excludes): splitLeaf, createLeafBySplit, getLayout, getLeaf, getRightLeaf, activeLeaf"
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。openView/closeView/事件、getActiveFile/getActiveViewOfType/getLeavesOfType、iterateAllLeaves/iterateRootLeaves/getMostRecentLeaf、openLinkText（宿主经 metadata.getFirstLinkpathDest 解析后触发 file-open）均已通；onLayoutReady 也已实现，宿主在 entry/src/main/ets/core/plugin/LexiPluginRuntime.ets:1776（`workspace.onLayoutReady`） 注册处理器、旧宿主路径直接放行——夹具报告把它算成「矩阵未收录」是符号级 vs 成员级的口径差（它没有独立顶层符号），不是缺实现；obsidian-tasks 拿它当首屏闸门（3 处）：fixture:markdown-postprocessor-tasks/src/Obsidian/InlineRenderer.ts:32（`onLayoutReady`）、fixture:markdown-postprocessor-tasks/src/Renderer/QueryRenderer.ts:45（`onLayoutReady`）、fixture:markdown-postprocessor-tasks/src/Obsidian/Cache.ts:101（`onLayoutReady`）；仍缺 splitLeaf/createLeafBySplit/getLayout 布局树，revealLeaf 只 resolve 不切页，getLeaf/getRightLeaf 返回新建子叶而非宿主真实 pane。证据 H:workspace.openLinkText H:workspace.onLayoutReady W:iterateAllLeaves W:getMostRecentLeaf\nmembers: workspace.openLinkText, workspace.openView, workspace.closeView, workspace.onLayoutReady, workspace.layoutReady, workspace.loadLayout, workspace.saveLayout, openLinkText, iterateAllLeaves, iterateRootLeaves, getMostRecentLeaf, getLeavesOfType, getActiveFile, getActiveViewOfType, revealLeaf\nmembers(excludes): splitLeaf, createLeafBySplit, getLayout, getLeaf, getRightLeaf, activeLeaf"
         },
         {
           "id": "create-el",
@@ -70,7 +70,7 @@
           "status": "partial",
           "gap": "needs-architecture",
           "owner": "运行时轨",
-          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）。本项目 moment 是 MiniMoment 子集，不是完整 moment：实例侧已通 format/add/subtract/startOf/endOf/diff/unix/valueOf/toDate/toISOString/clone/isValid/isBefore/isAfter/isSame/isSameOrBefore/isSameOrAfter/calendar/locale/localeData/utc/local 与七个取值设值字段、day/weekday/isoWeekday/week/dayOfYear/daysInMonth；静态侧已通 moment(input)/isMoment/utc/unix/now/locale/localeData/updateLocale/defineLocale/locales/months/monthsShort/weekdays/weekdaysShort/weekdaysMin。这些是按 calendar 的真实调用逐条补齐的，不是按 moment 文档铺开：format 只认 YYYY/YY/MMMM/MMM/MM/M/DD/D/Do/dddd/ddd/dd/HH/H/hh/mm/ss/SSS/A/a，diff 只能按毫秒/秒/分/时/天，calendar 恒返回 YYYY-MM-DD 而非今天/昨天文案，locale 与 localeData 恒报 zh-cn。换一个用到未覆盖 API 的插件会在使用处直接抛 TypeError（xxx is not a function），装载期不会提示。证据 W:MiniMoment W:moment\nmembers: format, add, subtract, startOf, endOf, diff, unix, calendar, localeData, isoWeekday, daysInMonth, updateLocale, defineLocale, locales, monthsShort, weekdaysMin, clone, toDate, toObject, isValid\nmembers(excludes): tz, duration, fromNow, toNow, toJSON, utcOffset, isDST, parseZone"
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）。本项目 moment 是 MiniMoment 子集，不是完整 moment：实例侧已通 format/add/subtract/startOf/endOf/diff/unix/valueOf/toDate/toISOString/clone/isValid/isBefore/isAfter/isSame/isSameOrBefore/isSameOrAfter/calendar/locale/localeData/utc/local 与七个取值设值字段、day/weekday/isoWeekday/week/dayOfYear/daysInMonth；静态侧已通 moment(input)/isMoment/utc/unix/now/locale/localeData/updateLocale/defineLocale/locales/months/monthsShort/weekdays/weekdaysShort/weekdaysMin。这些是按 calendar 的真实调用逐条补齐的，不是按 moment 文档铺开：format 只认 YYYY/YY/MMMM/MMM/MM/M/DD/D/Do/dddd/ddd/dd/HH/H/hh/mm/ss/SSS/A/a，diff 只能按毫秒/秒/分/时/天，calendar 恒返回 YYYY-MM-DD 而非今天/昨天文案，locale 与 localeData 恒报 zh-cn。换一个用到未覆盖 API 的插件会在使用处直接抛 TypeError（xxx is not a function），装载期不会提示。宿主必须提供全局 window.moment：obsidian-tasks 产物里 43 处 moment( 调用点（夹具 API 面报告口径；我直接数其 main.js 得 51 处 window.moment 字面量、TS 源 49 处），既不内联 moment 也不 require(\"moment\")，tools/workspace-bundle/node_modules 里也没有 moment——现在靠 entry/src/main/resources/rawfile/lexinote_plugin_shim.js:1544（`window.moment`） 把 MiniMoment 挂成全局兜住，所以那 43 处调用实际落在 MiniMoment 子集上，MiniMoment 没覆盖的写法同样会在使用处 TypeError。证据 W:MiniMoment W:moment\nmembers: format, add, subtract, startOf, endOf, diff, unix, calendar, localeData, isoWeekday, daysInMonth, updateLocale, defineLocale, locales, monthsShort, weekdaysMin, clone, toDate, toObject, isValid\nmembers(excludes): tz, duration, fromNow, toNow, toJSON, utcOffset, isDST, parseZone"
         },
         {
           "id": "window-moment",
@@ -81,7 +81,7 @@
           "status": "partial",
           "gap": "needs-architecture",
           "owner": "运行时轨",
-          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）。本项目 moment 是 MiniMoment 子集，不是完整 moment：实例侧已通 format/add/subtract/startOf/endOf/diff/unix/valueOf/toDate/toISOString/clone/isValid/isBefore/isAfter/isSame/isSameOrBefore/isSameOrAfter/calendar/locale/localeData/utc/local 与七个取值设值字段、day/weekday/isoWeekday/week/dayOfYear/daysInMonth；静态侧已通 moment(input)/isMoment/utc/unix/now/locale/localeData/updateLocale/defineLocale/locales/months/monthsShort/weekdays/weekdaysShort/weekdaysMin。这些是按 calendar 的真实调用逐条补齐的，不是按 moment 文档铺开：format 只认 YYYY/YY/MMMM/MMM/MM/M/DD/D/Do/dddd/ddd/dd/HH/H/hh/mm/ss/SSS/A/a，diff 只能按毫秒/秒/分/时/天，calendar 恒返回 YYYY-MM-DD 而非今天/昨天文案，locale 与 localeData 恒报 zh-cn。换一个用到未覆盖 API 的插件会在使用处直接抛 TypeError（xxx is not a function），装载期不会提示。证据 W:MiniMoment W:moment\nmembers: format, add, subtract, startOf, endOf, diff, unix, calendar, localeData, isoWeekday, daysInMonth, updateLocale, defineLocale, locales, monthsShort, weekdaysMin, clone, toDate, toObject, isValid\nmembers(excludes): tz, duration, fromNow, toNow, toJSON, utcOffset, isDST, parseZone"
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）。本项目 moment 是 MiniMoment 子集，不是完整 moment：实例侧已通 format/add/subtract/startOf/endOf/diff/unix/valueOf/toDate/toISOString/clone/isValid/isBefore/isAfter/isSame/isSameOrBefore/isSameOrAfter/calendar/locale/localeData/utc/local 与七个取值设值字段、day/weekday/isoWeekday/week/dayOfYear/daysInMonth；静态侧已通 moment(input)/isMoment/utc/unix/now/locale/localeData/updateLocale/defineLocale/locales/months/monthsShort/weekdays/weekdaysShort/weekdaysMin。这些是按 calendar 的真实调用逐条补齐的，不是按 moment 文档铺开：format 只认 YYYY/YY/MMMM/MMM/MM/M/DD/D/Do/dddd/ddd/dd/HH/H/hh/mm/ss/SSS/A/a，diff 只能按毫秒/秒/分/时/天，calendar 恒返回 YYYY-MM-DD 而非今天/昨天文案，locale 与 localeData 恒报 zh-cn。换一个用到未覆盖 API 的插件会在使用处直接抛 TypeError（xxx is not a function），装载期不会提示。宿主必须提供全局 window.moment：obsidian-tasks 产物里 43 处 moment( 调用点（夹具 API 面报告口径；我直接数其 main.js 得 51 处 window.moment 字面量、TS 源 49 处），既不内联 moment 也不 require(\"moment\")，tools/workspace-bundle/node_modules 里也没有 moment——现在靠 entry/src/main/resources/rawfile/lexinote_plugin_shim.js:1544（`window.moment`） 把 MiniMoment 挂成全局兜住，所以那 43 处调用实际落在 MiniMoment 子集上，MiniMoment 没覆盖的写法同样会在使用处 TypeError。证据 W:MiniMoment W:moment\nmembers: format, add, subtract, startOf, endOf, diff, unix, calendar, localeData, isoWeekday, daysInMonth, updateLocale, defineLocale, locales, monthsShort, weekdaysMin, clone, toDate, toObject, isValid\nmembers(excludes): tz, duration, fromNow, toNow, toJSON, utcOffset, isDST, parseZone"
         },
         {
           "id": "vault-any",
@@ -92,7 +92,7 @@
           "status": "partial",
           "gap": "needs-architecture",
           "owner": "运行时轨",
-          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。read/modify/create/append/delete/rename/files/getByPath 已通；adapter 已实现（exists/read/write/append/process/list/stat/remove/rename，目录存在性由 vault.files 路径前缀推导，stat 无 size/mtime 时如实返回 0）；仍缺 getName/configDir，createBinary/readBinary 直接 reject，getAbstractFileByPath 返回 Promise（官方同步签名）。证据 H:vault.read H:vault.files W:adapter\nmembers: vault.read, vault.files, vault.create, vault.modify, vault.append, vault.delete, vault.rename, vault.getByPath, adapter\nmembers(excludes): getName, configDir, createBinary, readBinary, copy, getAbstractFileByPath"
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。read/modify/create/append/delete/rename/files/getByPath 已通；getFileByPath 也已通：shim 在 entry/src/main/resources/rawfile/lexinote_plugin_shim.js:893（`getFileByPath`） 基于宿主回传的文件索引缓存同步返回 TFile，宿主处理器用 entry/src/main/ets/core/plugin/LexiPluginRuntime.ets:1974（`manager.vault.getFileByPath`） 解析（obsidian-tasks 有 3 处依赖：fixture:markdown-postprocessor-tasks/src/Obsidian/File.ts:202（`getFileByPath`）、fixture:markdown-postprocessor-tasks/src/Obsidian/InlineRenderer.ts:83（`getFileByPath`）、fixture:markdown-postprocessor-tasks/src/Renderer/QueryRenderer.ts:76（`getFileByPath`））；adapter 已实现（exists/read/write/append/process/list/stat/remove/rename，目录存在性由 vault.files 路径前缀推导，stat 无 size/mtime 时如实返回 0）；仍缺 getName/configDir，createBinary/readBinary 直接 reject，getAbstractFileByPath 已改成同步（entry/src/main/resources/rawfile/lexinote_plugin_shim.js:892（`getAbstractFileByPath`），内部走 entry/src/main/resources/rawfile/lexinote_plugin_shim.js:866（`knownAbstractFile`），目录按「有笔记落在该前缀下」合成 TFolder，传空串得 vault 根）。证据 H:vault.read H:vault.files W:adapter\nmembers: vault.read, vault.files, vault.create, vault.modify, vault.append, vault.delete, vault.rename, vault.getByPath, adapter, getFileByPath, getFolderByPath, getAbstractFileByPath, knownAbstractFile, getMarkdownFiles\nmembers(excludes): getName, configDir, createBinary, readBinary, copy"
         },
         {
           "id": "vault-modify",
@@ -103,7 +103,7 @@
           "status": "partial",
           "gap": "needs-architecture",
           "owner": "运行时轨",
-          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。read/modify/create/append/delete/rename/files/getByPath 已通；adapter 已实现（exists/read/write/append/process/list/stat/remove/rename，目录存在性由 vault.files 路径前缀推导，stat 无 size/mtime 时如实返回 0）；仍缺 getName/configDir，createBinary/readBinary 直接 reject，getAbstractFileByPath 返回 Promise（官方同步签名）。证据 H:vault.read H:vault.files W:adapter\nmembers: vault.read, vault.files, vault.create, vault.modify, vault.append, vault.delete, vault.rename, vault.getByPath, adapter\nmembers(excludes): getName, configDir, createBinary, readBinary, copy, getAbstractFileByPath"
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。read/modify/create/append/delete/rename/files/getByPath 已通；getFileByPath 也已通：shim 在 entry/src/main/resources/rawfile/lexinote_plugin_shim.js:893（`getFileByPath`） 基于宿主回传的文件索引缓存同步返回 TFile，宿主处理器用 entry/src/main/ets/core/plugin/LexiPluginRuntime.ets:1974（`manager.vault.getFileByPath`） 解析（obsidian-tasks 有 3 处依赖：fixture:markdown-postprocessor-tasks/src/Obsidian/File.ts:202（`getFileByPath`）、fixture:markdown-postprocessor-tasks/src/Obsidian/InlineRenderer.ts:83（`getFileByPath`）、fixture:markdown-postprocessor-tasks/src/Renderer/QueryRenderer.ts:76（`getFileByPath`））；adapter 已实现（exists/read/write/append/process/list/stat/remove/rename，目录存在性由 vault.files 路径前缀推导，stat 无 size/mtime 时如实返回 0）；仍缺 getName/configDir，createBinary/readBinary 直接 reject，getAbstractFileByPath 已改成同步（entry/src/main/resources/rawfile/lexinote_plugin_shim.js:892（`getAbstractFileByPath`），内部走 entry/src/main/resources/rawfile/lexinote_plugin_shim.js:866（`knownAbstractFile`），目录按「有笔记落在该前缀下」合成 TFolder，传空串得 vault 根）。证据 H:vault.read H:vault.files W:adapter\nmembers: vault.read, vault.files, vault.create, vault.modify, vault.append, vault.delete, vault.rename, vault.getByPath, adapter, getFileByPath, getFolderByPath, getAbstractFileByPath, knownAbstractFile, getMarkdownFiles\nmembers(excludes): getName, configDir, createBinary, readBinary, copy"
         },
         {
           "id": "load-save-data",
@@ -344,8 +344,8 @@
           "label": "主题背景/文字变量",
           "capability": "theme-vars",
           "hits": 2,
-          "hostHits": 87,
-          "hostFiles": 151,
+          "hostHits": 102,
+          "hostFiles": 191,
           "status": "implemented",
           "gap": null
         }
@@ -360,8 +360,8 @@
       "artifacts": [
         {
           "file": "main.js",
-          "bytes": 108865,
-          "sha256": "0c1838c55d44ab23566599f10226362b3f2a715e883cb741867023f120c8e752"
+          "bytes": 548725,
+          "sha256": "76533b17bc279b7961b8f9c18ad8a5016aec9e85e260fccfc95209d781a2dccc"
         },
         {
           "file": "manifest.json",
@@ -376,6 +376,24 @@
       ],
       "markerHits": [
         {
+          "id": "cm-dispatch",
+          "label": ".dispatch(",
+          "capability": "editor-cm6",
+          "symbol": null,
+          "hits": 34,
+          "status": "unsupported",
+          "gap": "needs-architecture"
+        },
+        {
+          "id": "cm-decoration",
+          "label": "Decoration.* / EditorView.decorations|theme|domEventHandlers",
+          "capability": "editor-cm6",
+          "symbol": null,
+          "hits": 23,
+          "status": "unsupported",
+          "gap": "needs-architecture"
+        },
+        {
           "id": "editor-api",
           "label": "Editor.getValue/setValue/replaceRange/listSelections",
           "capability": "editor-api",
@@ -385,6 +403,24 @@
           "gap": "needs-architecture",
           "owner": "运行时轨",
           "note": "读写/选区/替换/transaction 已通；undo/redo/exec/processLines/wordAt/getScrollInfo 为桩，无 CM6 扩展面。证据 W:EditorProxy H:editor.replace H:editor.selection"
+        },
+        {
+          "id": "cm-editorview",
+          "label": "EditorView（构造/静态方法）",
+          "capability": "editor-cm6",
+          "symbol": null,
+          "hits": 18,
+          "status": "unsupported",
+          "gap": "needs-architecture"
+        },
+        {
+          "id": "cm-syntax-tree",
+          "label": "syntaxTree(",
+          "capability": "editor-cm6",
+          "symbol": null,
+          "hits": 14,
+          "status": "unsupported",
+          "gap": "needs-architecture"
         },
         {
           "id": "register-editor-extension",
@@ -398,13 +434,24 @@
           "note": "生命周期、命令、Ribbon、设置页、视图注册、代码块处理器、数据读写均已接通。证据 H:commands.add H:data.load W:PluginShim"
         },
         {
-          "id": "cm-decoration",
-          "label": "Decoration.* / EditorView.decorations|theme|domEventHandlers",
+          "id": "cm-viewplugin",
+          "label": "ViewPlugin.fromClass/define",
           "capability": "editor-cm6",
           "symbol": null,
-          "hits": 9,
+          "hits": 7,
           "status": "unsupported",
-          "gap": "needs-architecture"
+          "gap": "needs-architecture",
+          "note": "CM6 运行时对象不在 obsidian.d.ts 里；宿主必须把同一份 @codemirror/view 实例交给插件，插件才能把 ViewPlugin 挂到真实编辑器上。"
+        },
+        {
+          "id": "cm-statefield",
+          "label": "StateField.define",
+          "capability": "editor-cm6",
+          "symbol": null,
+          "hits": 7,
+          "status": "unsupported",
+          "gap": "needs-architecture",
+          "note": "同上：StateField 依赖宿主持有的 EditorState 类型，跨实例会因构造函数不同而失效。"
         },
         {
           "id": "add-command",
@@ -440,20 +487,11 @@
           "note": "生命周期、命令、Ribbon、设置页、视图注册、代码块处理器、数据读写均已接通。证据 H:commands.add H:data.load W:PluginShim"
         },
         {
-          "id": "cm-dispatch",
-          "label": ".dispatch(",
+          "id": "cm-transaction",
+          "label": "EditorState.create/transaction/readOnly",
           "capability": "editor-cm6",
           "symbol": null,
           "hits": 5,
-          "status": "unsupported",
-          "gap": "needs-architecture"
-        },
-        {
-          "id": "cm-editorview",
-          "label": "EditorView（构造/静态方法）",
-          "capability": "editor-cm6",
-          "symbol": null,
-          "hits": 3,
           "status": "unsupported",
           "gap": "needs-architecture"
         },
@@ -466,17 +504,7 @@
           "status": "partial",
           "gap": "needs-architecture",
           "owner": "运行时轨",
-          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。read/modify/create/append/delete/rename/files/getByPath 已通；adapter 已实现（exists/read/write/append/process/list/stat/remove/rename，目录存在性由 vault.files 路径前缀推导，stat 无 size/mtime 时如实返回 0）；仍缺 getName/configDir，createBinary/readBinary 直接 reject，getAbstractFileByPath 返回 Promise（官方同步签名）。证据 H:vault.read H:vault.files W:adapter\nmembers: vault.read, vault.files, vault.create, vault.modify, vault.append, vault.delete, vault.rename, vault.getByPath, adapter\nmembers(excludes): getName, configDir, createBinary, readBinary, copy, getAbstractFileByPath"
-        },
-        {
-          "id": "cm-statefield",
-          "label": "StateField.define",
-          "capability": "editor-cm6",
-          "symbol": null,
-          "hits": 2,
-          "status": "unsupported",
-          "gap": "needs-architecture",
-          "note": "同上：StateField 依赖宿主持有的 EditorState 类型，跨实例会因构造函数不同而失效。"
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。read/modify/create/append/delete/rename/files/getByPath 已通；getFileByPath 也已通：shim 在 entry/src/main/resources/rawfile/lexinote_plugin_shim.js:893（`getFileByPath`） 基于宿主回传的文件索引缓存同步返回 TFile，宿主处理器用 entry/src/main/ets/core/plugin/LexiPluginRuntime.ets:1974（`manager.vault.getFileByPath`） 解析（obsidian-tasks 有 3 处依赖：fixture:markdown-postprocessor-tasks/src/Obsidian/File.ts:202（`getFileByPath`）、fixture:markdown-postprocessor-tasks/src/Obsidian/InlineRenderer.ts:83（`getFileByPath`）、fixture:markdown-postprocessor-tasks/src/Renderer/QueryRenderer.ts:76（`getFileByPath`））；adapter 已实现（exists/read/write/append/process/list/stat/remove/rename，目录存在性由 vault.files 路径前缀推导，stat 无 size/mtime 时如实返回 0）；仍缺 getName/configDir，createBinary/readBinary 直接 reject，getAbstractFileByPath 已改成同步（entry/src/main/resources/rawfile/lexinote_plugin_shim.js:892（`getAbstractFileByPath`），内部走 entry/src/main/resources/rawfile/lexinote_plugin_shim.js:866（`knownAbstractFile`），目录按「有笔记落在该前缀下」合成 TFolder，传空串得 vault 根）。证据 H:vault.read H:vault.files W:adapter\nmembers: vault.read, vault.files, vault.create, vault.modify, vault.append, vault.delete, vault.rename, vault.getByPath, adapter, getFileByPath, getFolderByPath, getAbstractFileByPath, knownAbstractFile, getMarkdownFiles\nmembers(excludes): getName, configDir, createBinary, readBinary, copy"
         },
         {
           "id": "load-save-data",
@@ -520,7 +548,7 @@
           "status": "partial",
           "gap": "needs-architecture",
           "owner": "运行时轨",
-          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。openView/closeView/onLayoutReady/事件、getActiveFile/getActiveViewOfType/getLeavesOfType、iterateAllLeaves/iterateRootLeaves/getMostRecentLeaf、openLinkText（宿主经 metadata.getFirstLinkpathDest 解析后触发 file-open）均已通；仍缺 splitLeaf/createLeafBySplit/getLayout 布局树，revealLeaf 只 resolve 不切页，getLeaf/getRightLeaf 返回新建子叶而非宿主真实 pane。证据 H:workspace.openLinkText H:workspace.onLayoutReady W:iterateAllLeaves W:getMostRecentLeaf\nmembers: workspace.openLinkText, workspace.openView, workspace.closeView, workspace.onLayoutReady, workspace.layoutReady, workspace.loadLayout, workspace.saveLayout, openLinkText, iterateAllLeaves, iterateRootLeaves, getMostRecentLeaf, getLeavesOfType, getActiveFile, getActiveViewOfType, revealLeaf\nmembers(excludes): splitLeaf, createLeafBySplit, getLayout, getLeaf, getRightLeaf, activeLeaf"
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。openView/closeView/事件、getActiveFile/getActiveViewOfType/getLeavesOfType、iterateAllLeaves/iterateRootLeaves/getMostRecentLeaf、openLinkText（宿主经 metadata.getFirstLinkpathDest 解析后触发 file-open）均已通；onLayoutReady 也已实现，宿主在 entry/src/main/ets/core/plugin/LexiPluginRuntime.ets:1776（`workspace.onLayoutReady`） 注册处理器、旧宿主路径直接放行——夹具报告把它算成「矩阵未收录」是符号级 vs 成员级的口径差（它没有独立顶层符号），不是缺实现；obsidian-tasks 拿它当首屏闸门（3 处）：fixture:markdown-postprocessor-tasks/src/Obsidian/InlineRenderer.ts:32（`onLayoutReady`）、fixture:markdown-postprocessor-tasks/src/Renderer/QueryRenderer.ts:45（`onLayoutReady`）、fixture:markdown-postprocessor-tasks/src/Obsidian/Cache.ts:101（`onLayoutReady`）；仍缺 splitLeaf/createLeafBySplit/getLayout 布局树，revealLeaf 只 resolve 不切页，getLeaf/getRightLeaf 返回新建子叶而非宿主真实 pane。证据 H:workspace.openLinkText H:workspace.onLayoutReady W:iterateAllLeaves W:getMostRecentLeaf\nmembers: workspace.openLinkText, workspace.openView, workspace.closeView, workspace.onLayoutReady, workspace.layoutReady, workspace.loadLayout, workspace.saveLayout, openLinkText, iterateAllLeaves, iterateRootLeaves, getMostRecentLeaf, getLeavesOfType, getActiveFile, getActiveViewOfType, revealLeaf\nmembers(excludes): splitLeaf, createLeafBySplit, getLayout, getLeaf, getRightLeaf, activeLeaf"
         },
         {
           "id": "get-active-view",
@@ -531,26 +559,7 @@
           "status": "partial",
           "gap": "needs-architecture",
           "owner": "运行时轨",
-          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。openView/closeView/onLayoutReady/事件、getActiveFile/getActiveViewOfType/getLeavesOfType、iterateAllLeaves/iterateRootLeaves/getMostRecentLeaf、openLinkText（宿主经 metadata.getFirstLinkpathDest 解析后触发 file-open）均已通；仍缺 splitLeaf/createLeafBySplit/getLayout 布局树，revealLeaf 只 resolve 不切页，getLeaf/getRightLeaf 返回新建子叶而非宿主真实 pane。证据 H:workspace.openLinkText H:workspace.onLayoutReady W:iterateAllLeaves W:getMostRecentLeaf\nmembers: workspace.openLinkText, workspace.openView, workspace.closeView, workspace.onLayoutReady, workspace.layoutReady, workspace.loadLayout, workspace.saveLayout, openLinkText, iterateAllLeaves, iterateRootLeaves, getMostRecentLeaf, getLeavesOfType, getActiveFile, getActiveViewOfType, revealLeaf\nmembers(excludes): splitLeaf, createLeafBySplit, getLayout, getLeaf, getRightLeaf, activeLeaf"
-        },
-        {
-          "id": "cm-viewplugin",
-          "label": "ViewPlugin.fromClass/define",
-          "capability": "editor-cm6",
-          "symbol": null,
-          "hits": 1,
-          "status": "unsupported",
-          "gap": "needs-architecture",
-          "note": "CM6 运行时对象不在 obsidian.d.ts 里；宿主必须把同一份 @codemirror/view 实例交给插件，插件才能把 ViewPlugin 挂到真实编辑器上。"
-        },
-        {
-          "id": "cm-transaction",
-          "label": "EditorState.create/transaction/readOnly",
-          "capability": "editor-cm6",
-          "symbol": null,
-          "hits": 1,
-          "status": "unsupported",
-          "gap": "needs-architecture"
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。openView/closeView/事件、getActiveFile/getActiveViewOfType/getLeavesOfType、iterateAllLeaves/iterateRootLeaves/getMostRecentLeaf、openLinkText（宿主经 metadata.getFirstLinkpathDest 解析后触发 file-open）均已通；onLayoutReady 也已实现，宿主在 entry/src/main/ets/core/plugin/LexiPluginRuntime.ets:1776（`workspace.onLayoutReady`） 注册处理器、旧宿主路径直接放行——夹具报告把它算成「矩阵未收录」是符号级 vs 成员级的口径差（它没有独立顶层符号），不是缺实现；obsidian-tasks 拿它当首屏闸门（3 处）：fixture:markdown-postprocessor-tasks/src/Obsidian/InlineRenderer.ts:32（`onLayoutReady`）、fixture:markdown-postprocessor-tasks/src/Renderer/QueryRenderer.ts:45（`onLayoutReady`）、fixture:markdown-postprocessor-tasks/src/Obsidian/Cache.ts:101（`onLayoutReady`）；仍缺 splitLeaf/createLeafBySplit/getLayout 布局树，revealLeaf 只 resolve 不切页，getLeaf/getRightLeaf 返回新建子叶而非宿主真实 pane。证据 H:workspace.openLinkText H:workspace.onLayoutReady W:iterateAllLeaves W:getMostRecentLeaf\nmembers: workspace.openLinkText, workspace.openView, workspace.closeView, workspace.onLayoutReady, workspace.layoutReady, workspace.loadLayout, workspace.saveLayout, openLinkText, iterateAllLeaves, iterateRootLeaves, getMostRecentLeaf, getLeavesOfType, getActiveFile, getActiveViewOfType, revealLeaf\nmembers(excludes): splitLeaf, createLeafBySplit, getLayout, getLeaf, getRightLeaf, activeLeaf"
         },
         {
           "id": "add-setting-tab",
@@ -566,6 +575,22 @@
       ],
       "symbolHitsTop": [
         {
+          "symbol": "EditorSelection",
+          "hits": 71,
+          "status": "implemented",
+          "gap": null,
+          "owner": "运行时轨",
+          "kind": "interface"
+        },
+        {
+          "symbol": "Array",
+          "hits": 37,
+          "status": "unsupported",
+          "gap": "low-risk",
+          "owner": "宿主轨",
+          "kind": "interface"
+        },
+        {
           "symbol": "Setting",
           "hits": 10,
           "status": "stub",
@@ -574,12 +599,28 @@
           "kind": "class"
         },
         {
-          "symbol": "Array",
-          "hits": 3,
+          "symbol": "String",
+          "hits": 10,
           "status": "unsupported",
           "gap": "low-risk",
           "owner": "宿主轨",
           "kind": "interface"
+        },
+        {
+          "symbol": "request",
+          "hits": 7,
+          "status": "unsupported",
+          "gap": "low-risk",
+          "owner": "运行时轨",
+          "kind": "function"
+        },
+        {
+          "symbol": "Modifier",
+          "hits": 4,
+          "status": "unsupported",
+          "gap": "needs-architecture",
+          "owner": "运行时轨",
+          "kind": "type"
         },
         {
           "symbol": "Notice",
@@ -588,6 +629,14 @@
           "gap": "low-risk",
           "owner": "运行时轨",
           "kind": "class"
+        },
+        {
+          "symbol": "ViewState",
+          "hits": 3,
+          "status": "unsupported",
+          "gap": "needs-architecture",
+          "owner": "未排期",
+          "kind": "interface"
         },
         {
           "symbol": "createEl",
@@ -606,11 +655,27 @@
           "kind": "const"
         },
         {
+          "symbol": "ready",
+          "hits": 2,
+          "status": "unsupported",
+          "gap": "low-risk",
+          "owner": "宿主轨",
+          "kind": "function"
+        },
+        {
           "symbol": "Command",
           "hits": 1,
           "status": "implemented",
           "gap": null,
           "owner": "运行时轨",
+          "kind": "interface"
+        },
+        {
+          "symbol": "Document",
+          "hits": 1,
+          "status": "partial",
+          "gap": "low-risk",
+          "owner": "宿主轨",
           "kind": "interface"
         },
         {
@@ -628,38 +693,6 @@
           "gap": "needs-architecture",
           "owner": "运行时轨",
           "kind": "class"
-        },
-        {
-          "symbol": "Modal",
-          "hits": 1,
-          "status": "stub",
-          "gap": "needs-architecture",
-          "owner": "运行时轨",
-          "kind": "class"
-        },
-        {
-          "symbol": "Plugin",
-          "hits": 1,
-          "status": "implemented",
-          "gap": null,
-          "owner": "运行时轨",
-          "kind": "abstract class"
-        },
-        {
-          "symbol": "PluginSettingTab",
-          "hits": 1,
-          "status": "partial",
-          "gap": "needs-architecture",
-          "owner": "运行时轨",
-          "kind": "abstract class"
-        },
-        {
-          "symbol": "String",
-          "hits": 1,
-          "status": "unsupported",
-          "gap": "low-risk",
-          "owner": "宿主轨",
-          "kind": "interface"
         }
       ],
       "cssHits": [
@@ -668,8 +701,8 @@
           "label": "主题背景/文字变量",
           "capability": "theme-vars",
           "hits": 3,
-          "hostHits": 87,
-          "hostFiles": 151,
+          "hostHits": 102,
+          "hostFiles": 191,
           "status": "implemented",
           "gap": null
         },
@@ -679,7 +712,7 @@
           "capability": "semantic-color-vars",
           "hits": 1,
           "hostHits": 6,
-          "hostFiles": 151,
+          "hostFiles": 191,
           "status": "implemented",
           "gap": null
         },
@@ -688,8 +721,8 @@
           "label": "Markdown 视图 DOM 类",
           "capability": "markdown-view-classes",
           "hits": 2,
-          "hostHits": 5,
-          "hostFiles": 151,
+          "hostHits": 39,
+          "hostFiles": 191,
           "status": "implemented",
           "gap": null
         }
@@ -739,7 +772,7 @@
           "status": "partial",
           "gap": "needs-architecture",
           "owner": "运行时轨",
-          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）。本项目 moment 是 MiniMoment 子集，不是完整 moment：实例侧已通 format/add/subtract/startOf/endOf/diff/unix/valueOf/toDate/toISOString/clone/isValid/isBefore/isAfter/isSame/isSameOrBefore/isSameOrAfter/calendar/locale/localeData/utc/local 与七个取值设值字段、day/weekday/isoWeekday/week/dayOfYear/daysInMonth；静态侧已通 moment(input)/isMoment/utc/unix/now/locale/localeData/updateLocale/defineLocale/locales/months/monthsShort/weekdays/weekdaysShort/weekdaysMin。这些是按 calendar 的真实调用逐条补齐的，不是按 moment 文档铺开：format 只认 YYYY/YY/MMMM/MMM/MM/M/DD/D/Do/dddd/ddd/dd/HH/H/hh/mm/ss/SSS/A/a，diff 只能按毫秒/秒/分/时/天，calendar 恒返回 YYYY-MM-DD 而非今天/昨天文案，locale 与 localeData 恒报 zh-cn。换一个用到未覆盖 API 的插件会在使用处直接抛 TypeError（xxx is not a function），装载期不会提示。证据 W:MiniMoment W:moment\nmembers: format, add, subtract, startOf, endOf, diff, unix, calendar, localeData, isoWeekday, daysInMonth, updateLocale, defineLocale, locales, monthsShort, weekdaysMin, clone, toDate, toObject, isValid\nmembers(excludes): tz, duration, fromNow, toNow, toJSON, utcOffset, isDST, parseZone"
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）。本项目 moment 是 MiniMoment 子集，不是完整 moment：实例侧已通 format/add/subtract/startOf/endOf/diff/unix/valueOf/toDate/toISOString/clone/isValid/isBefore/isAfter/isSame/isSameOrBefore/isSameOrAfter/calendar/locale/localeData/utc/local 与七个取值设值字段、day/weekday/isoWeekday/week/dayOfYear/daysInMonth；静态侧已通 moment(input)/isMoment/utc/unix/now/locale/localeData/updateLocale/defineLocale/locales/months/monthsShort/weekdays/weekdaysShort/weekdaysMin。这些是按 calendar 的真实调用逐条补齐的，不是按 moment 文档铺开：format 只认 YYYY/YY/MMMM/MMM/MM/M/DD/D/Do/dddd/ddd/dd/HH/H/hh/mm/ss/SSS/A/a，diff 只能按毫秒/秒/分/时/天，calendar 恒返回 YYYY-MM-DD 而非今天/昨天文案，locale 与 localeData 恒报 zh-cn。换一个用到未覆盖 API 的插件会在使用处直接抛 TypeError（xxx is not a function），装载期不会提示。宿主必须提供全局 window.moment：obsidian-tasks 产物里 43 处 moment( 调用点（夹具 API 面报告口径；我直接数其 main.js 得 51 处 window.moment 字面量、TS 源 49 处），既不内联 moment 也不 require(\"moment\")，tools/workspace-bundle/node_modules 里也没有 moment——现在靠 entry/src/main/resources/rawfile/lexinote_plugin_shim.js:1544（`window.moment`） 把 MiniMoment 挂成全局兜住，所以那 43 处调用实际落在 MiniMoment 子集上，MiniMoment 没覆盖的写法同样会在使用处 TypeError。证据 W:MiniMoment W:moment\nmembers: format, add, subtract, startOf, endOf, diff, unix, calendar, localeData, isoWeekday, daysInMonth, updateLocale, defineLocale, locales, monthsShort, weekdaysMin, clone, toDate, toObject, isValid\nmembers(excludes): tz, duration, fromNow, toNow, toJSON, utcOffset, isDST, parseZone"
         },
         {
           "id": "app-any",
@@ -761,7 +794,7 @@
           "status": "partial",
           "gap": "needs-architecture",
           "owner": "运行时轨",
-          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）。本项目 moment 是 MiniMoment 子集，不是完整 moment：实例侧已通 format/add/subtract/startOf/endOf/diff/unix/valueOf/toDate/toISOString/clone/isValid/isBefore/isAfter/isSame/isSameOrBefore/isSameOrAfter/calendar/locale/localeData/utc/local 与七个取值设值字段、day/weekday/isoWeekday/week/dayOfYear/daysInMonth；静态侧已通 moment(input)/isMoment/utc/unix/now/locale/localeData/updateLocale/defineLocale/locales/months/monthsShort/weekdays/weekdaysShort/weekdaysMin。这些是按 calendar 的真实调用逐条补齐的，不是按 moment 文档铺开：format 只认 YYYY/YY/MMMM/MMM/MM/M/DD/D/Do/dddd/ddd/dd/HH/H/hh/mm/ss/SSS/A/a，diff 只能按毫秒/秒/分/时/天，calendar 恒返回 YYYY-MM-DD 而非今天/昨天文案，locale 与 localeData 恒报 zh-cn。换一个用到未覆盖 API 的插件会在使用处直接抛 TypeError（xxx is not a function），装载期不会提示。证据 W:MiniMoment W:moment\nmembers: format, add, subtract, startOf, endOf, diff, unix, calendar, localeData, isoWeekday, daysInMonth, updateLocale, defineLocale, locales, monthsShort, weekdaysMin, clone, toDate, toObject, isValid\nmembers(excludes): tz, duration, fromNow, toNow, toJSON, utcOffset, isDST, parseZone"
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）。本项目 moment 是 MiniMoment 子集，不是完整 moment：实例侧已通 format/add/subtract/startOf/endOf/diff/unix/valueOf/toDate/toISOString/clone/isValid/isBefore/isAfter/isSame/isSameOrBefore/isSameOrAfter/calendar/locale/localeData/utc/local 与七个取值设值字段、day/weekday/isoWeekday/week/dayOfYear/daysInMonth；静态侧已通 moment(input)/isMoment/utc/unix/now/locale/localeData/updateLocale/defineLocale/locales/months/monthsShort/weekdays/weekdaysShort/weekdaysMin。这些是按 calendar 的真实调用逐条补齐的，不是按 moment 文档铺开：format 只认 YYYY/YY/MMMM/MMM/MM/M/DD/D/Do/dddd/ddd/dd/HH/H/hh/mm/ss/SSS/A/a，diff 只能按毫秒/秒/分/时/天，calendar 恒返回 YYYY-MM-DD 而非今天/昨天文案，locale 与 localeData 恒报 zh-cn。换一个用到未覆盖 API 的插件会在使用处直接抛 TypeError（xxx is not a function），装载期不会提示。宿主必须提供全局 window.moment：obsidian-tasks 产物里 43 处 moment( 调用点（夹具 API 面报告口径；我直接数其 main.js 得 51 处 window.moment 字面量、TS 源 49 处），既不内联 moment 也不 require(\"moment\")，tools/workspace-bundle/node_modules 里也没有 moment——现在靠 entry/src/main/resources/rawfile/lexinote_plugin_shim.js:1544（`window.moment`） 把 MiniMoment 挂成全局兜住，所以那 43 处调用实际落在 MiniMoment 子集上，MiniMoment 没覆盖的写法同样会在使用处 TypeError。证据 W:MiniMoment W:moment\nmembers: format, add, subtract, startOf, endOf, diff, unix, calendar, localeData, isoWeekday, daysInMonth, updateLocale, defineLocale, locales, monthsShort, weekdaysMin, clone, toDate, toObject, isValid\nmembers(excludes): tz, duration, fromNow, toNow, toJSON, utcOffset, isDST, parseZone"
         },
         {
           "id": "vault-any",
@@ -772,7 +805,7 @@
           "status": "partial",
           "gap": "needs-architecture",
           "owner": "运行时轨",
-          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。read/modify/create/append/delete/rename/files/getByPath 已通；adapter 已实现（exists/read/write/append/process/list/stat/remove/rename，目录存在性由 vault.files 路径前缀推导，stat 无 size/mtime 时如实返回 0）；仍缺 getName/configDir，createBinary/readBinary 直接 reject，getAbstractFileByPath 返回 Promise（官方同步签名）。证据 H:vault.read H:vault.files W:adapter\nmembers: vault.read, vault.files, vault.create, vault.modify, vault.append, vault.delete, vault.rename, vault.getByPath, adapter\nmembers(excludes): getName, configDir, createBinary, readBinary, copy, getAbstractFileByPath"
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。read/modify/create/append/delete/rename/files/getByPath 已通；getFileByPath 也已通：shim 在 entry/src/main/resources/rawfile/lexinote_plugin_shim.js:893（`getFileByPath`） 基于宿主回传的文件索引缓存同步返回 TFile，宿主处理器用 entry/src/main/ets/core/plugin/LexiPluginRuntime.ets:1974（`manager.vault.getFileByPath`） 解析（obsidian-tasks 有 3 处依赖：fixture:markdown-postprocessor-tasks/src/Obsidian/File.ts:202（`getFileByPath`）、fixture:markdown-postprocessor-tasks/src/Obsidian/InlineRenderer.ts:83（`getFileByPath`）、fixture:markdown-postprocessor-tasks/src/Renderer/QueryRenderer.ts:76（`getFileByPath`））；adapter 已实现（exists/read/write/append/process/list/stat/remove/rename，目录存在性由 vault.files 路径前缀推导，stat 无 size/mtime 时如实返回 0）；仍缺 getName/configDir，createBinary/readBinary 直接 reject，getAbstractFileByPath 已改成同步（entry/src/main/resources/rawfile/lexinote_plugin_shim.js:892（`getAbstractFileByPath`），内部走 entry/src/main/resources/rawfile/lexinote_plugin_shim.js:866（`knownAbstractFile`），目录按「有笔记落在该前缀下」合成 TFolder，传空串得 vault 根）。证据 H:vault.read H:vault.files W:adapter\nmembers: vault.read, vault.files, vault.create, vault.modify, vault.append, vault.delete, vault.rename, vault.getByPath, adapter, getFileByPath, getFolderByPath, getAbstractFileByPath, knownAbstractFile, getMarkdownFiles\nmembers(excludes): getName, configDir, createBinary, readBinary, copy"
         },
         {
           "id": "workspace-any",
@@ -783,7 +816,7 @@
           "status": "partial",
           "gap": "needs-architecture",
           "owner": "运行时轨",
-          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。openView/closeView/onLayoutReady/事件、getActiveFile/getActiveViewOfType/getLeavesOfType、iterateAllLeaves/iterateRootLeaves/getMostRecentLeaf、openLinkText（宿主经 metadata.getFirstLinkpathDest 解析后触发 file-open）均已通；仍缺 splitLeaf/createLeafBySplit/getLayout 布局树，revealLeaf 只 resolve 不切页，getLeaf/getRightLeaf 返回新建子叶而非宿主真实 pane。证据 H:workspace.openLinkText H:workspace.onLayoutReady W:iterateAllLeaves W:getMostRecentLeaf\nmembers: workspace.openLinkText, workspace.openView, workspace.closeView, workspace.onLayoutReady, workspace.layoutReady, workspace.loadLayout, workspace.saveLayout, openLinkText, iterateAllLeaves, iterateRootLeaves, getMostRecentLeaf, getLeavesOfType, getActiveFile, getActiveViewOfType, revealLeaf\nmembers(excludes): splitLeaf, createLeafBySplit, getLayout, getLeaf, getRightLeaf, activeLeaf"
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。openView/closeView/事件、getActiveFile/getActiveViewOfType/getLeavesOfType、iterateAllLeaves/iterateRootLeaves/getMostRecentLeaf、openLinkText（宿主经 metadata.getFirstLinkpathDest 解析后触发 file-open）均已通；onLayoutReady 也已实现，宿主在 entry/src/main/ets/core/plugin/LexiPluginRuntime.ets:1776（`workspace.onLayoutReady`） 注册处理器、旧宿主路径直接放行——夹具报告把它算成「矩阵未收录」是符号级 vs 成员级的口径差（它没有独立顶层符号），不是缺实现；obsidian-tasks 拿它当首屏闸门（3 处）：fixture:markdown-postprocessor-tasks/src/Obsidian/InlineRenderer.ts:32（`onLayoutReady`）、fixture:markdown-postprocessor-tasks/src/Renderer/QueryRenderer.ts:45（`onLayoutReady`）、fixture:markdown-postprocessor-tasks/src/Obsidian/Cache.ts:101（`onLayoutReady`）；仍缺 splitLeaf/createLeafBySplit/getLayout 布局树，revealLeaf 只 resolve 不切页，getLeaf/getRightLeaf 返回新建子叶而非宿主真实 pane。证据 H:workspace.openLinkText H:workspace.onLayoutReady W:iterateAllLeaves W:getMostRecentLeaf\nmembers: workspace.openLinkText, workspace.openView, workspace.closeView, workspace.onLayoutReady, workspace.layoutReady, workspace.loadLayout, workspace.saveLayout, openLinkText, iterateAllLeaves, iterateRootLeaves, getMostRecentLeaf, getLeavesOfType, getActiveFile, getActiveViewOfType, revealLeaf\nmembers(excludes): splitLeaf, createLeafBySplit, getLayout, getLeaf, getRightLeaf, activeLeaf"
         },
         {
           "id": "metadata-cache",
@@ -860,7 +893,7 @@
           "status": "stub",
           "gap": "needs-architecture",
           "owner": "运行时轨",
-          "note": "render/renderMarkdown 直接 reject，嵌入与代码块渲染未实现。证据 W:MarkdownRenderer"
+          "note": "render/renderMarkdown 直接 reject（entry/src/main/resources/rawfile/lexinote_plugin_shim.js:2191（`MarkdownRenderer`）），嵌入与代码块渲染未实现。obsidian-tasks 有 3 处真实调用点：fixture:markdown-postprocessor-tasks/src/Renderer/QueryRenderer.ts:136（`MarkdownRenderer.render`）、fixture:markdown-postprocessor-tasks/src/Renderer/TaskLineRenderer.ts:85（`MarkdownRenderer.render`）、fixture:markdown-postprocessor-tasks/src/ui/QuickSearchTasksModal.ts:134（`MarkdownRenderer.render`）——查询结果块与每条任务行都走它，stub 等于 tasks 的列表渲染整体抛错，不是可拖项（夹具报告把 TaskLineRenderer 第 94 行也算一个调用点，但那行是 `renderMarkdown()` 的文档注释，不是调用）。证据 W:MarkdownRenderer"
         },
         {
           "id": "editor-callback",
@@ -893,7 +926,7 @@
           "status": "partial",
           "gap": "needs-architecture",
           "owner": "运行时轨",
-          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。read/modify/create/append/delete/rename/files/getByPath 已通；adapter 已实现（exists/read/write/append/process/list/stat/remove/rename，目录存在性由 vault.files 路径前缀推导，stat 无 size/mtime 时如实返回 0）；仍缺 getName/configDir，createBinary/readBinary 直接 reject，getAbstractFileByPath 返回 Promise（官方同步签名）。证据 H:vault.read H:vault.files W:adapter\nmembers: vault.read, vault.files, vault.create, vault.modify, vault.append, vault.delete, vault.rename, vault.getByPath, adapter\nmembers(excludes): getName, configDir, createBinary, readBinary, copy, getAbstractFileByPath"
+          "note": "[截至 2026-11-01 @ 48f164a] 覆盖插件: obsidian-calendar-plugin（rawfile/plugins/calendar）、lexi-sample-plugin（本仓样例）。read/modify/create/append/delete/rename/files/getByPath 已通；getFileByPath 也已通：shim 在 entry/src/main/resources/rawfile/lexinote_plugin_shim.js:893（`getFileByPath`） 基于宿主回传的文件索引缓存同步返回 TFile，宿主处理器用 entry/src/main/ets/core/plugin/LexiPluginRuntime.ets:1974（`manager.vault.getFileByPath`） 解析（obsidian-tasks 有 3 处依赖：fixture:markdown-postprocessor-tasks/src/Obsidian/File.ts:202（`getFileByPath`）、fixture:markdown-postprocessor-tasks/src/Obsidian/InlineRenderer.ts:83（`getFileByPath`）、fixture:markdown-postprocessor-tasks/src/Renderer/QueryRenderer.ts:76（`getFileByPath`））；adapter 已实现（exists/read/write/append/process/list/stat/remove/rename，目录存在性由 vault.files 路径前缀推导，stat 无 size/mtime 时如实返回 0）；仍缺 getName/configDir，createBinary/readBinary 直接 reject，getAbstractFileByPath 已改成同步（entry/src/main/resources/rawfile/lexinote_plugin_shim.js:892（`getAbstractFileByPath`），内部走 entry/src/main/resources/rawfile/lexinote_plugin_shim.js:866（`knownAbstractFile`），目录按「有笔记落在该前缀下」合成 TFolder，传空串得 vault 根）。证据 H:vault.read H:vault.files W:adapter\nmembers: vault.read, vault.files, vault.create, vault.modify, vault.append, vault.delete, vault.rename, vault.getByPath, adapter, getFileByPath, getFolderByPath, getAbstractFileByPath, knownAbstractFile, getMarkdownFiles\nmembers(excludes): getName, configDir, createBinary, readBinary, copy"
         },
         {
           "id": "load-save-data",
@@ -1142,8 +1175,8 @@
           "label": "主题背景/文字变量",
           "capability": "theme-vars",
           "hits": 12,
-          "hostHits": 87,
-          "hostFiles": 151,
+          "hostHits": 102,
+          "hostFiles": 191,
           "status": "implemented",
           "gap": null
         },
@@ -1153,7 +1186,7 @@
           "capability": "typography-vars",
           "hits": 5,
           "hostHits": 17,
-          "hostFiles": 151,
+          "hostFiles": 191,
           "status": "implemented",
           "gap": null
         },
@@ -1163,7 +1196,7 @@
           "capability": "radius-vars",
           "hits": 3,
           "hostHits": 20,
-          "hostFiles": 151,
+          "hostFiles": 191,
           "status": "implemented",
           "gap": null
         }
@@ -1195,8 +1228,8 @@
           "label": "主题背景/文字变量",
           "capability": "theme-vars",
           "hits": 353,
-          "hostHits": 87,
-          "hostFiles": 151,
+          "hostHits": 102,
+          "hostFiles": 191,
           "status": "partial",
           "gap": "needs-architecture"
         },
@@ -1206,7 +1239,7 @@
           "capability": "typography-vars",
           "hits": 39,
           "hostHits": 17,
-          "hostFiles": 151,
+          "hostFiles": 191,
           "status": "partial",
           "gap": "needs-architecture"
         },
@@ -1216,7 +1249,7 @@
           "capability": "radius-vars",
           "hits": 37,
           "hostHits": 20,
-          "hostFiles": 151,
+          "hostFiles": 191,
           "status": "partial",
           "gap": "needs-architecture"
         },
@@ -1225,8 +1258,8 @@
           "label": "明暗主题类（body.theme-dark/light）",
           "capability": "theme-mode",
           "hits": 351,
-          "hostHits": 19,
-          "hostFiles": 151,
+          "hostHits": 21,
+          "hostFiles": 191,
           "status": "partial",
           "gap": "needs-architecture"
         },
@@ -1235,8 +1268,8 @@
           "label": "编辑器 DOM 类（.cm-*）",
           "capability": "editor-dom-classes",
           "hits": 96,
-          "hostHits": 31,
-          "hostFiles": 151,
+          "hostHits": 83,
+          "hostFiles": 191,
           "status": "partial",
           "gap": "needs-architecture"
         },
@@ -1245,8 +1278,8 @@
           "label": "Markdown 视图 DOM 类",
           "capability": "markdown-view-classes",
           "hits": 528,
-          "hostHits": 5,
-          "hostFiles": 151,
+          "hostHits": 39,
+          "hostFiles": 191,
           "status": "partial",
           "gap": "needs-architecture"
         },
@@ -1256,7 +1289,7 @@
           "capability": "workspace-dom-classes",
           "hits": 661,
           "hostHits": 16,
-          "hostFiles": 151,
+          "hostFiles": 191,
           "status": "partial",
           "gap": "needs-architecture"
         },
@@ -1266,7 +1299,7 @@
           "capability": "view-chrome",
           "hits": 226,
           "hostHits": 3,
-          "hostFiles": 151,
+          "hostFiles": 191,
           "status": "partial",
           "gap": "needs-architecture"
         }
