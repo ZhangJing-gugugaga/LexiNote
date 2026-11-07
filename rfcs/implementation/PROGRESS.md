@@ -851,3 +851,7 @@ release-gate --ci **31/31**、sec-coverage 282 项(covered=4/partial=14/uncovere
 设备批次（supervisor）:SEC 逐项真机负例（矩阵 blocker 列即清单,P1-008 卸载→旧通道 RPC 拒绝为第一优先）+P1-005/P1-007/P1-011/P2-009 设备复核。主线:R34 起 Phase 3(P3-001..004+P0-004),HUMAN_QUEUE#3 两项 ADR 复审催办。
 
 最近更新时间：2026-11-07（Round 33）。
+
+### Round 33 追记（同日,设备负例批次第一项）
+
+**SEC-013 销毁闭环真机定案**（设置→市场→卸载 sandbox-editor-min）：`请求停用`→`插件已停用`→`context registry 吊销 1 个上下文`→**`sandbox context destroyed: ctx-4-sandbox-editor-min`**（容器 iframe 拆除）→`plugin tokens 吊销 1 个`→`插件已卸载 → .trash/sandbox-editor-min-<ts>`——P1-008 四步序在真实卸载路径全序触发,旧通道 context 已吊销。P1-010 台账:SEC-013 设备负例关闭;剩余设备负例（Track2 拒载受 P2-013、SEC-002 Track2 面、SEC-014..017 B-002 链）按 sec-coverage ledger 归后续批次/Phase 5。
