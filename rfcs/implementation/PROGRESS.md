@@ -939,3 +939,7 @@ P4-005 夹具批次（设备验收:含本面三交互+R36 示例的 runtime 页�
 - **allow-list 补齐**：R37-A 自述已加 sandbox-ui-min 白名单但提交代码缺失（验收差异抓获）——主线补上（与探针先例一致），dist-reg 43/43、构建绿。
 - **P4-001 三面真机全定案（sandbox-ui-min）**：Modal `opens:1`+`modalClosedAt`（宿主原生弹层"沙箱交互面"经端口链）；Menu `menus:1`+`menuPick:"star"`+`menuClosedAt`（原生菜单"标记为重要/归档",onClick 经 sandbox.ui 回环）；**Setting pushback `changes:1`+`controlFired:1`+`lastChanged:{showBadge:true,uiLevel,maxItems}`**（原生设置表单改值→onChange 送达 iframe）。三面 data.json 铁证。
 - **P4-005 定级进度**：sandbox 系夹具（probe/sample-min/editor-min/sec-probe/ui-min）真机证据充分（对应 C 级=沙箱原生面全用）；legacy 系（calendar/outliner/editor-outliner/compat-probe）证据采集派工中。
+
+### Round 38（P4-005 证据批次 + 定级）
+
+**证据**（/tmp/p4005/ 全套 dump+hilog）：①**calendar C2**——enable/onload OK,1 视图+3 命令注册,show-calendar-view 执行但视图面为"已退役"占位（P4-001 视图域证据）、open-weekly-note **静默无操作**（`LexiPluginRuntime.ets:2520 invokePluginCommand .catch(()=>{})` 吞失败=fail-visible 违例→登记 **P2-014**）、依赖 periodic-notes 缺失；②**obsidian-outliner C1**——eval 失败"不支持模块 @codemirror/view"（**fixture 未打包依赖**→登记 **P4-006**）；③**compat-probe C1**——同类(@codemirror/state)；④**附带缺陷：卸载清理身份丢失**——calendar 停用 onunload 清理 7 条 authz.denied（anonymous 无权删自有资源,identity 上下文在 teardown 丢失→登记 **P2-015**）；⑤无崩溃、P2-013 修复后开关单击=单次切换实证。**sandbox 系 5 夹具定级：沙箱原生面全用（C4 等价）**（R24-R37 data.json 铁证链）。
