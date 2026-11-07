@@ -1,0 +1,22 @@
+{
+  "manifestVersion": 2,
+  "id": "example-settings",
+  "name": "示例:声明式设置",
+  "version": "1.0.0",
+  "author": "LexiNote Team",
+  "description": "设置面示例:PluginSettingTab 声明式定义 + 宿主原生渲染 + data.json 值持久化。运行页轨(runtime page)装载。",
+  "license": "MIT",
+  "entrypoints": {
+    "service": "main.js"
+  },
+  "compatibility": {
+    "lexinote": { "min": "1.0.0" },
+    "obsidianApiLevel": "1.14.4"
+  },
+  "platforms": ["harmonyos-phone", "harmonyos-tablet", "harmonyos-pc"],
+  "capabilities": {
+    "workspace": { "commands": true },
+    "notifications": true,
+    "storage": { "quotaBytes": 16384 }
+  }
+}

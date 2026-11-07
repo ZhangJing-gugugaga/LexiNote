@@ -27,6 +27,12 @@ npm run build        # 输出 main.js(esbuild CJS → lexi-iife:v1 自执行包�
 - `vault.on('modify')` 事件订阅
 - `loadData/saveData` 持久化
 
+## 可构建的示例工程组(P3-007)
+
+五类完整示例(命令/Vault/视图/Markdown/设置)在 `examples/`,每例带 v2 manifest + README
+轨面边界声明,并经门禁 `scripts/tests/plugin-examples.cjs` 用真实 CLI 逐例跑
+`validate → build → inspect → pack`(索引见 `examples/README.md`)。
+
 ## 契约
 
 - 类型声明:`lexinote.d.ts`(tsconfig 中把 `lexinote`/`obsidian` 都映射到这里)。**生成副本**:

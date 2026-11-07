@@ -24,7 +24,7 @@
 | 包结构校验 | plugin-package-verifier | 单元 | PASS | ✘ | 空哈希跳过被固化为期望→仅限本地侧载语义,P5-001 已在外围封死远程 |
 | 生命周期/所有权 | plugin-lifecycle-once, plugin-extension-ownership | 契约 | PASS | ✘ | quarantine 等状态不可达(P2-009) |
 | 契约三脚架/矩阵 | plugin-contract-tripod, plugin-contract-matrix | 契约 | PASS(锚点修正后) | ✘ | generate.cjs 缺陷 P0-005 |
-| SDK/CLI/Inspector/Docs | sdk-contract, lexi-cli-contract, inspector, docs-contract | 契约 | **PASS(R34)**:sdk-contract 30→**37**（+S7 P3-001:dist 构建→npm pack→离线 npm install→require+ts.createProgram 双通道消费）;cli-contract 18→**45**（+C7-C12 P3-004:dev/test/inspect/doctor/compatibility 每命令行为级+create→build→pack 全链 C12） | ✘ | SDK src"类型检查"仍为语法检查(P3-003;S7.7 消费者侧已是真 createProgram 全类型检查) |
+| SDK/CLI/Inspector/Docs | sdk-contract, lexi-cli-contract, inspector, docs-contract, **examples** | 契约 | **PASS(R34/R35/R36)**:sdk-contract 30→**37**（+S7 P3-001:dist 构建→npm pack→离线 npm install→require+ts.createProgram 双通道消费）→**39**（R35 真类型检查+S4.1 同源对账）;cli-contract 18→**45**（+C7-C12 P3-004:dev/test/inspect/doctor/compatibility 每命令行为级+create→build→pack 全链 C12）;examples **51**（R36/P3-007 新门禁:五类示例逐例真实 CLI validate→build→inspect→pack+IIFE 产物断言+vm boot 全链,沙箱面清单自宿主源提取做严格对账,负例注入实测红） | ✘ | 示例的视图/Markdown/设置执行面+命令回环+设置页原生渲染真机行为归 P4-005 设备批次（示例已如实标注 pending） |
 | 市场 UI 全流程(KI-1/2/3, 安装升级回滚卸载) | plugin-dist-flows --run | 集成(设备) | **PASS ×4(Round 8, lexi_2in1)** | ✔ | KI-1 规模档位 `--market-repro N=3..8` 仍 NOT RUN；KI-2 幽灵条目仍需真机定位(设备已可用,排 P5-008) |
 | 沙箱性能与驻留(PoC 判据) | plugin-poc-verdict | 真机判据 | NOT RUN | ✘ | 需真机 JSON 输入(B-001) |
 | HAP 构建 | hvigorw assembleHap | 构建 | **PASS**(本轮 BUILD SUCCESSFUL) | ✘ | 签名缺省(仅 unsigned) |

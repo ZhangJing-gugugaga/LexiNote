@@ -880,3 +880,29 @@ release-gate --ci **31/31**、plugin-sdk-contract **37**（+S7 npm pack/install 
 ### 下一轮
 
 **R35 = P3-002（类型单一真源翻转:SDK 为源、模板消费,对账脚本校验同源）+ P3-003（sdk-contract 真类型检查:注入类型错误必须红）**;P0-004 文档入 Git 待人工决策（docs/ 目前 gitignore 本地账面）。设备批次欠账不变（SEC 矩阵 blocker 清单即清单）。
+
+## Round 36 — 2026-11-07（R36 = P3-007 示例工程组五类 + 每例真实 CLI 构建校验 → 离线全绿）
+
+### 本轮完成
+
+1. **P3-007 示例工程组**：`tools/lexinote-plugin-template/examples/` 五例（`example-commands`/`example-vault`/`example-view`/`example-markdown`/`example-settings` + 组索引 README），每例 v2 manifest + 纯 CJS main.js（`lexi plugin build` 直接可包装）+ README「运行轨面与边界」。**轨面按诚实纪律分配，不假造**：
+   - **命令/Vault=沙箱轨声明**（`entrypoints.service:'sandbox:'`）：只用沙箱轨已实现面——Plugin/addCommand(callback+editorCallback)/Notice/loadData/saveData；vault 六方法（getMarkdownFiles/getAbstractFileByPath/read/create/modify/process）+normalizePath/moment。vault 例声明 `vault.write.paths:["插件笔记/"]` 演示 P2-004 写路径白名单（README 附白名单外负例注释，注明预期宿主 `capability.path` 拒绝）。
+   - **视图/Markdown/设置=runtime 页轨**（`service:'main.js'`）：这三个面的真实实现在 legacy shim——`registerView`→`views.add` RPC+`WorkspaceLeaf.setViewState` 真实例化挂 DOM、`registerMarkdownCodeBlockProcessor`→`codeblocks.register`+`registerMarkdownPostProcessor`→LexiReading 注册表、`addSettingTab`→`settings.register` 声明式链（宿主 `LexiPluginSettingsSheet` 原生渲染+值写回 data.json）。README 显式带 `sandbox-track: pending (P4-001/P4-005)` 标记与 `lexiPluginLegacyTrack` 开关依赖；设置例额外诚实标注**值运行中回推（onSettingsChanged/setControlValue）宿主尚无通道**——示例不依赖回推，值经 data.json 下次装载读回（调查结论：SDK 类型文档该段为前瞻声明）。
+2. **门禁 `scripts/tests/plugin-examples.cjs`（新，进 release-gate --ci 第 27 步）**：五例各在临时目录经**真实 CLI** 独立跑 validate→build→inspect(--json 字段断言)→pack(zip+sha256)；build 产物断言 `lexi-iife:v1`+sourceURL+注册表交付+无 `new Function`；产物 vm 求值→注册表交付插件类→onload boot 全链（沙箱严格面=loadData/saveData/addCommand 真走 stub 管线）。**面清单单一真源=宿主源码**：沙箱 namespace 成员与 SandboxPlugin 原型方法自 `lexinote_plugin_sandbox.html` 正则提取（namespace 6 成员/原型 12 方法），legacy 超集自 `PluginShim.prototype`（17 方法）；沙箱例的 obsidian 解构成员必须 ⊆ 真实 namespace、Plugin 原型方法逐一显式映射（宿主扩面而门禁未跟上=红，fail-visible）。**非空洞证明**：两个负例注入实测红——①沙箱例注入 `registerMarkdownPostProcessor` 调用（legacy-only 面）→boot 红；②沙箱例解构 `Modal`（namespace 越面）→对账红；撤销后回绿。
+3. **文档**：docs/plugin-development.md 增「示例工程组」节（五例索引+轨面表+门禁指引）；模板 README 增示例组节；EXECUTION_PLAN P3-007 行刷新；TEST_MATRIX SDK/CLI 行并入 examples 门禁读数。
+
+### 诚实边界（IMPLEMENTED ≠ VERIFIED）
+
+- 全部离线证据。示例的**运行时行为**（视图实例化挂 DOM、Markdown 渲染回调触发、设置页原生渲染+值写入、编辑器命令快照回推、命令面板回环）属设备批次 **P4-005** 验收面；本轮证明的是 manifest 契约、CLI 构建链、IIFE 产物形状与 boot 期面契约。
+- runtime 页轨示例依赖 `lexiPluginLegacyTrack != 'false'`（当前默认 true；ADR-R28-01 默认翻转复审通过后随 P4-005 迁沙箱轨）。
+- 沙箱面清单提取是正则锚定（`var obsidian = {`/`SandboxPlugin.prototype.`），宿主源形态大改时门禁会以"提取为空/缺锚点"红——属预期 fail-visible，不静默放行。
+
+### 实际执行的测试
+
+release-gate --ci **32/32**（31→32：新增 examples 步）、plugin-examples **51 项**（含负例注入红→撤销回绿）、lexi-cli-contract 45、hvigorw assembleHap **BUILD SUCCESSFUL**（33 tasks,无签名配置=既有 WARN）。
+
+### 下一轮
+
+Phase 3 收口复核（P3-005 热重载/P3-006 Inspector 完整化待排）；P4-001 Modal/Menu/Settings 与 P4-005 夹具批次（示例中的 pending 标记即迁移清单）。
+
+最近更新时间：2026-11-07（Round 36）。

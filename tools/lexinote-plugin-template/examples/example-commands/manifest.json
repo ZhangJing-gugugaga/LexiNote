@@ -1,0 +1,23 @@
+{
+  "manifestVersion": 2,
+  "id": "example-commands",
+  "name": "示例:命令",
+  "version": "1.0.0",
+  "author": "LexiNote Team",
+  "description": "命令面示例:callback 与 editorCallback 双形态 + Notice + data.json 持久化。沙箱轨可装载。",
+  "license": "MIT",
+  "entrypoints": {
+    "service": "sandbox:"
+  },
+  "compatibility": {
+    "lexinote": { "min": "1.0.0" },
+    "obsidianApiLevel": "1.14.4"
+  },
+  "platforms": ["harmonyos-phone", "harmonyos-tablet", "harmonyos-pc"],
+  "capabilities": {
+    "workspace": { "commands": true },
+    "editor": { "readActive": true, "writeSelection": true },
+    "notifications": true,
+    "storage": { "quotaBytes": 16384 }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "manifestVersion": 2,
+  "id": "example-vault",
+  "name": "示例:Vault 读写",
+  "version": "1.0.0",
+  "author": "LexiNote Team",
+  "description": "Vault 面示例:文件枚举/读/建/改/process 组合面 + 路径白名单声明。沙箱轨可装载。",
+  "license": "MIT",
+  "entrypoints": {
+    "service": "sandbox:"
+  },
+  "compatibility": {
+    "lexinote": { "min": "1.0.0" },
+    "obsidianApiLevel": "1.14.4"
+  },
+  "platforms": ["harmonyos-phone", "harmonyos-tablet", "harmonyos-pc"],
+  "capabilities": {
+    "vault": {
+      "read": { "enabled": true, "paths": [] },
+      "write": { "enabled": true, "paths": ["插件笔记/"] }
+    },
+    "workspace": { "commands": true },
+    "notifications": true
+  }
+}

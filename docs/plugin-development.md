@@ -39,3 +39,20 @@ children→intervals→cleanups→注册的扩展/后处理器；注册的一切
 
 仅允许声明过的 origins（`capabilities.network`），强制走宿主 RPC（`requestUrl`）；
 页面自身 CSP `connect-src 'none'`。
+
+## 示例工程组（P3-007）
+
+五类各一例，位于 `tools/lexinote-plugin-template/examples/`；每例只用**真实已实现**的
+API 面，未接入的轨面在各自 README「运行轨面与边界」如实标注：
+
+| 示例 | 类别 | 装载轨 |
+| --- | --- | --- |
+| `example-commands` | 命令（callback + editorCallback） | 沙箱轨可装载（`service: "sandbox:"`） |
+| `example-vault` | Vault 读写 + `vault.write.paths` 白名单 | 沙箱轨可装载 |
+| `example-view` | `registerView` + `ItemView` 面板 | runtime 页轨（沙箱轨视图面 pending=P4-001/P4-005） |
+| `example-markdown` | 代码块处理器 + 后处理器 | runtime 页轨（沙箱轨 pending） |
+| `example-settings` | 声明式设置页（`getSettingDefinitions`） | runtime 页轨（沙箱轨 pending；值经 data.json 重启读回，运行中回推未接通） |
+
+每例都可离线经真实 CLI 校验：`validate → build → inspect → pack`；门禁
+`scripts/tests/plugin-examples.cjs`（release-gate --ci 步骤）对五例跑同一条链，并以
+宿主沙箱源提取的面清单做 onload 行为级 boot 对账——示例用了沙箱轨未实现的面会红。

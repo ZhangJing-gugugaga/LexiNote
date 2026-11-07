@@ -1,0 +1,12 @@
+/* example-view — 视图示例可选样式(消费宿主 --lexi-* token,RFC §7.8)。
+   随包发布时由 runtime 页注入;沙箱轨视图面接入(P4-005)前不生效。 */
+.lexi-info {
+  color: var(--lexi-text-secondary, inherit);
+  font-size: 13px;
+}
+
+.lexi-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}

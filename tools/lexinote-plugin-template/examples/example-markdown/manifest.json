@@ -1,0 +1,20 @@
+{
+  "manifestVersion": 2,
+  "id": "example-markdown",
+  "name": "示例:Markdown 渲染",
+  "version": "1.0.0",
+  "author": "LexiNote Team",
+  "description": "Markdown 面示例:代码块处理器 + 阅读视图后处理器。运行页轨(runtime page)装载。",
+  "license": "MIT",
+  "entrypoints": {
+    "service": "main.js"
+  },
+  "compatibility": {
+    "lexinote": { "min": "1.0.0" },
+    "obsidianApiLevel": "1.14.4"
+  },
+  "platforms": ["harmonyos-phone", "harmonyos-tablet", "harmonyos-pc"],
+  "capabilities": {
+    "editor": { "extensions": "declarative" }
+  }
+}

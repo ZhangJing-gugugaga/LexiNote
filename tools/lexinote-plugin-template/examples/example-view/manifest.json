@@ -1,0 +1,22 @@
+{
+  "manifestVersion": 2,
+  "id": "example-view",
+  "name": "示例:自定义视图",
+  "version": "1.0.0",
+  "author": "LexiNote Team",
+  "description": "视图面示例:registerView + ItemView 子类 + workspace 叶打开。运行页轨(runtime page)装载。",
+  "license": "MIT",
+  "entrypoints": {
+    "service": "main.js"
+  },
+  "compatibility": {
+    "lexinote": { "min": "1.0.0" },
+    "obsidianApiLevel": "1.14.4"
+  },
+  "platforms": ["harmonyos-phone", "harmonyos-tablet", "harmonyos-pc"],
+  "capabilities": {
+    "workspace": { "commands": true, "views": true },
+    "vault": { "read": { "enabled": true, "paths": [] } },
+    "notifications": true
+  }
+}
