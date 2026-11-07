@@ -1313,6 +1313,61 @@ test('P5-004 设置页接线：未授权插件的开关 = 同意行内权限清�
   }
 });
 
+// --- 9b. P5-007(R40/KI-1) 市场条目塌陷：已安装列表限高可滚动,条目区保住正高度 -------------
+// P0-012 真机发现(dump 证明):根 Column height('100%') 把面板钉在视口上,已安装 8+ 行一溢出,
+// layoutWeight(1) 的条目 Scroll 拿到 max(0, 负数)=0 高——条目不是滚出视口而是根本不渲染
+// (容器内滑 6 屏前后 dump 逐字节相同,内层 Scroll 节点不存在)。修复形状 = 发现里给的
+// constraintSize/scrollable-installed-list:已安装列表改成内部限高滚动。本用例把塌陷条件
+// 和修复后的空间分配都钉进离线门禁,真机 --market-repro reachable=true 复测归 B-001。
+test('P5-007 市场条目塌陷(KI-1/P0-012)：已安装列表限高可滚动,8-9 行溢出时条目区保住正高度', () => {
+  const sheet = marketSheetEts();
+  // 1) 结构断言:已安装段(必须先于市场条目段)被包进带 constraintSize maxHeight 的内部滚动 Scroll。
+  const installedAt = sheet.indexOf('if (this.installed.length > 0) {');
+  const entriesAt = sheet.indexOf('ForEach(this.entries');
+  assert.ok(installedAt > 0 && entriesAt > installedAt, '已安装段必须先于市场条目段(源锚点漂移,先修锚点)');
+  const installedBlock = sheet.slice(installedAt, entriesAt);
+  const cap = /constraintSize\(\{ maxHeight: '(\d+)%' \}\)/.exec(installedBlock);
+  assert.ok(cap, 'P5-007:已安装列表必须用 constraintSize({ maxHeight: … }) 限高——条目区不被挤塌的前提');
+  assert.ok(/Scroll\(\) \{[\s\S]*?ForEach\(this\.installed/.test(installedBlock),
+    'P5-007:已安装列表必须包进 Scroll 内部滚动(限高后超出行仍可达,不许静默裁剪)');
+  assert.match(installedBlock, /\.scrollBar\(BarState\.Auto\)/, 'P5-007:已安装限高滚动区必须有滚动条(可发现性)');
+  const pct = Number(cap[1]);
+  assert.ok(pct >= 20 && pct <= 50, 'P5-007:限高比例须在 20-50%(太小已安装列表不可用,太大条目区保不住),实为 ' + pct + '%');
+  // 2) 机制两端保持:条目 Scroll 仍 layoutWeight(1)+可滚,根 Column 仍 height('100%')——
+  //    修复靠"已安装限高"消除负空间,不改根布局(flows 的市场容器发现/滚动轮询依赖这个形态)。
+  const entriesBlock = sheet.slice(entriesAt);
+  assert.match(entriesBlock, /\.layoutWeight\(1\)/, '市场条目 Scroll 必须保留 layoutWeight(1)(flows 可达面)');
+  assert.match(entriesBlock, /\.scrollBar\(BarState\.Auto\)/, '市场条目 Scroll 必须保留滚动条(Auto)');
+  assert.match(sheet, /\.height\('100%'\)/, '根 Column height(100%) 必须保持(钉视口的既有形态)');
+  // 3) 计算高度行为:行距 132px = P0-012 真机实测行距(flows clickRowAction 配对注释);
+  //    固定区(标题行+按钮行+间距+内边距)上界 170。面板高取两个真实容器:
+  //    手机 bindSheet 的 height 从 LexiSettingsTab.ets 现读(改了自动跟随),2in1 视口 1179 为 P0-012 dump 实测。
+  const tabText = fs.readFileSync(path.join(REPO_ROOT, 'entry', 'src', 'main', 'ets', 'components', 'LexiSettingsTab.ets'), 'utf8');
+  const sheetHeight = /bindSheet\(\$\$this\.sheetOpen[\s\S]{0,200}?height: (\d+)/.exec(tabText);
+  assert.ok(sheetHeight, 'LexiSettingsTab 的市场 bindSheet 必须带固定 height(测试按它算空间分配)');
+  const PITCH = 132;
+  const CHROME = 170;
+  const CARD = 110; // 一张市场条目卡的最小可视高度(内边距 24 + 名称 + 两行简介)
+  const containers = [['bindSheet(手机,height=' + sheetHeight[1] + ')', Number(sheetHeight[1])],
+    ['2in1 设置窗视口(P0-012 实测 1179)', 1179]];
+  for (const [label, h] of containers) {
+    for (const n of [8, 9]) {
+      assert.ok(h - CHROME - n * PITCH < 0,
+        label + ' 已安装 ' + n + ' 行时修复前条目区必为负空间(P0-012 塌陷条件;不为负说明行距/固定区常量漂移,重测后再改)');
+      assert.ok(h - CHROME - Math.min(n * PITCH, (pct / 100) * h) >= CARD,
+        label + ' 已安装 ' + n + ' 行时修复后条目区必须 ≥ 一张条目卡(≈' + CARD + 'px),实为 ' +
+        Math.floor(h - CHROME - Math.min(n * PITCH, (pct / 100) * h)) + 'px——限高比例或面板高度变了,重算后再改');
+    }
+    // flows 验收区间 N=3..8 的下界:条目区同样保住(收起侧不再依赖夹具收纳)。
+    for (const n of [3, 4, 5]) {
+      assert.ok(h - CHROME - Math.min(n * PITCH, (pct / 100) * h) >= CARD,
+        label + ' 已安装 ' + n + ' 行时修复后条目区必须 ≥ 一张条目卡(flows --market-repro N=3..8 的可达前提)');
+    }
+  }
+  // 备注:授权面板(P5-004)打开时面板空间竞争另算——它是瞬时态,且同意面板优先级高于条目可见;
+  // KI-1 的塌陷场景是"已安装列表溢出"这个持久态,不在本用例断言范围。
+});
+
 // --- 10. R32(P1-008 + P2-009) 执行环境销毁闭环 + 生命周期状态机补全 ----------------------
 test('R32 销毁闭环与状态机接线：五步尾序/quarantine 触发链/permission-pending/revoked/degraded', () => {
   const text = runtimeEts();

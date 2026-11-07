@@ -434,9 +434,15 @@ export struct LexiPluginMarketSheet {
       }
 
       if (this.installed.length > 0) {
-        Column({ space: 8 }) {
-          Text('已安装').fontSize(12).fontWeight(FontWeight.Medium).fontColor($r('app.color.text_primary'))
-          ForEach(this.installed, (plugin: LexiInstalledPlugin) => {
+        // P5-007/KI-1（P0-012 真机发现）：根 Column height('100%') 把面板钉在视口高度上，
+        // 已安装列表若不限高，行数一溢出，layoutWeight(1) 的市场条目 Scroll 就拿到
+        // max(0, 剩余空间)=0 高——条目不是“滚出视口”而是根本不渲染。把已安装列表改成
+        // 内部限高滚动（constraintSize 上限按面板高度的百分比），行数再多也只占面板一部分，
+        // 市场条目区始终保住正高度（已安装 8-9 行时条目仍可见、可达）。
+        Scroll() {
+          Column({ space: 8 }) {
+            Text('已安装').fontSize(12).fontWeight(FontWeight.Medium).fontColor($r('app.color.text_primary'))
+            ForEach(this.installed, (plugin: LexiInstalledPlugin) => {
             Row({ space: 8 }) {
               Column({ space: 2 }) {
                 Text(plugin.manifest.name).fontSize(13).fontColor($r('app.color.text_primary'))
@@ -490,9 +496,14 @@ export struct LexiPluginMarketSheet {
             .backgroundColor($r('app.color.soft_surface'))
             .borderRadius(10)
           }, (plugin: LexiInstalledPlugin): string => plugin.manifest.id)
+          }
+          .width('100%')
+          .alignItems(HorizontalAlign.Start)
         }
         .width('100%')
-        .alignItems(HorizontalAlign.Start)
+        .constraintSize({ maxHeight: '34%' })
+        .scrollBar(BarState.Auto)
+        .align(Alignment.TopStart)
       }
 
       if (this.entries.length === 0 && !this.busy) {

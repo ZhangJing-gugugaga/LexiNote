@@ -280,6 +280,33 @@ const skippedBad = FIXTURES_REQUIRED
   ? citeSkipped.map((x) => x.symbol + ' → ' + x.label + '（夹具未就位；--fixtures-required 要求真校验）')
   : [];
 
+// P4-006(R40)：兼容性报告（compat-matrix.md）与 symbols.json 逐字节对账。
+//   1) 渲染器确定性：同一输入渲染两次必须逐字节相同（时间戳/遍历序等非确定源就地红）；
+//   2) 漂移检测：入库的 compat-matrix.md 必须等于 symbols.json 的新鲜渲染——
+//      改了矩阵不重跑 `node tools/contract/report.cjs` 即红（"报告与契约逐字节可再生"的门禁面）。
+const reportProblems = [];
+try {
+  const { renderTwice, OUT_FILE: REPORT_FILE } = require(path.join(contract, 'report.cjs'));
+  const fresh = renderTwice(matrix);
+  if (!fs.existsSync(REPORT_FILE)) {
+    reportProblems.push({ text: '缺少 tools/contract/compat-matrix.md', hints: ['跑 node tools/contract/report.cjs 生成并入库'] });
+  } else {
+    const committed = fs.readFileSync(REPORT_FILE, 'utf8');
+    if (committed !== fresh) {
+      const c = committed.split('\n');
+      const f = fresh.split('\n');
+      let at = 0;
+      while (at < c.length && at < f.length && c[at] === f[at]) at += 1;
+      reportProblems.push({
+        text: 'compat-matrix.md 与 symbols.json 的渲染结果不同（入库 ' + c.length + ' 行 vs 渲染 ' + f.length + ' 行，首处分歧第 ' + (at + 1) + ' 行）',
+        hints: ['重跑 node tools/contract/report.cjs 并把 compat-matrix.md 一并入库'],
+      });
+    }
+  }
+} catch (err) {
+  reportProblems.push({ text: '兼容性报告渲染失败：' + err.message, hints: ['检查 tools/contract/report.cjs 与 symbols.json'] });
+}
+
 const c = counts(symbols) || {};
 const summary = [
   'implemented ' + (c.implemented || 0),
@@ -299,6 +326,7 @@ console.log('fixture citations skipped: ' + citeSkipped.length + ' (must be 0 in
 console.log('策略符号快照：' + POLICY_SYMBOLS.length + ' 条（members ' + memberCount + ' 项 / excludes ' + excludeCount + ' 项 / 时效头缺失 ' + policyBadNote.length + ' 处 / 清单脱节 ' + memberDangling.length + ' 处）');
 const gc = gapCounts(symbols);
 console.log('缺口分布：low-risk ' + gc['low-risk'] + ' / needs-architecture ' + gc['needs-architecture'] + ' / out-of-scope ' + gc['out-of-scope'] + '（implemented ' + gc.null + ' 条 gap=null）');
+console.log('兼容性报告：' + (reportProblems.length ? '漂移/缺失' : 'tools/contract/compat-matrix.md 逐字节一致（双重渲染自检通过）'));
 
 if (problems.length) fail('矩阵头信息不合法', problems);
 if (missing.length) fail('d.ts 有、矩阵缺的符号（漏登记）', missing);
@@ -321,12 +349,13 @@ if (policyBadNote.length) fail('策略符号 note 不合规（必须以 [截至 
 if (memberDangling.length) fail('覆盖清单与实现脱节（members 里的名字在实现索引里查不到）', memberDangling);
 if (citeBad.length) fail('note 里的「路径:行号（标识符）」核对不上（每条附可直接照抄的替换行）', citeBad);
 if (skippedBad.length) fail('夹具未就位但有夹具侧引用；--fixtures-required 要求这些引用全部真校验过', skippedBad);
+if (reportProblems.length) fail('兼容性报告（P4-006）：compat-matrix.md 与 symbols.json 不同步', reportProblems);
 
 const failed = problems.length + missing.length + extra.length + dupes.length + blank.length +
   badStatus.length + badOwner.length + badKind.length + unsorted.length + unbacked.length +
   badGap.length + gapOnImplemented.length + gapMissing.length + noEvidence.length + danglingEvidence.length +
   apiVersionBad.length + policyDrift.length + policyBadNote.length + memberDangling.length + citeBad.length +
-  skippedBad.length;
+  skippedBad.length + reportProblems.length;
 
 if (failed) {
   console.log('\n共 ' + failed + ' 处不一致；修完重跑 node tools/contract/generate.cjs 或本脚本 --generate。');

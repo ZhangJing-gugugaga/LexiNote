@@ -9,7 +9,9 @@
 | --- | --- |
 | `symbols.json` | 派生产物（入库）：每个 d.ts 符号一行状态。符号按字典序、字段序固定，重跑无 diff。 |
 | `generate.cjs` | 生成/刷新 `symbols.json`；内含逐符号定级 `OVERRIDES`、缺口覆盖 `GAPS`、家族规则 `RULES`。 |
-| `../scripts/tests/plugin-contract-matrix.cjs` | 门禁：矩阵与 d.ts 对账 + 格式/schema/gap/证据校验。 |
+| `report.cjs` | P4-006：`symbols.json` → `compat-matrix.md` 兼容性矩阵文档（unsupported/stub/partial/implemented 分节全量表）。逐字节可再生：无时间戳、字典序、固定节序，双重渲染自检。 |
+| `compat-matrix.md` | 派生产物（入库）：由 `report.cjs` 渲染的矩阵文档。改了 `symbols.json` 必须重跑 `node tools/contract/report.cjs`，否则门禁漂移检查红灯。 |
+| `../scripts/tests/plugin-contract-matrix.cjs` | 门禁：矩阵与 d.ts 对账 + 格式/schema/gap/证据校验 + 报告漂移检测。 |
 
 `obsidian.d.ts` **不入库**（官方版权文件，只作为生成时的输入）。
 
@@ -21,6 +23,8 @@ mkdir -p /tmp/obs && cd /tmp/obs && npm pack obsidian@1.14.4 && tar -xzf obsidia
 # → /tmp/obs/package/obsidian.d.ts（Windows 下 /tmp 解析到当前盘根的 tmp）
 
 node tools/contract/generate.cjs                    # 重写 symbols.json 并打印 status/gap 分布
+node tools/contract/report.cjs                      # 重写 compat-matrix.md（symbols.json 变了必跑，漂移即门禁红）
+node tools/contract/report.cjs --check              # 报告与矩阵逐字节比对（门禁内置同一检查）
 node scripts/tests/plugin-contract-matrix.cjs       # 门禁 check（CI 用）
 node scripts/tests/plugin-contract-matrix.cjs --generate   # 等价于生成
 node scripts/tests/plugin-contract-matrix.cjs --fixtures-required   # CI 夹具 job：夹具侧引用必须真校验（跳过=失败）
@@ -145,6 +149,9 @@ repo 文件：entry/src/main/ets/core/plugin/LexiPluginRuntime.ets:1054（`works
     `generate.cjs` 的 `NOTE_POLICY` 与门禁里的镜像表不一致也红灯（防止悄悄少校验一个符号）；
 12. note 里出现的每个「`路径:行号`（`标识符`）」都真实存在、且那一行确实含该标识符；夹具路径以
     `fixture:` 打头，未就位时跳过（spec 第 12 节：note 不许与代码脱节）。
+13. 兼容性报告（P4-006）：`compat-matrix.md` 必须等于 `symbols.json` 的新鲜渲染——改了矩阵不重跑
+    `node tools/contract/report.cjs` 即红；且渲染器同一输入渲染两次必须逐字节相同（无时间戳、无遍历序
+    等非确定源，"报告与契约逐字节可再生"）。
 
 任一条不满足 → 打印差异清单并 `exit 1`（每类最多列 20 条，超出只报总数）。
 全绿 → `exit 0`，并打印 status 分布、gap 分布与实现面索引规模。
