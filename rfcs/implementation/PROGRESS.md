@@ -932,3 +932,10 @@ release-gate --ci **32/32**、context-isolation **111**（含 E4/E4b 全链探�
 P4-005 夹具批次（设备验收:含本面三交互+R36 示例的 runtime 页轨面迁移）;P4-002 Suggest 系（依赖本面 Modal 载体）。
 
 最近更新时间：2026-11-07（Round 37）。
+
+### Round 37 追记（同日,P4-005 设备批次第一段 + R37-B）
+
+- **R37-B/P2-013 修复收口（69da705）**：Toggle 多次触发根因=await 窗口旧值回拉+无守卫（非双注册）；重入守卫+值幂等+乐观同步；负对照复现 bug 形状。
+- **allow-list 补齐**：R37-A 自述已加 sandbox-ui-min 白名单但提交代码缺失（验收差异抓获）——主线补上（与探针先例一致），dist-reg 43/43、构建绿。
+- **P4-001 三面真机全定案（sandbox-ui-min）**：Modal `opens:1`+`modalClosedAt`（宿主原生弹层"沙箱交互面"经端口链）；Menu `menus:1`+`menuPick:"star"`+`menuClosedAt`（原生菜单"标记为重要/归档",onClick 经 sandbox.ui 回环）；**Setting pushback `changes:1`+`controlFired:1`+`lastChanged:{showBadge:true,uiLevel,maxItems}`**（原生设置表单改值→onChange 送达 iframe）。三面 data.json 铁证。
+- **P4-005 定级进度**：sandbox 系夹具（probe/sample-min/editor-min/sec-probe/ui-min）真机证据充分（对应 C 级=沙箱原生面全用）；legacy 系（calendar/outliner/editor-outliner/compat-probe）证据采集派工中。

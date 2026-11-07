@@ -1189,6 +1189,8 @@ export class LexiPluginManager {
       // P1-003d(R28):SEC 探针随首启启用——逃逸向量经业务装载链(bootPlugin)在真实
       // iframe 内执行,data.json 落逐向量报告(RFC §3.6 业务路径验收对象)。
       if (this.plugins.has('sandbox-sec-probe')) { bundledAllowList.push('sandbox-sec-probe'); }
+      // P4-001(R37):UI 面夹具随首启启用——Modal/Menu/Setting 端口链真机验收对象。
+      if (this.plugins.has('sandbox-ui-min')) { bundledAllowList.push('sandbox-ui-min'); }
       for (const bundledId of bundledAllowList) {
         this.enabledIds.add(bundledId);
         const bundledRecord = this.plugins.get(bundledId);
