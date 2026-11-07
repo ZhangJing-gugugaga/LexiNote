@@ -64,4 +64,13 @@ export class LexiViewSessionTable {
     for (const viewType of doomed) { this.sessions.delete(viewType); }
     return doomed.length;
   }
+
+  /** P3-006(问 5/6):单插件当前打开的视图会话数——只读，无副作用。 */
+  openCountOf(pluginId: string): number {
+    let count = 0;
+    this.sessions.forEach((session: LexiViewSession): void => {
+      if (session.pluginId === pluginId && session.open) { count += 1; }
+    });
+    return count;
+  }
 }

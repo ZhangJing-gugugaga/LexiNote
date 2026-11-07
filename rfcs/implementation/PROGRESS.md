@@ -991,3 +991,15 @@ P4-005 夹具批次（设备验收:含本面三交互+R36 示例的 runtime 页�
 
 **诚实边界(IMPLEMENTED ≠ VERIFIED)**:全部离线证据。设备欠账:①模拟器 debug 形态 `ApplicationInfo.debug=true` 实测+flows 四流程回归(演示源 http 在 debug 构建全链;若模拟器对 unsigned HAP 上报 debug=false,演示源按钮会禁用——flows 将显式红,属预期 fail-closed 行为而非缺陷);②同版本覆盖/回滚链真机负例(P5-010);③生产(release 签名)构建 http 拒绝的设备直证需 release 签名链(B-002 侧)。
 
+
+## Round 43（R43 = P3-006：Plugin Inspector 完整化 → 离线全绿）
+
+**本轮完成**:LexiPluginInspector 从 T5.3 观察面扩到 **RFC §12 七问全字段**(每问→数据源→字段映射固化在 Inspector 头注与 docs/plugin-inspector.md 表,宿主 inspectPlugin 只读组装,无行为面变化):
+
+1. **七问映射**:问 1 启动失败(lifecycle journal starting→failed 行+activation.failReason→failReason/lastFailureAt);问 2 请求权限(permissionStore.grantOf 全貌→permissionFingerprint/GrantedAt/RevokedAt/Version+capabilityTags);问 3 拒绝 RPC(**新数据面 rpcDenyJournal**:与既有 authz.denied 记账同点追加 method+code+at,环形上限 16,零载荷零凭据→rpcDeniedRecent);问 4 超时(**新数据面 rpcTimeouts/notePluginTimeout**:onload/onunload/invoke.* 三类既有失败出口记账,成功路径零调用);问 5 资源(contextRegistry.aliveCountOf+viewSessions.openCountOf 新只读方法+activationCount+data.json fs.stat 占用+storage.quotaBytes);问 6 卸载清理(存活上下文/视图会话/扩展残留只读盘点→cleanupComplete/cleanupLeftovers,残留点名);问 7 隔离(record.quarantineReason+账目 quarantined 行)。answersOf() 把七问折成恒 7 行应答文本(只由已脱敏字段拼装);兼容性报告 compatOk/minApiVersion/apiCompatLine(§12 必备面)。
+2. **脱敏红线 enforced+asserted**:自由文本字段(errorState/账目原因/隔离原因/失败原因/超时标签)经凭据形状脱敏——凡「短前缀-长十六进制」(tk-/st-/dc-/ch-/n- 等宿主铸造形状全覆盖)只剩尾 6 位(与 LexiWebRuntime.tokenTail 同纪律);RPC 拒绝行只带 method/code/at(载荷/凭据字段结构性丢弃);journal 报告截尾 32 行;errorState 120/自由文本 160 截断。门禁负例:三种凭据全值植入 errorState/journal reason/隔离原因/超时标签,报告与应答行均不得含全值、必须含尾迹;拒绝行植入 payloadJson/credential 字段必须被丢弃。
+3. **门禁**:plugin-inspector **→60 项**(I1 观察面/I2 隐私边界/R 红线×9/**Q 七问真实状态面**:转译真跑 LifecycleManager+PermissionStore,P2-009 permission-pending/quarantined/revoked 状态全在案,含账目交叉证据与清理两态/R2 只读伴生模块(contextRegistry/viewSessions)/I3 接线锚点×10);symbols.json runtime 行锚手修(1880→1928/2078→2126,本轮代码位移;未跑 generate.cjs)+compat-matrix.md 经 report.cjs 重渲染逐字节一致;docs/plugin-inspector.md 增七问映射表与红线节(docs-contract 17 绿)。
+
+**实际执行的测试**:release-gate --ci **32/32**、plugin-inspector **60**、plugin-lifecycle-once **71**、dist-regression **48/48**、docs-contract **17**、contract-matrix ✚(--fixtures-required)、hvigorw assembleHap **BUILD SUCCESSFUL**(33 tasks,无签名配置=既有 WARN)。
+
+**诚实边界(IMPLEMENTED ≠ VERIFIED)**:全部离线证据(vm 行为级+静态接线)。设备欠账(归 supervisor 批次):①观察面七问应答在真机 UI/日志的消费路径(answersOf 面向设备消费,宿主尚无 UI 挂接点——现有消费面仍为 inspectPlugin 调用方);②超时记账的三类出口中 onload/onunload 路径为静态锚点+账目交叉证据,invoke.* 路径行为级只在 net-request-url 既有超时用例覆盖(插件命令超时账目未做设备直证);③rpcDenyJournal/authz.denied 的设备对账(拒绝注入的 hilog 链)。

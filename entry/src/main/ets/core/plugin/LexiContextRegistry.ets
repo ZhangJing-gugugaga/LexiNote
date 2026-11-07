@@ -96,6 +96,15 @@ export class LexiContextRegistry {
     return count;
   }
 
+  /** P3-006(问 5/6):单插件存活（未吊销）上下文数——只读，无副作用。 */
+  aliveCountOf(pluginId: string): number {
+    let count = 0;
+    this.records.forEach((record: HostContextRecord): void => {
+      if (record.pluginId === pluginId && !record.revoked) { count += 1; }
+    });
+    return count;
+  }
+
   /**
    * 幂等取/建 service 上下文(P1-003b):沙箱轨在 dispatch 前就需要 contextId,
    * 而旧轨在 onload 成功后才建——统一走本方法避免同一 activation 重复注册。

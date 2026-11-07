@@ -16,12 +16,15 @@ import {
   LexiPluginManifest,
   LexiCapabilityDecision,
   manifestCompatMessage,
+  manifestCompatible,
+  OBSIDIAN_API_COMPAT,
   parsePluginManifest,
   checkFsCapability,
   vaultPathAllowed,
   ERROR_CAPABILITY_DENIED,
   ERROR_INTEGRITY_MISMATCH
 } from './LexiPluginManifest';
+import { LexiLifecycleEvent } from './LexiPluginActivation';
 import { capabilityTagsOfV2Caps } from './LexiPluginManifestV2';
 import {
   LexiNetDeps,
@@ -61,7 +64,7 @@ import { LexiContextKind } from './LexiPluginExecutionContext';
 import { LexiExtensionRegistry } from './LexiExtensionRegistry';
 import { LexiPermissionStore, PERMISSION_GRANTED, PERMISSION_REGRANT_REQUIRED, PERMISSION_NOT_GRANTED } from './LexiPermissionStore';
 import { LexiViewSessionTable } from './LexiViewSessionState';
-import { LexiInspectorInput, LexiInspectorReport, LexiPluginInspector } from './LexiPluginInspector';
+import { LexiInspectorInput, LexiInspectorReport, LexiInspectorRpcDeny, LexiInspectorJournalRow, LexiPluginInspector } from './LexiPluginInspector';
 import { resolvePluginTrack, TRACK_REFUSED, TRACK_SANDBOX } from './LexiPluginTrackPolicy';
 
 const LOAD_TIMEOUT_MS: number = 20000;
@@ -74,6 +77,8 @@ const ERROR_IDENTITY_UNTRUSTED: string = 'identity_untrusted';
 const ERROR_DISPATCH_CHANNEL_UNTRUSTED: string = 'dispatch_channel_untrusted';
 const SOURCE_CHUNK_SIZE: number = 48 * 1024;
 const PLUGIN_DIR_NAME: string = 'plugins';
+/** P3-006(问 3):每插件 RPC 拒绝账目环形上限(宿主内存观察面,防长会话膨胀)。 */
+const RPC_DENY_JOURNAL_CAP: number = 16;
 const KEY_ENABLED: string = 'lexiPluginEnabled';
 const KEY_SAFE_MODE: string = 'lexiPluginSafeMode';
 /**
@@ -185,6 +190,16 @@ function failResponseCode(code: string, error: string): string {
   return JSON.stringify(body);
 }
 
+/**
+ * P3-006(问 4):一次超时的宿主观察记账(count/最近标签/最近时间)。
+ * 纯观察数据:只在既有失败出口处累加,不改变任何控制流。
+ */
+export class LexiTimeoutRecord {
+  count: number = 0;
+  label: string = '';
+  at: number = 0;
+}
+
 /** ArkWeb transport. The Web component exposes `call` as `lexiHost` inside the runtime page. */
 export class LexiWebRuntime {
   private controller: webview.WebviewController | null = null;
@@ -218,6 +233,13 @@ export class LexiWebRuntime {
   set broker(replacement: LexiPermissionBroker) { this.rpcGateway.attachBroker(replacement); }
   /** RPC 拒绝计数(T5.3 Inspector 数据源):key=插件 id 或 '(anonymous)'。 */
   rpcDenies: Map<string, number> = new Map();
+  /**
+   * P3-006(问 3):每插件 RPC 拒绝账目(pluginId → method+code+at 环形表)。
+   * 与 rpcDenies 同一记账点追加;只有方法名/机器码/时间,绝不带载荷与凭据(§12 红线)。
+   */
+  rpcDenyJournal: Map<string, LexiInspectorRpcDeny[]> = new Map();
+  /** P3-006(问 4):每插件超时记账(pluginId → count/label/at;既有失败出口追加)。 */
+  rpcTimeouts: Map<string, LexiTimeoutRecord> = new Map();
 
   /** 铸造插件凭据并登记归属。返回空串表示插件 id 非法(调用方必须按失败处理)。 */
   mintPluginToken(pluginId: string): string {
@@ -346,6 +368,20 @@ export class LexiWebRuntime {
     return token.length <= 6 ? token : token.substring(token.length - 6);
   }
 
+  /**
+   * P3-006(问 4):超时观察记账——只在宿主既有失败出口处调用(enable/disable
+   * 生命周期等待超时、invoke.* 派发超时)。纯观察:不改控制流,成功路径零调用。
+   */
+  notePluginTimeout(pluginId: string, label: string): void {
+    if (pluginId.length === 0) { return; }
+    const record = this.rpcTimeouts.get(pluginId);
+    const tally = record !== undefined ? record : new LexiTimeoutRecord();
+    tally.count += 1;
+    tally.label = label;
+    tally.at = new Date().getTime();
+    this.rpcTimeouts.set(pluginId, tally);
+  }
+
   /** 角色+归属 → 授权上下文。 */
   static contextOf(role: string, pluginId: string): LexiCallerContext {
     const ctx = new LexiCallerContext();
@@ -431,6 +467,18 @@ export class LexiWebRuntime {
       const denyKey: string = trusted.length > 0 ? trusted : '(anonymous)';
       const prior: number = this.rpcDenies.get(denyKey) === undefined ? 0 : this.rpcDenies.get(denyKey) as number;
       this.rpcDenies.set(denyKey, prior + 1);
+      // P3-006(问 3):拒绝账目追加(method+code+at;无载荷无凭据,环形上限)。
+      if (trusted.length > 0) {
+        const existing: LexiInspectorRpcDeny[] | undefined = this.rpcDenyJournal.get(trusted);
+        const journal: LexiInspectorRpcDeny[] = existing !== undefined ? existing : [];
+        const row = new LexiInspectorRpcDeny();
+        row.at = new Date().getTime();
+        row.method = method;
+        row.code = authz.code;
+        journal.push(row);
+        if (journal.length > RPC_DENY_JOURNAL_CAP) { journal.splice(0, journal.length - RPC_DENY_JOURNAL_CAP); }
+        this.rpcDenyJournal.set(trusted, journal);
+      }
       return failResponseCode(authz.code, authz.reason);
     }
     try {
@@ -2258,17 +2306,21 @@ export class LexiPluginManager {
   }
 
   /**
-   * Plugin Inspector(T5.3):每插件观察报告。
-   * 隐私边界:报告只含生命周期/扩展/授权/RPC 审计计数,不含 session token 与用户内容(§10.3)。
+   * Plugin Inspector(T5.3/P3-006):每插件观察报告,可回答 RFC §12 七问。
+   * 本方法只做只读组装(数据源→字段映射见 LexiPluginInspector.ets 头注);
+   * 隐私边界(§10.3/§12):报告只含可观测字段,不含 session token、用户笔记内容、
+   * RPC 载荷与凭据全值——自由文本经观察面脱敏收敛(凭据形状只剩尾迹)。
    */
   inspectPlugin(pluginId: string): LexiInspectorReport {
     const input = new LexiInspectorInput();
     input.pluginId = pluginId;
     input.lifecycleState = this.lifecycle.stateOf(pluginId);
     const record = this.plugins.get(pluginId);
-    input.activationId = this.lifecycle.currentActivationIdOf(pluginId).length > 0
+    const activationId = this.lifecycle.currentActivationIdOf(pluginId).length > 0
       ? this.lifecycle.currentActivationIdOf(pluginId)
       : (record ? record.activationId : '');
+    input.activationId = activationId;
+    input.version = record ? record.manifest.version : '';
     let extensionCount = 0;
     this.extensionRegistry.list(pluginId).forEach((_record: Object): void => { extensionCount += 1; });
     input.extensionCount = extensionCount;
@@ -2279,7 +2331,86 @@ export class LexiPluginManager {
     const denies = this.runtime.rpcDenies;
     input.rpcDeniedCount = denies.get(pluginId) === undefined ? 0 : denies.get(pluginId) as number;
     input.rpcAnonymousCount = denies.get('(anonymous)') === undefined ? 0 : denies.get('(anonymous)') as number;
+    // ---- 问 2:权限面(授权记录全貌;指纹/时间/版本,均为非敏感记账数据) ----
+    if (grant !== null) {
+      input.permissionFingerprint = grant.fingerprint;
+      input.permissionGrantedAt = grant.grantedAt;
+      input.permissionRevokedAt = grant.revokedAt;
+      input.permissionVersion = grant.version;
+    }
+    // ---- 生命周期账目(问 1/6/7 + 运行日志;每插件过滤,报告层再截尾+脱敏) ----
+    this.lifecycle.historyOf(pluginId).forEach((event: LexiLifecycleEvent): void => {
+      const row = new LexiInspectorJournalRow();
+      row.at = event.at;
+      row.from = event.from;
+      row.to = event.to;
+      row.reason = event.reason;
+      input.journal.push(row);
+      if (event.to === 'failed') {
+        input.failReason = event.reason.indexOf('failed: ') === 0
+          ? event.reason.substring('failed: '.length) : event.reason;
+        input.lastFailureAt = event.at;
+      }
+    });
+    const activation = activationId.length > 0 ? this.lifecycle.activationOf(activationId) : null;
+    if (this.lifecycle.stateOf(pluginId) === 'failed' && activation !== null && activation.failReason.length > 0) {
+      // 当前失败面的失败原因以 activation 记录为准(账目行之外还带 failReason 全文)。
+      input.failReason = activation.failReason;
+    }
+    // ---- 问 3:RPC 拒绝账目(method+code+at;无载荷无凭据) ----
+    const denyRows: LexiInspectorRpcDeny[] | undefined = this.runtime.rpcDenyJournal.get(pluginId);
+    if (denyRows !== undefined) {
+      for (const row of denyRows) { input.rpcDeniedRecent.push(row); }
+    }
+    // ---- 问 4:超时记账(既有失败出口的只读回读) ----
+    const timeoutRecord = this.runtime.rpcTimeouts.get(pluginId);
+    if (timeoutRecord !== undefined) {
+      input.timeoutCount = timeoutRecord.count;
+      input.lastTimeoutLabel = timeoutRecord.label;
+      input.lastTimeoutAt = timeoutRecord.at;
+    }
+    // ---- 问 5:资源占用面(全部只读) ----
+    input.contextsAlive = this.contextRegistry.aliveCountOf(pluginId);
+    input.activationCount = this.lifecycle.activationCountOf(pluginId);
+    input.storageUsageBytes = this.storageUsageOf(pluginId);
+    input.storageQuotaBytes = record && record.manifest.manifestVersion === 2
+      ? record.manifest.v2.storage.quotaBytes : 0;
+    // ---- 问 6:卸载清理盘点(停用链五步尾序后的只读残骸检查) ----
+    const leftovers: string[] = [];
+    if (input.contextsAlive > 0) { leftovers.push('contextRegistry 存活上下文 ' + input.contextsAlive + ' 个'); }
+    const openViews = this.viewSessions.openCountOf(pluginId);
+    if (openViews > 0) { leftovers.push('视图会话未关 ' + openViews + ' 个'); }
+    if (!this.enabledFaceOf(record) && extensionCount > 0) { leftovers.push('扩展注册残留 ' + extensionCount + ' 条'); }
+    input.cleanupLeftovers = leftovers;
+    input.cleanupComplete = input.activationCount > 0 && !this.enabledFaceOf(record) && leftovers.length === 0;
+    // ---- 问 7:隔离面(record.quarantineReason 非空 = 隔离中;原因原样进报告) ----
+    if (record && record.quarantineReason.length > 0) {
+      input.quarantined = true;
+      input.quarantineReason = record.quarantineReason;
+    }
+    // ---- 兼容性报告(minAppVersion/minApiVersion 对宿主模拟线;verdict 如实) ----
+    if (record) {
+      input.compatOk = manifestCompatible(record.manifest);
+      input.minApiVersion = record.manifest.minAppVersion.length > 0
+        ? record.manifest.minAppVersion : record.manifest.minApiVersion;
+      input.apiCompatLine = OBSIDIAN_API_COMPAT;
+    }
     return LexiPluginInspector.report(input);
+  }
+
+  /** 启用记账面(enabled 标志或状态机运行面)。 */
+  private enabledFaceOf(record: LexiInstalledPlugin | undefined): boolean {
+    if (record === undefined) { return false; }
+    return record.enabled || this.lifecycle.stateOf(record.manifest.id) === 'running';
+  }
+
+  /** P3-006(问 5):插件 data.json 占用(fs.stat 只读;缺文件=0)。 */
+  private storageUsageOf(pluginId: string): number {
+    const path = `${this.pluginsRoot()}/${pluginId}/data.json`;
+    try {
+      if (fs.accessSync(path)) { return fs.statSync(path).size; }
+    } catch { /* 无数据文件 = 0 占用 */ }
+    return 0;
   }
 
   private permissionStorePath(): string {
@@ -2659,6 +2790,8 @@ export class LexiPluginManager {
     const record = this.plugins.get(pluginId);
     if (record) { record.errorState = message; }
     if (this.uiHost) { this.uiHost.toast(label + ' 执行失败'); }
+    // P3-006(问 4):派发超时是超时账目的一部分(问 4 的 invoke.* 面;其余错误不记账)。
+    if (String(error).indexOf('超时') >= 0) { this.runtime.notePluginTimeout(pluginId, label); }
   }
 
   /** P1-003b:命令执行回推沙箱容器(容器按 pluginId 路由进对应 iframe)。 */
@@ -3001,6 +3134,8 @@ export class LexiPluginManager {
       this.pendingOnload.delete(pluginId);
       this.pendingOnloadFail.delete(pluginId);
       if (activationId.length > 0) { this.lifecycle.markFailed(activationId, String(error)); }
+      // P3-006(问 4):装载等待超时入账(load.plugin/onload 的 LOAD_TIMEOUT 面)。
+      if (String(error).indexOf('超时') >= 0) { this.runtime.notePluginTimeout(pluginId, 'onload'); }
       return false;
     }
   }
@@ -3034,7 +3169,11 @@ export class LexiPluginManager {
         const unloadBody: Record<string, Object> = { 'id': pluginId as Object };
         await this.runtime.dispatchWithTimeout('unload.plugin', JSON.stringify(unloadBody), LOAD_TIMEOUT_MS);
         await LexiWebRuntime.withTimeout(done, LOAD_TIMEOUT_MS, 'onunload');
-      } catch { /* force removal locally even if the runtime page is gone */ }
+      } catch (error) {
+        // force removal locally even if the runtime page is gone
+        // P3-006(问 4):卸载等待超时入账(其余失败本就是既有吞噬面,行为不变)。
+        if (String(error).indexOf('超时') >= 0) { this.runtime.notePluginTimeout(pluginId, 'onunload'); }
+      }
       this.pendingUnload.delete(pluginId);
       this.pendingUnloadFail.delete(pluginId);
       // onunload 逻辑完成(含页面丢失的强制路径):stopping → disabled,凭据与扩展随后回收。
