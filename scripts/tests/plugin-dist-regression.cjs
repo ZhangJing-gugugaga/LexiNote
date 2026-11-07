@@ -495,6 +495,110 @@ test('假文件系统：sha256 不符 → integrity_mismatch 且中止在下载�
   assert.equal(accepted.ok, true, '对照：哈希对上时放行');
 });
 
+// --- 4b. P5-010 包哈希记录:更新/回滚两向对账(同版本拒绝语义对称化) ----------------
+test('P5-010 包哈希记录：幂等重装放行/换字节拒绝/侧载诚实拒绝/回滚链保持', async () => {
+  const io = makeFakeIo();
+  const installer = new installerMod.LexiPluginInstaller({ cacheDir: '/cache' }, '/plugins', io);
+  const h1 = crypto.createHash('sha256').update('pkg-v1-bytes').digest('hex');
+  const h2 = crypto.createHash('sha256').update('pkg-v1-tampered-bytes').digest('hex');
+
+  writePackage(io, '/src/v1', V1_MANIFEST, 'module.exports={v:1}');
+  const first = await installer.installExtracted('/src/v1', { expectedSha256: h1 });
+  assert.equal(first.ok, true, '带声明哈希首装应成功: ' + first.code + ' ' + first.message);
+  // 证据落账:版本目录里留下该版本安装时验证过的包哈希记录。
+  assert.equal(io.readText('/plugins/legacy-plugin/.versions/1.0.0/.package.sha256'), h1,
+    '包哈希记录必须写进版本目录(P5-010 证据源)');
+  assert.equal(io.exists('/plugins/legacy-plugin/.package.sha256'), false,
+    '包哈希记录是宿主管记账,不得泄漏进插件投影目录(布局契约)');
+
+  // 向 1:同版本 + 同声明哈希(=同一份包字节)→ 幂等放行,回滚链不被自我污染。
+  const idempotent = await installer.installExtracted('/src/v1', { expectedSha256: h1 });
+  assert.equal(idempotent.ok, true, '同版本同包哈希必须幂等放行(此前 zip 域 vs main.js 域混比误拒): '
+    + idempotent.code + ' ' + idempotent.message);
+  const pointerAfterIdem = installer.readPointer('legacy-plugin');
+  assert.equal(pointerAfterIdem.version, '1.0.0');
+  assert.equal(pointerAfterIdem.previousVersion, '', '幂等重装不得把"上一版本"写成自己');
+
+  // 向 2:同版本 + 不同声明哈希(=真的换字节)→ ERR_PACKAGE_INVALID,磁盘零改动。
+  const replaced = await installer.installExtracted('/src/v1', { expectedSha256: h2 });
+  assert.equal(replaced.ok, false, '同版本不同字节必须拒绝(§9.4 版本不可变)');
+  assert.equal(replaced.code, 'ERR_PACKAGE_INVALID');
+  assert.ok(replaced.message.indexOf('不一致') >= 0, '拒绝话术必须指向真实证据(哈希不一致): ' + replaced.message);
+  assert.equal(installer.readPointer('legacy-plugin').version, '1.0.0', '拒绝不得改指针');
+
+  // 向 3:同版本本地侧载(未声明哈希)→ 拒绝且理由诚实(不得谎称"检测到不同字节")。
+  const sideload = await installer.installExtracted('/src/v1', {});
+  assert.equal(sideload.ok, false, '无哈希证据的侧载同版本覆盖必须拒绝(fail-closed)');
+  assert.equal(sideload.code, 'ERR_PACKAGE_INVALID');
+  assert.ok(sideload.message.indexOf('无法证明') >= 0 && sideload.message.indexOf('不同字节') < 0,
+    'P5-010:侧载拒绝话术=无法证明一致,不是伪造的"不同字节": ' + sideload.message);
+
+  // 向 4:已装版本无记录(先侧载后市场同版本)→ 声明哈希不可比,如实拒绝。
+  writePackage(io, '/src/p2', { ...V1_MANIFEST, id: 'p2', version: '2.0.0' }, 'module.exports={p:2}');
+  const sideFirst = await installer.installExtracted('/src/p2', {});
+  assert.equal(sideFirst.ok, true, '对照:侧载首装(无同版本冲突)照常放行');
+  assert.equal(io.exists('/plugins/p2/.versions/2.0.0/.package.sha256'), false,
+    '未声明哈希的安装不产生记录(没有验证过就没有证据)');
+  const marketOverSide = await installer.installExtracted('/src/p2', { expectedSha256: h1 });
+  assert.equal(marketOverSide.ok, false, '无记录版本的市场同版本安装必须拒绝');
+  assert.ok(marketOverSide.message.indexOf('缺少包哈希记录') >= 0,
+    '拒绝话术必须如实指出缺记录: ' + marketOverSide.message);
+
+  // 回滚方向:升级(带哈希)→ 回滚 → 旧版本记录仍有效,幂等重装保持回滚链。
+  writePackage(io, '/src/v2', V2_MANIFEST, 'module.exports={v:2}');
+  const hUp = crypto.createHash('sha256').update('pkg-v2-bytes').digest('hex');
+  const upgrade = await installer.installExtracted('/src/v2', { expectedSha256: hUp, grantApproved: true });
+  assert.equal(upgrade.ok, true, '对照:升级(批准新权限)成功: ' + upgrade.code + ' ' + upgrade.message);
+  assert.equal(io.readText('/plugins/legacy-plugin/.versions/1.0.0/.package.sha256'), h1,
+    '升级不得触碰旧版本的包哈希记录(记录按版本隔离)');
+  const back = await installer.rollbackPlugin('legacy-plugin');
+  assert.equal(back.ok, true && back.version === '1.0.0', '回滚到 1.0.0');
+  const reIdem = await installer.installExtracted('/src/v1', { expectedSha256: h1 });
+  assert.equal(reIdem.ok, true, '回滚后对旧版本的同包重装仍幂等放行(两向对称): ' + reIdem.code + ' ' + reIdem.message);
+  assert.equal(installer.readPointer('legacy-plugin').previousVersion, '1.1.0',
+    '回滚链保持:幂等重装后仍可再回滚到 1.1.0');
+});
+
+// --- 4c. P5-005 源形态:生产 https 强制 + 开发安装标记 ------------------------------
+test('P5-005 源闸语义:生产构建拒绝 http,调试构建保留演示源(设备流依赖 10.0.2.2)', () => {
+  // 模型级判定矩阵(转译真跑)。
+  assert.equal(marketMod.marketSourceKindOf('https://market.example.com/a.zip'), 'https');
+  assert.equal(marketMod.marketSourceKindOf('http://10.0.2.2:8099/market.json'), 'dev-http');
+  assert.equal(marketMod.marketSourceKindOf('HTTP://HOST/a.zip'), 'dev-http', 'scheme 判定大小写不敏感');
+  assert.equal(marketMod.marketSourceKindOf('ftp://x/a.zip'), 'other');
+  assert.equal(marketMod.isProductionBlockedSource('http://10.0.2.2:8099/market.json', true), false,
+    '调试构建必须保留 http 演示源(plugin-dist-flows 依赖)');
+  assert.equal(marketMod.isProductionBlockedSource('http://10.0.2.2:8099/market.json', false), true,
+    '生产构建必须拒绝明文 http 源(fail-closed)');
+  assert.equal(marketMod.isProductionBlockedSource('https://market.example.com/a.zip', false), false,
+    'https 在生产构建照常可用');
+  assert.equal(marketMod.isProductionBlockedSource('https://market.example.com/a.zip', true), false);
+
+  // 宿主接线:两个网络入口都在下载/请求前过闸;演示源常量保留给调试构建。
+  const runtime = runtimeEts();
+  const fromUrl = runtime.slice(runtime.indexOf('async installFromUrl('), runtime.indexOf('async uninstallPlugin('));
+  assert.ok(fromUrl.indexOf('isProductionBlockedSource(') >= 0
+    && fromUrl.indexOf('isProductionBlockedSource(') < fromUrl.indexOf('client.request('),
+    'installFromUrl 的 https 强制必须先于下载');
+  const fetchBody = runtime.slice(runtime.indexOf('async fetchMarketIndex('), runtime.indexOf('async fetchMarket('));
+  assert.ok(fetchBody.indexOf('isProductionBlockedSource(') >= 0
+    && fetchBody.indexOf('isProductionBlockedSource(') < fetchBody.indexOf('client.request('),
+    'fetchMarketIndex 的 https 强制必须先于请求(索引供给哈希,是信任根)');
+  assert.match(runtime, /getBundleInfoForSelfSync/, '构建形态真源 = bundleManager ApplicationInfo.debug');
+  assert.match(runtime, /catch \{\s*\r?\n\s*this\.debugBuildFlag = false;/,
+    '查询失败必须按生产构建处理(fail-closed)');
+
+  // UI 面:演示源在调试构建照常可用;生产构建按钮禁用 + 开发标记上屏。
+  const sheet = marketSheetEts();
+  assert.match(sheet, /http:\/\/10\.0\.2\.2:8099\/market\.json/, '演示源 URL 必须保留(调试流不回归)');
+  assert.match(sheet, /开发安装警示/, '开发安装醒目标记必须上屏(P5-005 验收)');
+  assert.match(sheet, /开发源·http/, '明文 http 条目必须带开发源标记');
+  assert.match(sheet, /演示源（生产不可用）/, '生产构建的演示源入口必须明示不可用');
+  assert.ok(sheet.indexOf('isProductionBlockedSource(entry.zipUrl') >= 0
+    && sheet.indexOf('isProductionBlockedSource(entry.zipUrl') < sheet.indexOf('manager.installFromUrl('),
+    'UI 安装口与宿主同判定,拒绝发生在发请求之前');
+});
+
 // --- 5. real directory end-to-end ---------------------------------------
 function realZip(manifest, mainJs) {
   const entries = [{ name: 'manifest.json', data: Buffer.from(JSON.stringify(manifest), 'utf8') }];

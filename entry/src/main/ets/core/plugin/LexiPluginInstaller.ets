@@ -40,6 +40,13 @@ export const POINTER_FILE: string = 'current.json';
 export const VERSIONS_DIR: string = '.versions';
 export const TRASH_DIR: string = '.trash';
 export const DATA_FILE: string = 'data.json';
+/**
+ * P5-010:已装版本的包哈希记录(.versions/<v>/PACKAGE_HASH_FILE,内容 = 该版本安装时
+ * 声明并经 verifyPackageHash 验证过的 zip 字节摘要)。更新策略(LexiUpdatePolicy)
+ * 同版本不可变判定的字节证据源;本地侧载(未声明哈希)不产生记录——缺失记录时
+ * 同版本覆盖按"无法证明一致"拒绝(fail-closed),不谎称检测到不同字节。
+ */
+export const PACKAGE_HASH_FILE: string = '.package.sha256';
 
 /** Filesystem seam: the system implementation is below, the regression harness supplies a fake. */
 export interface PluginStorageIo {
@@ -308,12 +315,16 @@ export class LexiPluginInstaller {
     return tags;
   }
 
-  /** 已装版本字节指纹(.versions/<v>/main.js 的 sha256;读不到回空=幂等比对跳过)。 */
-  private installedSha256Of(id: string, version: string): string {
+  /**
+   * P5-010:已装版本的包哈希记录(.versions/<v>/.package.sha256;空=无记录)。
+   * 与传入侧的"声明 zip 哈希"同域(zip 字节摘要),取代此前 main.js 文件哈希
+   * 与 zip 哈希混比的不对称(round 7 审计项)。
+   */
+  private installedPackageSha256Of(id: string, version: string): string {
     if (version.length === 0) { return ''; }
     try {
-      const pointerPath = this.pluginDir(id) + '/.versions/' + version + '/main.js';
-      return this.io.exists(pointerPath) ? this.io.sha256FileSync(pointerPath) : '';
+      const recordPath = this.versionDir(id, version) + '/' + PACKAGE_HASH_FILE;
+      return this.io.exists(recordPath) ? this.io.readText(recordPath).trim() : '';
     } catch { return ''; }
   }
 
@@ -399,6 +410,8 @@ export class LexiPluginInstaller {
     const id = manifest.id;
     const previous = this.currentVersion(id);
     outcome.previousVersion = previous;
+    // P5-010:声明哈希入口统一收敛(离线夹具/旧调用方可能传 undefined,视同未声明)。
+    const declaredSha256: string = typeof options.expectedSha256 === 'string' ? options.expectedSha256 : '';
     if (previous.length > 0 && !options.allowDowngrade && comparePluginVersion(manifest.version, previous) < 0) {
       outcome.code = ERROR_DOWNGRADE_BLOCKED;
       outcome.message = '禁止降级安装：已安装 ' + previous + '，安装包为 ' + manifest.version;
@@ -414,9 +427,9 @@ export class LexiPluginInstaller {
     const policyInput = new LexiUpdateInput();
     policyInput.pluginId = id;
     policyInput.installedVersion = previous;
-    policyInput.installedSha256 = this.installedSha256Of(id, previous);
+    policyInput.installedSha256 = this.installedPackageSha256Of(id, previous);
     policyInput.incomingVersion = manifest.version;
-    policyInput.incomingSha256 = options.expectedSha256;
+    policyInput.incomingSha256 = declaredSha256;
     policyInput.oldCaps = oldCaps;
     policyInput.newCaps = newCaps;
     policyInput.revoked = this.revocations;
@@ -458,7 +471,17 @@ export class LexiPluginInstaller {
       await this.io.copyTree(staging, target);
       this.io.removeTree(staging);
       await this.project(id, manifest.version);
-      this.writePointer(id, manifest.version, previous);
+      // P5-010:幂等重装(同版本同字节放行)不得篡改回滚链——previous==新版本时,
+      // 保留指针里真实的上一版本,而不是把"上一版本"写成自己。
+      const pointerBefore = this.readPointer(id);
+      this.writePointer(id, manifest.version,
+        previous === manifest.version ? pointerBefore.previousVersion : previous);
+      // P5-010:记录本版本的包哈希证据(仅远端安装声明了哈希)。记录失败不回滚安装:
+      // 缺记录时同版本覆盖按"无法证明一致"拒绝(fail-closed),宁可多拒不可错放。
+      if (declaredSha256.length > 0) {
+        try { this.io.writeText(target + '/' + PACKAGE_HASH_FILE, declaredSha256); }
+        catch { /* 同版本覆盖退化为无证据拒绝,不影响本次安装结果 */ }
+      }
     } catch (error) {
       outcome.ok = false;
       outcome.code = INSTALL_ERROR_FAILED;
@@ -499,11 +522,13 @@ export class LexiPluginInstaller {
     return '';
   }
 
-  private async copyTreeExcept(source: string, dest: string, skipName: string): Promise<void> {
+  private async copyTreeExcept(source: string, dest: string, skipName: string,
+    skipSecond: string = ''): Promise<void> {
     this.io.mkdirp(dest);
     const entries = await this.io.list(source);
     for (const entry of entries) {
       if (skipName.length > 0 && entry === skipName) { continue; }
+      if (skipSecond.length > 0 && entry === skipSecond) { continue; }
       const src = source + '/' + entry;
       const dst = dest + '/' + entry;
       if (this.io.isDirectory(src)) {
@@ -516,25 +541,28 @@ export class LexiPluginInstaller {
 
   // --- projection ---------------------------------------------------------
 
-  /** Copies .versions/<version>/* over the plugin dir, leaving data.json untouched. */
+  /** Copies .versions/<version>/* over the plugin dir, leaving data.json untouched.
+   *  P5-010:包哈希记录(.package.sha256)是宿主管记账,不进投影(布局契约见文件头)。 */
   async project(id: string, version: string): Promise<void> {
     this.clearProjection(id);
-    await this.copyTreeExcept(this.versionDir(id, version), this.pluginDir(id), DATA_FILE);
+    await this.copyTreeExcept(this.versionDir(id, version), this.pluginDir(id), DATA_FILE, PACKAGE_HASH_FILE);
   }
 
   private projectSync(id: string, version: string): void {
     this.clearProjection(id);
-    this.copyTreeSync(this.versionDir(id, version), this.pluginDir(id), true);
+    this.copyTreeSync(this.versionDir(id, version), this.pluginDir(id), true, true);
   }
 
-  private copyTreeSync(source: string, dest: string, preserveDataFile: boolean = false): void {
+  private copyTreeSync(source: string, dest: string, preserveDataFile: boolean = false,
+    skipPackageHash: boolean = false): void {
     this.io.mkdirp(dest);
     const names = this.io.listSync(source);
     for (const entry of names) {
       if (preserveDataFile && entry === DATA_FILE) { continue; }
+      if (skipPackageHash && entry === PACKAGE_HASH_FILE) { continue; }
       const src = source + '/' + entry;
       const dst = dest + '/' + entry;
-      if (this.io.isDirectory(src)) { this.copyTreeSync(src, dst, preserveDataFile); } else { this.io.copyFile(src, dst); }
+      if (this.io.isDirectory(src)) { this.copyTreeSync(src, dst, preserveDataFile, skipPackageHash); } else { this.io.copyFile(src, dst); }
     }
   }
 

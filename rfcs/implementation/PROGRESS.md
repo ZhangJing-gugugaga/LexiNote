@@ -976,3 +976,18 @@ P4-005 夹具批次（设备验收:含本面三交互+R36 示例的 runtime 页�
 **实际执行的测试**:release-gate --ci **32/32**、context-isolation **122**、plugin-examples **63**、dist-regression **46/46**、contract-tripod 19、contract-matrix ✚、docs-contract 17、sdk-contract 39、cli-contract 60、authz-matrix 101、hvigorw assembleHap **BUILD SUCCESSFUL**（33 tasks,无签名配置=既有 WARN）。
 
 **诚实边界（IMPLEMENTED ≠ VERIFIED）**:全部离线证据（vm 行为级+静态接线）。**设备批次 P4-005** 才验收:建议浮层真实呈现、点选/点外回流的设备铁证（data.json 铁证字段即清单）、光标级锚定校准、ui-suggest 编辑器命令经真机命令面板触发。editor.events 驱动触发（输入即建议）依赖编辑器事件流,不在本轮;SuggestModal/FuzzySuggestModal（modal 锚定建议）与 PopoverSuggest 仍属沙箱轨未实现面。sandbox-ui-min manifest 增 readActive 档=能力面变化,设备重装时按重授权 diff 走。
+
+## Round 42（R42 = P5-005 + P5-010：Phase 5 分发半边独立项 → 离线全绿）
+
+**本轮完成**:
+
+1. **P5-005 演示源/开发安装明确标记 + 生产路径 https 强制**:唯一判定进市场模型(转译真跑)——`marketSourceKindOf`(https/dev-http/other)+`isProductionBlockedSource(url,isDebugBuild)`(fail-closed:仅「生产构建 × 明文 http」红灯,非 http(s) scheme 不扩权由安装口白名单拒)+`PRODUCTION_HTTP_BLOCKED_MESSAGE` 宿主与 UI 共用话术。**构建形态真源**=`bundleManager.getBundleInfoForSelfSync(GET_BUNDLE_INFO_WITH_APPLICATION).appInfo.debug`(签名证书 debug/release 形态;查询失败一律按生产处理——误拒只损失演示便利,误放行是明文攻击面)。**强制点双口**:installFromUrl(先于信任哈希闸与下载)与 fetchMarketIndex(索引供给哈希=信任根,明文索引等于把信任根暴露给同网段攻击者,§10.4)。**UI 面**(MarketSheet):明文 http 条目带「开发源·http」错误色标记;演示源激活或含 dev-http 条目时顶部「开发安装警示」横幅(明示生产构建拒绝 http);演示源按钮生产构建禁用+「演示源（生产不可用）」;UI 安装口同判定先行拦截(拒绝发生在发请求之前)。**调试构建零回归**:演示源 http://10.0.2.2:8099 常量保留、debug 构建按钮文案与 flows 锚点(/^演示源$/、/^演示源（使用中）$/)逐字不变。
+
+2. **P5-010 更新与回滚闭环对账(Round 7 不对称修正)**:不对称根因=策略输入两侧哈希域不同——已装侧取 `.versions/<v>/main.js` 文件哈希、传入侧取索引声明的 **zip 包哈希**(或侧载空串),同版本比较必然「不同」:市场同包重装永远误拒、侧载拒绝话术谎称「检测到不同字节」。**修复**:①安装器按版本落**包哈希记录** `.versions/<v>/.package.sha256`(=该版本安装时经 verifyPackageHash 验证过的 zip 摘要;宿主管记账不进投影,侧载不产生记录——没有验证就没有证据);②LexiUpdatePolicy 同版本分支对称化:记录=声明→**幂等放行**(安装器保留真实上一版本,回滚链不被自我污染),记录≠声明→ERR_PACKAGE_INVALID(话术指向真实证据),任一侧缺失→拒绝但话术如实=「无法证明一致」;③哈希入参 typeof 防御式收敛(离线夹具 plain-object 传 undefined 不再 crash)。**RFC §9.2 十五步对账**进 plugin-update-policy U3:15 步逐条断言(行为级优先+宿主源锚),S1 可信元数据→S15 失败恢复旧指针全链可走通;**S3(发布者身份)诚实裁定**:TUF 接线归 P5-002(B-002),本轮只证 LexiRegistryTrust verifyChain/verifyPackageTarget 接缝在位+UI「签名状态:包哈希已校验/本地侧载(无远端哈希比对)」如实披露,不宣称 authenticity 闭环。行为级两向对账(安装/更新/回滚)进 dist-regression P5-010 用例:幂等重装/换字节拒绝/侧载诚实拒绝/缺记录拒绝/升级-回滚-重装全链(回滚后旧版本记录仍有效,幂等重装后仍可再回滚)。
+
+**门禁**:plugin-update-policy 36→**47**(U2 同版本对称×5+U3 十五步×19+W1.3-1.6 接线×4);plugin-dist-regression 46→**48**(+P5-010 包哈希记录行为级+P5-005 源闸接线/标记);plugin-market-regression 4→**5**(+P5-005 源形态矩阵:v1 索引 http 条目照常解析、安装口据源形态拒绝);contract-matrix 2 处行锚手修(symbols.json runtime 1838→1880/2036→2078,本轮代码位移;**未**跑 generate.cjs)+compat-matrix.md 经 report.cjs 重渲染逐字节一致。
+
+**实际执行的测试**:release-gate --ci **32/32**、update-policy **47**、dist-regression **48/48**、market-regression **5**、contract-matrix ✚(--fixtures-required)、error-visible/package-verifier/manifest-v2/docs-contract/dist-audit --all 全绿、hvigorw assembleHap **BUILD SUCCESSFUL**(33 tasks;无签名配置=既有 WARN)。
+
+**诚实边界(IMPLEMENTED ≠ VERIFIED)**:全部离线证据。设备欠账:①模拟器 debug 形态 `ApplicationInfo.debug=true` 实测+flows 四流程回归(演示源 http 在 debug 构建全链;若模拟器对 unsigned HAP 上报 debug=false,演示源按钮会禁用——flows 将显式红,属预期 fail-closed 行为而非缺陷);②同版本覆盖/回滚链真机负例(P5-010);③生产(release 签名)构建 http 拒绝的设备直证需 release 签名链(B-002 侧)。
+

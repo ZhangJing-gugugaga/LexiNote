@@ -20,7 +20,7 @@
 | 身份投递静态对账 | plugin-identity-delivery --strict | 静态审计 | **PASS 30/30 traced 0 gaps(Round 10,分类器识别 objectToken 包装形态)** | ✘ | KNOWN_GAPS 台账机制保留 |
 | 令牌下发一致性 | plugin-identity-delivery --strict | 静态审计 | PASS | ✘ | KNOWN_GAPS 台账 |
 | Registry 信任链 | plugin-registry-trust | 单元 | PASS | ✘ | 模块宿主零引用→需加接线断言(P5-002) |
-| 更新/回滚/降级策略 | plugin-update-policy, plugin-dist-regression §5 | 单元+真FS | PASS | ✘ | 同版本异哈希不对称未修(P5-010) |
+| 更新/回滚/降级策略 | plugin-update-policy(47:U1 更新策略/U2 同版本对称/U3 §9.2 十五步对账/W1 接线), plugin-dist-regression §4b(P5-010 包哈希记录行为级) | 单元+真FS | **PASS(R42)**:同版本异哈希不对称已修(包哈希记录同域比对,幂等重装放行/侧载拒绝话术如实);§9.2 十五步逐条对账 | ✘ | 同版本覆盖/回滚链真机负例待批次;S3 发布者身份验证接线归 P5-002(B-002) |
 | 包结构校验 | plugin-package-verifier | 单元 | PASS | ✘ | 空哈希跳过被固化为期望→仅限本地侧载语义,P5-001 已在外围封死远程 |
 | 生命周期/所有权 | plugin-lifecycle-once, plugin-extension-ownership | 契约 | PASS | ✘ | quarantine 等状态不可达(P2-009) |
 | 契约三脚架/矩阵 | plugin-contract-tripod, plugin-contract-matrix | 契约 | PASS(锚点修正后) | ✘ | generate.cjs 缺陷 P0-005 |
@@ -53,6 +53,6 @@
 | SEC-013 | 恶意插件卸载残留 | partial | context-registry D1-D8(行为级) + context-isolation S41a-d + lifecycle-once L9.1/9.2/9.5/9.6 | 待批次 | 卸载→旧通道 RPC 真机拒绝(P1-008 验收行设备半边,R32/R33 登记待批次) |
 | SEC-014 | 签名篡改 | partial | package-verifier A2.1-A2.6 + dist-reg 篡改字节→integrity_mismatch + registry-trust T2.8 | R8 flows 篡改包(integrity_mismatch 零残留) | authenticity=B-002(P5-002/009 未接,生产签名链不可测) |
 | SEC-015 | 元数据回滚 | partial | registry-trust T1.1/T2.2/T2.3/T2.8 + update-policy U1.1 | 待批次 | 发布链未接 TUF/快照持久化(P5-002,B-002) |
-| SEC-016 | 插件版本降级 | partial | update-policy U1.3/W1.1/W1.2 + dist-reg 降级必须被拦 | 待批次 | 降级安装真机负例待批次;同版本异哈希不对称(P5-010,依赖 P5-002) |
+| SEC-016 | 插件版本降级 | partial | update-policy U1.3/U2(同版本对称)/W1.1-W1.4 + dist-reg 降级必须被拦 + §9.2 十五步对账(R42) | 待批次 | 降级安装真机负例待批次(同版本异哈希不对称已修=R42 离线) |
 | SEC-017 | 发布者密钥撤销 | partial | registry-trust T2.6 + update-policy U1.7 | 待批次 | 撤销数据源未接生产(P5-003;P5-002/009=B-002) |
 | SEC-018 | 恶意依赖与包内容 | partial | package-verifier A1 组(预算/穿越/symlink/炸弹/扩展名白名单) + dist-audit 恶意样本 critical | R26 flows 安装链正向 | 包结构负例待设备批次(未单独上真机) |

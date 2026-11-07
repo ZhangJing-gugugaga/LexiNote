@@ -2,7 +2,14 @@
 // and manage what is already installed (version / rollback / uninstall).
 
 import { LexiPluginManager } from '../../core/plugin/LexiPluginRuntime';
-import { LexiPluginMarketEntry, LexiMarketIndexResult, isTrustedInstallHash } from '../../core/plugin/LexiPluginMarketModel';
+import {
+  LexiPluginMarketEntry,
+  LexiMarketIndexResult,
+  isTrustedInstallHash,
+  marketSourceKindOf,
+  isProductionBlockedSource,
+  PRODUCTION_HTTP_BLOCKED_MESSAGE
+} from '../../core/plugin/LexiPluginMarketModel';
 import { LexiInstalledPlugin } from '../../core/plugin/LexiPluginManifest';
 import { LexiPermissionClassView, classifyCapabilityTags } from '../../core/plugin/LexiPluginManifestV2';
 
@@ -106,11 +113,30 @@ export struct LexiPluginMarketSheet {
     this.load();
   }
 
+  /** P5-005:构建形态(UI 与宿主 installFromUrl/fetchMarketIndex 同一真源;无内核按生产处理)。 */
+  private debugBuild(): boolean {
+    const manager = LexiPluginManager.shared;
+    return manager !== null ? manager.isDebugBuild() : false;
+  }
+
+  /** P5-005:开发安装面是否在屏(演示源激活,或任一条目走明文 http)——驱动顶部醒目标记。 */
+  private devSourceActive(): boolean {
+    if (this.demoMode) { return true; }
+    return this.entries.some((entry: LexiPluginMarketEntry): boolean =>
+      marketSourceKindOf(entry.zipUrl) === 'dev-http');
+  }
+
   private async install(entry: LexiPluginMarketEntry, grantApproved: boolean = false): Promise<void> {
     const manager = LexiPluginManager.shared;
     if (!manager || this.busy) { return; }
     if (!entry.zipUrl) {
       this.status = `${entry.name}：缺少下载地址(zipUrl)`;
+      return;
+    }
+    // P5-005:安装口同判定(与宿主 installFromUrl 一致)——生产构建的明文 http 条目
+    // 不发起请求;调试构建保留演示源。失败必须在点击处可见,而不是等下载抛错。
+    if (isProductionBlockedSource(entry.zipUrl, manager.isDebugBuild())) {
+      this.status = `${entry.name}：${PRODUCTION_HTTP_BLOCKED_MESSAGE}`;
       return;
     }
     // 与宿主 installFromUrl 同一判定：缺受信任哈希的条目不发起下载(RFC P0-04)。
@@ -359,16 +385,29 @@ export struct LexiPluginMarketSheet {
           .backgroundColor($r('app.color.soft_surface'))
           .fontColor($r('app.color.text_primary'))
           .onClick((): void => { this.load(); this.refreshInstalled(); })
-        Button(this.demoMode ? '演示源（使用中）' : '演示源', { type: ButtonType.Normal })
+        Button(this.demoMode ? '演示源（使用中）'
+          : (this.debugBuild() ? '演示源' : '演示源（生产不可用）'), { type: ButtonType.Normal })
           .height(36)
           .fontSize(12)
           .borderRadius(10)
-          .enabled(!this.busy)
+          .enabled(!this.busy && this.debugBuild())
           .backgroundColor($r('app.color.brand_soft'))
           .fontColor($r('app.color.brand'))
           .onClick((): void => { this.useDemoSource(); })
       }
       .width('100%')
+
+      if (this.devSourceActive()) {
+        // P5-005:开发安装醒目标记——演示源/明文 http 条目在面板顶部不可折叠上屏;
+        // 调试构建放行(设备流依赖 http://10.0.2.2:8099),生产构建在安装口拒绝。
+        Text('开发安装警示：当前市场源或条目走明文 http（演示/开发专用）。调试构建可用；生产构建拒绝 http 安装。')
+          .fontSize(11)
+          .fontColor($r('app.color.error'))
+          .width('100%')
+          .padding(10)
+          .backgroundColor($r('app.color.soft_surface'))
+          .borderRadius(10)
+      }
 
       if (this.pendingGrantEntry !== null && !this.busy) {
         // P2-008:重授权确认行——用户确认后以 grantApproved 重新安装(RFC §4.5)。
@@ -525,6 +564,10 @@ export struct LexiPluginMarketSheet {
                   Text(entry.name).fontSize(14).fontColor($r('app.color.text_primary'))
                   if (entry.version.length > 0) {
                     Text(`v${entry.version}`).fontSize(10).fontColor($r('app.color.text_secondary'))
+                  }
+                  if (marketSourceKindOf(entry.zipUrl) === 'dev-http') {
+                    // P5-005:明文 http 条目的开发源标记(生产构建安装口拒绝,调试构建放行)。
+                    Text('开发源·http').fontSize(10).fontColor($r('app.color.error'))
                   }
                   if (isTrustedInstallHash(entry.sha256)) {
                     Text('哈希已校验').fontSize(10).fontColor($r('app.color.brand'))

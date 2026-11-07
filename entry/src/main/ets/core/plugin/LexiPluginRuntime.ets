@@ -1,7 +1,7 @@
 // Plugin runtime: ArkWeb transport plus the plugin manager.
 // The JS shim (rawfile/lexinote_plugin_shim.js) mirrors this protocol; every payload is a JSON string.
 
-import { common } from '@kit.AbilityKit';
+import { common, bundleManager } from '@kit.AbilityKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
 import { util } from '@kit.ArkTS';
@@ -38,7 +38,14 @@ import { LexiEditorRegistry } from './LexiEditorRegistry';
 import { LexiPluginViewInfo, LexiPluginViewRegistry } from './LexiPluginViewRegistry';
 import { LexiEditorPosUtil, LexiEditorPosition } from './LexiEditorPos';
 import { LexiPluginInstaller, PluginLifecycleOutcome } from './LexiPluginInstaller';
-import { LexiPluginMarketEntry, LexiMarketIndexResult, parseMarketIndexResult, isTrustedInstallHash } from './LexiPluginMarketModel';
+import {
+  LexiPluginMarketEntry,
+  LexiMarketIndexResult,
+  parseMarketIndexResult,
+  isTrustedInstallHash,
+  isProductionBlockedSource,
+  PRODUCTION_HTTP_BLOCKED_MESSAGE
+} from './LexiPluginMarketModel';
 import { LexiPluginSettingDef, parseSettingDefinitions } from './LexiPluginSettingModel';
 import { mintCredential } from './LexiCredentialFactory';
 import {
@@ -1083,8 +1090,38 @@ export class LexiPluginManager {
     return true;
   }
 
+  // --- P5-005 构建形态(生产 https 强制的开关真源) --------------------------------
+
+  /** P5-005:调试构建判定缓存(只查一次)。 */
+  private debugBuildResolved: boolean = false;
+  private debugBuildFlag: boolean = false;
+
+  /**
+   * P5-005:调试构建判定。运行时唯一真源 = bundleManager ApplicationInfo.debug
+   * (随包签名证书的 debug/release 形态,与"生产构建"同义);查询失败一律按生产
+   * 构建处理(fail-closed:误拒只损失 http 演示便利,误放行是明文安装攻击面)。
+   */
+  isDebugBuild(): boolean {
+    if (!this.debugBuildResolved) {
+      try {
+        const info = bundleManager.getBundleInfoForSelfSync(
+          bundleManager.BundleFlag.GET_BUNDLE_INFO_WITH_APPLICATION);
+        this.debugBuildFlag = info.appInfo.debug === true;
+      } catch {
+        this.debugBuildFlag = false;
+      }
+      this.debugBuildResolved = true;
+    }
+    return this.debugBuildFlag;
+  }
+
   /** Downloads a plugin zip and installs it. expectedSha256 comes from the index entry. */
   async installFromUrl(url: string, expectedSha256: string = '', optionsJson: string = ''): Promise<string> {
+    // P5-005:生产路径 https 强制(RFC §10.4)。明文 http 源只在调试构建放行(演示源
+    // 10.0.2.2:8099 侧载);生产构建 fail-closed,先于一切下载动作。
+    if (isProductionBlockedSource(url, this.isDebugBuild())) {
+      throw new Error(PRODUCTION_HTTP_BLOCKED_MESSAGE);
+    }
     // 信任闸门(LEXI-RFC-PLUGIN-001 P0-04/§8.5/§18.4):远程安装必须携带受信任哈希。
     // 空哈希在 verifyPackageHash 里会跳过比对(fail-open),必须在下载之前就挡掉;
     // 自述哈希尚不等于来源可信(TUF Targets 接线是后续任务),但没有哈希连完整性都无从谈起。
@@ -1154,6 +1191,11 @@ export class LexiPluginManager {
 
   /** Fetches a community index without losing the rejection reason. */
   async fetchMarketIndex(indexUrl: string): Promise<LexiMarketIndexResult> {
+    // P5-005:市场索引同走生产 https 强制——索引供给安装哈希,明文索引等于把信任根
+    // 一并暴露给同网段攻击者(§10.4)。拒绝原因 fail-visible(调用方 catch 上屏)。
+    if (isProductionBlockedSource(indexUrl, this.isDebugBuild())) {
+      throw new Error(PRODUCTION_HTTP_BLOCKED_MESSAGE);
+    }
     const client = http.createHttp();
     try {
       const response = await client.request(indexUrl, {

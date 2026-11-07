@@ -29,6 +29,34 @@ export function isTrustedInstallHash(value: string): boolean {
   return /^[0-9a-f]{64}$/.test(value);
 }
 
+/**
+ * P5-005 源形态判定:安装/索引 URL 的传输层形态。
+ *   'https'    正式市场源(生产构建可用);
+ *   'dev-http' 明文 http 源——演示源(10.0.2.2:8099)与本地开发源,仅调试构建可用;
+ *   'other'    非 http(s) scheme(安装口另有 http(s) 白名单校验,不在此扩权)。
+ */
+export function marketSourceKindOf(url: string): string {
+  const trimmed = url.trim();
+  if (/^https:\/\//i.test(trimmed)) { return 'https'; }
+  if (/^http:\/\//i.test(trimmed)) { return 'dev-http'; }
+  return 'other';
+}
+
+/**
+ * P5-005 生产路径 https 强制(RFC §10.4 HTTPS 校验):生产构建(isDebugBuild=false)
+ * 一律拒绝明文 http 源;调试构建保留 http 演示源(设备流依赖 10.0.2.2:8099)。
+ * installFromUrl / fetchMarketIndex / 市场 UI 安装口的唯一判定入口。
+ * isDebugBuild 必须来自运行时真源(bundleManager ApplicationInfo.debug);查询不可用
+ * 时调用方按生产构建传 false —— fail-closed:误拒只损失演示便利,误放行是明文攻击面。
+ */
+export function isProductionBlockedSource(url: string, isDebugBuild: boolean): boolean {
+  return !isDebugBuild && marketSourceKindOf(url) === 'dev-http';
+}
+
+/** P5-005 拒绝话术(宿主与 UI 共用,保证同一拒绝语义上屏)。 */
+export const PRODUCTION_HTTP_BLOCKED_MESSAGE: string =
+  '生产构建禁止明文 http 安装源（仅允许 https；http 演示源只在调试构建可用）';
+
 export const INDEX_ERROR_INVALID: string = 'index_invalid';
 export const INDEX_ERROR_SCHEMA_VERSION: string = 'unsupported_schema_version';
 export const INDEX_ERROR_ZCODE: string = 'legacy_zcode_rejected';
