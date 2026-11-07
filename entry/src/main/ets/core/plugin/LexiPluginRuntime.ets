@@ -90,6 +90,8 @@ const BUNDLED_PLUGIN_DIRS: Array<string> = [
   'plugins/sandbox-sample-min',
   // R27(P1-003b 编辑器切片 + P2-005):editorCallback 经沙箱 Editor 读写正文的验收夹具。
   'plugins/sandbox-editor-min',
+  // R37(P4-001):Modal/Menu/Setting Builder 三交互面经端口链行使的验收夹具。
+  'plugins/sandbox-ui-min',
   // P1-003d(R28):SEC 逃逸探针进业务路径——经 bootPlugin 业务装载链在真实 iframe 内
   // 穷举逃逸向量,data.json 落逐向量报告(RFC §3.6 真实业务加载路径验证)。
   'plugins/sandbox-sec-probe'
@@ -623,6 +625,14 @@ export class LexiPluginManager {
   private iconOwners: Map<string, string> = new Map();
   /** ui.placeholder 登记表:key=kind#seq, value=标题(真实 DOM 由页面兼容层挂载)。 */
   private placeholders: Map<string, string> = new Map<string, string>();
+  /**
+   * P4-001:插件 Modal/Menu 宿主面在途表。key = pluginId + '#' + surfaceId——身份段
+   * 是表键的一部分,插件永远只能寻址自己的在途面(跨插件 close/hide 按未登记失败)。
+   * LexiPluginSurfaceHost 按修订号读取渲染;用户关闭/点选经 dismiss/choose 落账并
+   * 回推沙箱(sandbox.ui)。
+   */
+  private modalSurfaces: Map<string, LexiPluginModalSurface> = new Map();
+  private menuSurfaces: Map<string, LexiPluginMenuSurface> = new Map();
 
   static get shared(): LexiPluginManager | null {
     return LexiPluginManager.instanceRef;
@@ -753,6 +763,15 @@ export class LexiPluginManager {
     this.runtime.dispatch('settings.values', JSON.stringify(body)).catch((): void => {
       /* 插件未启用时没有回写目标 */
     });
+    // P4-001:沙箱轨值回推——宿主设置页写 data.json 后,值经容器 sandbox.ui 帧回推给
+    // 沙箱插件的 Setting 控件(onChange)与 PluginSettingTab.onSettingsChanged。这是
+    // R36 调查发现的"运行中值回推无通道"缺口的沙箱轨收口:通道复用既有容器回推面
+    // (runJavaScript → lexiSandboxUiEvent → iframe window 通道),legacy 轨等价通道仍是
+    // 上面的 dispatch('settings.values')(shim __receive 消费)。
+    const sandboxRecord = this.plugins.get(pluginId);
+    if (sandboxRecord && sandboxRecord.manifest.sandboxService) {
+      this.notifySandboxUiEvent(pluginId, 'settings', 'values', 'changed', -1, values);
+    }
   }
 
   private bumpPluginRevision(): void {
@@ -764,6 +783,97 @@ export class LexiPluginManager {
     const rows: LexiRibbonRow[] = [];
     this.ribbonItems.forEach((row: LexiRibbonRow): void => { rows.push(row); });
     return rows;
+  }
+
+  // ------------------------------------------------------------- P4-001 交互面(宿主原生渲染)
+
+  /** 在途 Modal 面(LexiPluginSurfaceHost 按修订号读取渲染)。 */
+  pluginModalSurfaces(): LexiPluginModalSurface[] {
+    const rows: LexiPluginModalSurface[] = [];
+    this.modalSurfaces.forEach((row: LexiPluginModalSurface): void => { rows.push(row); });
+    return rows;
+  }
+
+  /** 在途 Menu 面(LexiPluginSurfaceHost 按修订号读取渲染)。 */
+  pluginMenuSurfaces(): LexiPluginMenuSurface[] {
+    const rows: LexiPluginMenuSurface[] = [];
+    this.menuSurfaces.forEach((row: LexiPluginMenuSurface): void => { rows.push(row); });
+    return rows;
+  }
+
+  /**
+   * 用户(或插件自身)关闭弹层:落账移除 + sandbox.ui 回推(iframe 侧 onClose 回调与
+   * open() Promise 兑现)。reason 仅用于日志:user=用户点击/plugin=插件主动 hide。
+   */
+  dismissPluginModal(pluginId: string, modalId: string, reason: string): void {
+    const key = pluginId + '#' + modalId;
+    if (this.modalSurfaces.delete(key)) {
+      this.bumpPluginRevision();
+      pluginLog('插件 Modal 关闭(' + reason + '): ' + key);
+      this.notifySandboxUiEvent(pluginId, 'modal', modalId, 'closed', -1, null);
+    }
+  }
+
+  /** 用户点外关闭菜单(或插件 hide):落账移除 + closed 回推(onHide 与 Promise 兑现)。 */
+  dismissPluginMenu(pluginId: string, menuId: string, reason: string): void {
+    const key = pluginId + '#' + menuId;
+    if (this.menuSurfaces.delete(key)) {
+      this.bumpPluginRevision();
+      pluginLog('插件 Menu 关闭(' + reason + '): ' + key);
+      this.notifySandboxUiEvent(pluginId, 'menu', menuId, 'closed', -1, null);
+    }
+  }
+
+  /** 用户点选菜单项:落账移除(点选即关单)+ item 回推(onClick 动作与 onHide 先后兑现)。 */
+  choosePluginMenuItem(pluginId: string, menuId: string, itemId: number): void {
+    const key = pluginId + '#' + menuId;
+    if (this.menuSurfaces.delete(key)) {
+      this.bumpPluginRevision();
+      pluginLog('插件 Menu 点选: ' + key + ' item=' + itemId);
+      this.notifySandboxUiEvent(pluginId, 'menu', menuId, 'item', itemId, null);
+    }
+  }
+
+  /** P1-008/P4-001:插件销毁时回收其全部在途交互面(iframe 已拆,无回推目标,no-op 安全)。 */
+  dropPluginSurfaces(pluginId: string): void {
+    const doomed: string[] = [];
+    this.modalSurfaces.forEach((row: LexiPluginModalSurface, key: string): void => {
+      if (row.pluginId === pluginId) { doomed.push(key); }
+    });
+    this.menuSurfaces.forEach((row: LexiPluginMenuSurface, key: string): void => {
+      if (row.pluginId === pluginId) { doomed.push(key); }
+    });
+    for (const key of doomed) {
+      this.modalSurfaces.delete(key);
+      this.menuSurfaces.delete(key);
+    }
+    if (doomed.length > 0) { this.bumpPluginRevision(); }
+  }
+
+  /**
+   * sandbox.ui 回推(宿主 → 容器页 runJavaScript → 容器按 pluginId 路由进 iframe 的
+   * window 通道)。与 dispatchSandboxCommand 同一信任形态:pluginId 只用于容器路由,
+   * frame 本体一律不带身份字段。itemId < 0 表示无点选载荷;values 仅 settings 域携带。
+   */
+  private notifySandboxUiEvent(pluginId: string, kind: string, id: string, event: string,
+    itemId: number, values: Record<string, Object> | null): void {
+    if (!this.sandboxController) { return; }
+    const record = this.plugins.get(pluginId);
+    if (!record || !record.manifest.sandboxService) { return; }
+    const body: Record<string, Object> = {
+      'pluginId': pluginId as Object,
+      'kind': kind as Object,
+      'id': id as Object,
+      'event': event as Object
+    };
+    if (itemId >= 0) { body['itemId'] = itemId as Object; }
+    if (values !== null) { body['values'] = values as Object; }
+    try {
+      this.sandboxController.runJavaScript('window.lexiSandboxUiEvent && window.lexiSandboxUiEvent(' +
+        JSON.stringify(JSON.stringify(body)) + ');');
+    } catch (error) {
+      pluginError('sandbox ui 事件回推失败: ' + String(error));
+    }
   }
 
   iconSvgPath(iconId: string): string {
@@ -1329,6 +1439,52 @@ export class LexiPluginManager {
       pluginLog('插件通知: ' + rpcString(request, 'message'));
       if (manager.uiHost) { manager.uiHost.toast(rpcString(request, 'message')); }
       return okResponse(manager.uiHost !== null);
+    });
+    // ---- P4-001:插件 Modal/Menu 宿主面 --------------------------------------------
+    // 描述符出站 → 宿主原生渲染(LexiPluginSurfaceHost 按修订号读取)→ 用户关闭/点选
+    // 经 dismiss/choose 落账并回推沙箱(sandbox.ui 帧;身份由 contextRegistry 反查,
+    // 回推帧绝不携带 pluginId)。capability 域映射在 capabilityAllowedFor(notifications)。
+    runtime.registerHandler('ui.modal.open', async (payload: string, identity: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const modalId = rpcString(request, 'modalId');
+      if (!identity || !modalId) { return failResponse('Modal 参数不完整'); }
+      const surface = new LexiPluginModalSurface();
+      surface.pluginId = identity;
+      surface.modalId = modalId;
+      surface.title = rpcString(request, 'title');
+      surface.content = rpcString(request, 'content');
+      manager.modalSurfaces.set(identity + '#' + modalId, surface);
+      manager.bumpPluginRevision();
+      pluginLog('插件 Modal 打开: ' + identity + '#' + modalId + ' title=' + surface.title);
+      return okResponse(null);
+    });
+    runtime.registerHandler('ui.modal.close', async (payload: string, identity: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      // 表键带身份段:插件只能关自己的在途弹层(别人的 modalId 在本键下不存在)。
+      manager.dismissPluginModal(identity, rpcString(request, 'modalId'), 'plugin');
+      return okResponse(null);
+    });
+    runtime.registerHandler('ui.menu.show', async (payload: string, identity: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const menuId = rpcString(request, 'menuId');
+      const items = request['items'];
+      if (!identity || !menuId) { return failResponse('Menu 参数不完整'); }
+      if (!Array.isArray(items)) { return failResponse('Menu 条目必须是数组'); }
+      const surface = new LexiPluginMenuSurface();
+      surface.pluginId = identity;
+      surface.menuId = menuId;
+      surface.x = rpcNumber(request, 'x');
+      surface.y = rpcNumber(request, 'y');
+      surface.itemsJson = JSON.stringify(items);
+      manager.menuSurfaces.set(identity + '#' + menuId, surface);
+      manager.bumpPluginRevision();
+      pluginLog('插件 Menu 打开: ' + identity + '#' + menuId + ' items=' + items.length);
+      return okResponse(null);
+    });
+    runtime.registerHandler('ui.menu.hide', async (payload: string, identity: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      manager.dismissPluginMenu(identity, rpcString(request, 'menuId'), 'plugin');
+      return okResponse(null);
     });
     runtime.registerHandler('ui.addRibbon', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
@@ -2249,6 +2405,12 @@ export class LexiPluginManager {
     if (method === 'views.add') { return caps.workspace.views; }
     if (method === 'codeblocks.register') { return caps.editor.extensions !== 'none'; }
     if (method === 'ui.notice') { return caps.notifications; }
+    // P4-001:Modal/Menu 交互面与 Notice 同域(插件→用户的 UI 表面)。复用既有
+    // notifications 域 = 最小清单改动:声明了通知能力的插件即可发起弹层/菜单,未声明的
+    // 被拒(指纹标签 'notifications' 已在案,权限扩张语义不变)。独立 ui.popups 域
+    // (带清单键/指纹/SDK schema)是后续 manifest 键轮的决策点,届时换映射即重授权 diff。
+    if (method === 'ui.modal.open' || method === 'ui.modal.close' ||
+      method === 'ui.menu.show' || method === 'ui.menu.hide') { return caps.notifications; }
     return true;
   }
 
@@ -2784,6 +2946,8 @@ export class LexiPluginManager {
     // 吊销凭据:页面侧令牌表清空——旧通道既使绕过端口层也解析不出身份(anonymous → 拒)。
     const revokedTokens = this.runtime.revokePluginTokens(pluginId);
     if (revokedTokens > 0) { pluginLog('plugin tokens 吊销 ' + revokedTokens + ' 个: ' + pluginId); }
+    // P4-001:在途交互面随销毁回收(宿主渲染移除;iframe 已拆,sandbox.ui 回推无目标)。
+    this.dropPluginSurfaces(pluginId);
     // 清 pending:在途 onload/onunload 等待快速失败(销毁后不再等待旧通道回执)。
     this.failPendingLifecycleWaits(pluginId, '插件已销毁,装载/卸载等待作废(fail-closed): ' + pluginId);
   }
@@ -2828,4 +2992,24 @@ export class LexiRibbonRow {
   title: string = '';
   iconId: string = '';
   iconPath: string = '';
+}
+
+/**
+ * P4-001:插件 Modal 宿主面会话(沙箱插件经 ui.modal.open 递交的内容描述符)。
+ * 纯数据:标题/正文都是宿主渲染的原生文本,iframe 侧无任何 DOM 参与望。
+ */
+export class LexiPluginModalSurface {
+  pluginId: string = '';
+  modalId: string = '';
+  title: string = '';
+  content: string = '';
+}
+
+/** P4-001:插件 Menu 宿主面会话(itemsJson 是声明式条目数组 [{index,title,icon,checked,disabled,section,separator}])。 */
+export class LexiPluginMenuSurface {
+  pluginId: string = '';
+  menuId: string = '';
+  x: number = 0;
+  y: number = 0;
+  itemsJson: string = '[]';
 }

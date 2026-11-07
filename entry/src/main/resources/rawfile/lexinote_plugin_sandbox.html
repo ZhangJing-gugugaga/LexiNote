@@ -136,6 +136,18 @@
   // 沙箱命令表(fullId → { callback, editorCallback }):port 轨与容器 window 轨共用。
   // 曾误置于 bootPlugin 函数作用域内,onPortMessage 跨作用域引用必 ReferenceError(B-009b 复盘)。
   var sandboxCommands = new Map();
+  // P4-001(P1-003b 剩余面):Modal/Menu/Setting 交互面。
+  //   - sandboxUiSurfaces:在途交互面(kind#id → settle 入口)。宿主用户操作(关闭弹层/
+  //     点选菜单)经容器回推帧(sandbox.ui)回流到这里,承诺/回调结果全部经端口往返——
+  //     iframe 不持有任何宿主 DOM/对象句柄(端口链纪律,ADR-R18-01)。
+  //   - sandboxSettingTabRef:本上下文插件登记的设置面板(addSettingTab;一 iframe 一插件)。
+  //   - settingCollecting:Setting Builder 收集窗口(addSettingTab 期间非 null,display()
+  //     里 new Setting 的实例登记进来,汇总成声明式 definitions 经 settings.register 出站)。
+  var sandboxUiSurfaces = new Map();
+  var sandboxSettingTabRef = null;
+  var settingCollecting = null;
+  var sandboxModalSeq = 0;
+  var sandboxMenuSeq = 0;
   // P1-003b 编辑器切片:bootPlugin 装载完成后登记本上下文的 app 面(RFC §3.1 一 iframe 一
   // 上下文,同帧内只会有一个插件实例——编辑器命令的 ctx.app 复用它,与旧轨 ctx={app} 同形)。
   var sandboxAppRef = null;
@@ -281,6 +293,312 @@
       request('ui.notice', { message: '插件命令出错: ' + String(err) }).catch(function () {});
     });
   }
+  // ---------------------------------------------------------------- P4-001 交互面工具
+  // 宿主交互事件落地(kind#id 寻址;幂等:settle 一次后表项即焚,重复回推 no-op)。
+  function settleSandboxUiSurface(kind, id, detail) {
+    var key = kind + '#' + String(id || '');
+    var entry = sandboxUiSurfaces.get(key);
+    if (!entry) { return false; }
+    sandboxUiSurfaces.delete(key);
+    if (typeof entry.settle === 'function') {
+      try { entry.settle(detail); } catch (err) { slog('交互面 settle 抛错: ' + String(err)); }
+    }
+    return true;
+  }
+  /**
+   * P4-001 沙箱 Modal:形状对齐旧轨 shim 的 Modal( setTitle/setContent/onOpen/onClose/
+   * open/close ),宿主执行面真实——open() 把内容描述符经 request 链(ui.modal.open)递交
+   * 宿主,宿主以原生弹层渲染;用户关闭 → 宿主经容器回推帧(sandbox.ui)回流 onClose 并
+   * 兑现 open() 的 Promise。iframe 侧零 DOM 挂载:content 是纯文本描述符,不是 DOM。
+   */
+  function SandboxModal() {
+    this.titleText = '';
+    this.contentText = '';
+    this._modalId = '';
+    this._resolveClosed = null;
+    this._settled = false;
+  }
+  SandboxModal.prototype.setTitle = function (title) { this.titleText = String(title === undefined ? '' : title); return this; };
+  SandboxModal.prototype.setContent = function (content) {
+    this.contentText = typeof content === 'string' ? content : String(content === undefined ? '' : content);
+    return this;
+  };
+  SandboxModal.prototype.onOpen = function () {};
+  SandboxModal.prototype.onClose = function () {};
+  SandboxModal.prototype._settle = function (detail) {
+    if (this._settled) { return; }
+    this._settled = true;
+    try { this.onClose(); } catch (err) { slog('modal.onClose 抛错: ' + String(err)); }
+    if (this._resolveClosed) { this._resolveClosed(detail); }
+  };
+  SandboxModal.prototype.open = function () {
+    var self = this;
+    if (self._modalId) { return Promise.resolve({ closedBy: 'already-open' }); }
+    sandboxModalSeq += 1;
+    var modalId = 'm' + sandboxModalSeq;
+    self._modalId = modalId;
+    self._settled = false;
+    sandboxUiSurfaces.set('modal#' + modalId, {
+      settle: function (detail) { self._settle(detail || { closedBy: 'host' }); }
+    });
+    var promise = new Promise(function (resolve) { self._resolveClosed = resolve; });
+    request('ui.modal.open', { modalId: modalId, title: self.titleText, content: self.contentText })
+      .then(function () {
+        try { self.onOpen(); } catch (err) { slog('modal.onOpen 抛错: ' + String(err)); }
+      })
+      .catch(function (err) {
+        // 宿主拒绝(broker/capability)fail-visible:落账并按 error 兑现 Promise,不留悬空弹层。
+        slog('modal.open 被宿主拒绝: ' + String(err));
+        sandboxUiSurfaces.delete('modal#' + modalId);
+        self._settle({ closedBy: 'error', error: String(err) });
+      });
+    return promise;
+  };
+  SandboxModal.prototype.close = function () {
+    var self = this;
+    var modalId = self._modalId;
+    if (!modalId || self._settled) { return Promise.resolve({ closedBy: 'not-open' }); }
+    return request('ui.modal.close', { modalId: modalId }).then(function () {
+      sandboxUiSurfaces.delete('modal#' + modalId);
+      self._settle({ closedBy: 'plugin' });
+      return { closedBy: 'plugin' };
+    });
+  };
+  /**
+   * P4-001 沙箱 Menu:形状对齐旧轨 shim 的 Menu(addItem/addSeparator/showAtPosition/
+   * showAtMouseEvent/hide/onHide)。addItem 的 item 桩记录声明式描述(title/icon/checked/
+   * disabled/section)与 onClick 动作;show* 把整表经 ui.menu.show 递交宿主渲染,用户点选/
+   * 点外关闭经 sandbox.ui 回流(onClick 动作与 onHide 回调,show* 的 Promise 一并兑现)。
+   */
+  function SandboxMenu() {
+    this.items = [];
+    this._menuId = '';
+    this._resolveClosed = null;
+    this._settled = false;
+  }
+  SandboxMenu.prototype.onHide = function () {};
+  SandboxMenu.prototype.addItem = function (cb) {
+    var item = {
+      title: '', icon: '', checked: false, disabled: false, section: '', action: null,
+      setTitle: function (t) { this.title = String(t === undefined ? '' : t); return this; },
+      setIcon: function (i) { this.icon = String(i === undefined ? '' : i); return this; },
+      setChecked: function (c) { this.checked = Boolean(c); return this; },
+      setDisabled: function (d) { this.disabled = Boolean(d); return this; },
+      setWarning: function () { return this; },
+      setIsLabel: function () { return this; },
+      setSection: function (s) { this.section = String(s === undefined ? '' : s); return this; },
+      onClick: function (cb2) { this.action = typeof cb2 === 'function' ? cb2 : null; return this; }
+    };
+    if (typeof cb === 'function') { cb(item); }
+    this.items.push(item);
+    return this;
+  };
+  SandboxMenu.prototype.addSeparator = function () { this.items.push({ separator: true }); return this; };
+  SandboxMenu.prototype._settle = function (detail) {
+    if (this._settled) { return; }
+    this._settled = true;
+    try { this.onHide(); } catch (err) { slog('menu.onHide 抛错: ' + String(err)); }
+    if (this._resolveClosed) { this._resolveClosed(detail); }
+  };
+  SandboxMenu.prototype.showAtPosition = function (position) {
+    var self = this;
+    if (self._menuId && !self._settled) { return Promise.resolve({ closedBy: 'already-open' }); }
+    sandboxMenuSeq += 1;
+    var menuId = 'n' + sandboxMenuSeq;
+    self._menuId = menuId;
+    self._settled = false;
+    sandboxUiSurfaces.set('menu#' + menuId, {
+      settle: function (detail) { self._settle(detail || { closedBy: 'host' }); },
+      // 宿主点选:item 动作先于 onHide(Obsidian 语义:点选即关单),动作异常不影响关闭。
+      onItem: function (index) {
+        var item = self.items[index];
+        if (item && !item.separator && !item.disabled && typeof item.action === 'function') {
+          try { item.action(); } catch (err) { slog('menu item 回调抛错: ' + String(err)); }
+        }
+      }
+    });
+    var payloadItems = self.items.map(function (item, index) {
+      if (item.separator) { return { separator: true, index: index }; }
+      return { index: index, title: item.title, icon: item.icon, checked: item.checked,
+        disabled: item.disabled, section: item.section };
+    });
+    var promise = new Promise(function (resolve) { self._resolveClosed = resolve; });
+    request('ui.menu.show', {
+      menuId: menuId,
+      x: position && typeof position.x === 'number' ? position.x : 0,
+      y: position && typeof position.y === 'number' ? position.y : 0,
+      items: payloadItems
+    }).catch(function (err) {
+      slog('menu.show 被宿主拒绝: ' + String(err));
+      sandboxUiSurfaces.delete('menu#' + menuId);
+      self._settle({ closedBy: 'error', error: String(err) });
+    });
+    return promise;
+  };
+  SandboxMenu.prototype.showAtMouseEvent = function (event) {
+    var x = event && typeof event.clientX === 'number' ? event.clientX : 0;
+    var y = event && typeof event.clientY === 'number' ? event.clientY : 0;
+    return this.showAtPosition({ x: x, y: y });
+  };
+  SandboxMenu.prototype.hide = function () {
+    var self = this;
+    var menuId = self._menuId;
+    if (!menuId || self._settled) { return Promise.resolve({ closedBy: 'not-open' }); }
+    return request('ui.menu.hide', { menuId: menuId }).then(function () {
+      sandboxUiSurfaces.delete('menu#' + menuId);
+      self._settle({ closedBy: 'plugin' });
+      return { closedBy: 'plugin' };
+    });
+  };
+  SandboxMenu.prototype.close = function () { return this.hide(); };
+  /**
+   * P4-001 Setting Builder:声明式控件收集器。插件在 PluginSettingTab.display() 里
+   * `new Setting(containerEl).setName().addToggle(t => t.setValue(v).onChange(cb))` —
+   * 每个 add* 调用同时登记声明式描述(type/key/default/options/min/max/step/placeholder,
+   * 宿主 LexiPluginSettingsSheet 按既有声明式链原生渲染)与运行时回调(onChange)。
+   * 容器参数按 Obsidian 形状接收、宿主执行面不用(iframe 无 DOM 可挂;声明即全部)。
+   * 控件/行缺 key 的不进声明式定义(宿主按 key 写值,无 key 不可寻址)——button 类本就
+   * 无 key,静默跳过;数据类控件缺 key 落 slog 留痕。
+   */
+  function makeSandboxSettingControl(type) {
+    return {
+      type: type, key: '', value: undefined, options: null,
+      min: 0, max: 100, step: 1, placeholder: '', onChangeCb: null,
+      setValue: function (v) { this.value = v; return this; },
+      getValue: function () { return this.value; },
+      setKey: function (k) { this.key = String(k === undefined ? '' : k); return this; },
+      setPlaceholder: function (p) { this.placeholder = String(p === undefined ? '' : p); return this; },
+      setLimits: function (min, max, step) {
+        if (typeof min === 'number') { this.min = min; }
+        if (typeof max === 'number') { this.max = max; }
+        if (typeof step === 'number') { this.step = step; }
+        return this;
+      },
+      addOption: function (k, label) {
+        if (!this.options) { this.options = {}; }
+        this.options[String(k)] = String(label === undefined ? k : label);
+        return this;
+      },
+      onChange: function (cb) { this.onChangeCb = typeof cb === 'function' ? cb : null; return this; }
+    };
+  }
+  function SandboxSetting(_containerEl) {
+    this._name = '';
+    this._desc = '';
+    this._key = '';
+    this._heading = false;
+    this._controls = [];
+    if (settingCollecting) { settingCollecting.push(this); }
+  }
+  SandboxSetting.prototype.setName = function (n) { this._name = String(n === undefined ? '' : n); return this; };
+  SandboxSetting.prototype.setDesc = function (d) { this._desc = String(d === undefined ? '' : d); return this; };
+  SandboxSetting.prototype.setClass = function () { return this; };
+  SandboxSetting.prototype.setHeading = function () { this._heading = true; return this; };
+  SandboxSetting.prototype.setTooltip = function () { return this; };
+  SandboxSetting.prototype.setDisabled = function () { return this; };
+  SandboxSetting.prototype.setErrorMessage = function () { return this; };
+  SandboxSetting.prototype.setKey = function (k) { this._key = String(k === undefined ? '' : k); return this; };
+  SandboxSetting.prototype._add = function (type, cb) {
+    var control = makeSandboxSettingControl(type);
+    if (typeof cb === 'function') { cb(control); }
+    this._controls.push(control);
+    return this;
+  };
+  SandboxSetting.prototype.addToggle = function (cb) { return this._add('toggle', cb); };
+  SandboxSetting.prototype.addText = function (cb) { return this._add('text', cb); };
+  SandboxSetting.prototype.addTextArea = function (cb) { return this._add('textarea', cb); };
+  SandboxSetting.prototype.addDropdown = function (cb) { return this._add('dropdown', cb); };
+  SandboxSetting.prototype.addSlider = function (cb) { return this._add('slider', cb); };
+  SandboxSetting.prototype.addButton = function (cb) { return this._add('button', cb); };
+  SandboxSetting.prototype.addExtraButton = function (cb) { return this._add('extra', cb); };
+  SandboxSetting.prototype.addSearch = function (cb) { return this._add('search', cb); };
+  SandboxSetting.prototype.addMomentFormat = function (cb) { return this._add('momentformat', cb); };
+  SandboxSetting.prototype.addColorPicker = function (cb) { return this._add('color', cb); };
+  SandboxSetting.prototype.addProgressBar = function (cb) { return this._add('progress', cb); };
+  SandboxSetting.prototype.addDisplay = function (cb) { return this._add('display', cb); };
+  SandboxSetting.prototype.addComponent = function (cb) {
+    if (typeof cb === 'function') { cb({}); }
+    return this;
+  };
+  SandboxSetting.prototype.then = function (cb) {
+    if (typeof cb === 'function') { cb(this); }
+    return this;
+  };
+  SandboxSetting.prototype.clear = function () { this._controls = []; return this; };
+  SandboxSetting.prototype.definitionsOf = function () {
+    if (this._heading) { return [{ type: 'heading', name: this._name }]; }
+    var defs = [];
+    for (var i = 0; i < this._controls.length; i++) {
+      var control = this._controls[i];
+      var key = control.key || this._key;
+      if (!key) {
+        if (control.type !== 'button' && control.type !== 'extra') {
+          slog('Setting 控件缺 key,声明式定义跳过: ' + this._name + '(' + control.type + ')');
+        }
+        continue;
+      }
+      var def = { type: control.type, name: this._name, key: key };
+      if (this._desc) { def.desc = this._desc; }
+      if (control.value !== undefined) { def.default = control.value; }
+      if (control.options && Object.keys(control.options).length > 0) { def.options = control.options; }
+      if (control.type === 'slider') { def.min = control.min; def.max = control.max; def.step = control.step; }
+      if (control.placeholder) { def.placeholder = control.placeholder; }
+      defs.push(def);
+    }
+    return defs;
+  };
+  /**
+   * 宿主交互事件落地(sandbox.ui 回推帧;port 轨与容器 window 轨两路共用,同 runSandboxCommand)。
+   * kind=modal:closed → onClose + open() Promise 兑现;
+   * kind=menu:item/closed → 点选动作 + onHide + show*() Promise 兑现;
+   * kind=settings:values → 控件级 onChange(按 key 寻址) + tab.onSettingsChanged
+   * (宿主设置页写 data.json 后的值回推,沙箱轨等价于 legacy 轨 dispatch 'settings.values')。
+   */
+  function runSandboxUiEvent(data) {
+    var kind = String(data.kind || '');
+    var id = String(data.id || '');
+    if (kind === 'modal') {
+      if (!settleSandboxUiSurface('modal', id, { closedBy: 'host' })) { slog('modal 回推无在途面: ' + id); }
+      return;
+    }
+    if (kind === 'menu') {
+      var key = 'menu#' + id;
+      var entry = sandboxUiSurfaces.get(key);
+      if (!entry) { slog('menu 回推无在途面: ' + id); return; }
+      if (data.event === 'item') {
+        if (typeof entry.onItem === 'function') { entry.onItem(data.itemId); }
+      }
+      sandboxUiSurfaces.delete(key);
+      entry.settle(data.event === 'item' ? { closedBy: 'item' } : { closedBy: 'host' });
+      return;
+    }
+    if (kind === 'settings') {
+      var values = data.values;
+      if (!values || typeof values !== 'object') { return; }
+      var tab = sandboxSettingTabRef;
+      if (!tab) { slog('settings 回推无登记面板'); return; }
+      var collected = tab._sandboxSettings || [];
+      for (var key2 in values) {
+        if (!Object.prototype.hasOwnProperty.call(values, key2)) { continue; }
+        for (var i = 0; i < collected.length; i++) {
+          var controls = collected[i]._controls || [];
+          for (var j = 0; j < controls.length; j++) {
+            if ((controls[j].key || collected[i]._key) === key2 && typeof controls[j].onChangeCb === 'function') {
+              try { controls[j].onChangeCb(values[key2]); } catch (err) { slog('设置 onChange 抛错: ' + String(err)); }
+            }
+          }
+        }
+        if (typeof tab.setControlValue === 'function') {
+          try { tab.setControlValue(key2, values[key2]); } catch (err) { slog('setControlValue 抛错: ' + String(err)); }
+        }
+      }
+      if (typeof tab.onSettingsChanged === 'function') {
+        try { tab.onSettingsChanged(values); } catch (err) { slog('onSettingsChanged 抛错: ' + String(err)); }
+      }
+      return;
+    }
+    slog('未知交互面回推类型: ' + kind);
+  }
   function parentRequest(method, params) {
     return new Promise(function (resolve, reject) {
       var requestId = 'w' + (++requestSeq);
@@ -340,10 +658,12 @@
       var path = String(value || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
       return path;
     }
-    // P1-003d(R28):真实业务代码在模块顶层 `class X extends ItemView` / `class Y extends
-    // PluginSettingTab`(类定义在求值期就需要基类存在,否则 lexi-sample 求值即抛 TypeError)。
-    // 视图/设置面板的宿主执行面仍是后续切片(P1-003b 剩余面):registerView/addSettingTab
-    // 存根永不实例化它们,这里只保证求值期类定义成立 + 意外实例化时退化为 no-op 面。
+    // P1-003d(R28):真实业务代码在模块顶层 `class X extends ItemView`(类定义在求值期
+    // 就需要基类存在,否则 lexi-sample 求值即抛 TypeError)。视图面板的宿主执行面仍是
+    // 后续切片(P4-005):registerView 存根永不实例化它们,这里只保证求值期类定义成立。
+    // P4-001:PluginSettingTab 已从纯求值桩升级为真实面——addSettingTab 在收集窗口跑
+    // display()(Setting Builder 落账),definitions 经 settings.register 递交宿主原生
+    // 渲染;值变更经 sandbox.ui 回推(onSettingsChanged/控件 onChange,见文件头部说明)。
     function SandboxItemView(leaf) {
       this.leaf = leaf || null;
       this.contentEl = { empty: function () {}, setText: function () {},
@@ -355,9 +675,13 @@
       this.app = appRef;
       this.plugin = pluginRef;
       this.containerEl = { empty: function () {} };
+      this._sandboxSettings = [];
     }
     SandboxPluginSettingTab.prototype.display = function () {};
     SandboxPluginSettingTab.prototype.hide = function () {};
+    SandboxPluginSettingTab.prototype.getControlValue = function () { return undefined; };
+    SandboxPluginSettingTab.prototype.setControlValue = function () {};
+    SandboxPluginSettingTab.prototype.onSettingsChanged = function () {};
     function SandboxPlugin(appRef) {
       this.app = appRef;
       this.manifest = manifest;
@@ -401,15 +725,52 @@
     SandboxPlugin.prototype.registerEvent = function () { return { unregister: function () {} }; };
     SandboxPlugin.prototype.registerInterval = function (id) { return id; };
     SandboxPlugin.prototype.registerView = function () { return {}; };
-    SandboxPlugin.prototype.addSettingTab = function () { return {}; };
+    /**
+     * P4-001 设置面:PluginSettingTab 登记即出站。收集窗口内跑 display()(Setting
+     * Builder 的 new Setting 落账),再并上插件显式声明的 getSettingDefinitions()(legacy
+     * 形状兼容,与宿主 parseSettingDefinitions 同一扁平形状),汇总经既有 settings.register
+     * RPC 递交宿主(宿主设置页 LexiPluginSettingsSheet 原生渲染,值持久化 data.json)。
+     * 之后宿主写值经 sandbox.ui 回推:控件 onChange + tab.onSettingsChanged。
+     */
+    SandboxPlugin.prototype.addSettingTab = function (tab) {
+      settingCollecting = [];
+      try {
+        if (tab && typeof tab.display === 'function') { tab.display(); }
+      } catch (err) {
+        slog('设置 display 收集失败: ' + String(err));
+      }
+      var collected = settingCollecting;
+      settingCollecting = null;
+      var definitions = [];
+      for (var i = 0; i < collected.length; i++) {
+        definitions = definitions.concat(collected[i].definitionsOf());
+      }
+      if (tab && typeof tab.getSettingDefinitions === 'function') {
+        try {
+          var declared = tab.getSettingDefinitions();
+          if (Array.isArray(declared)) { definitions = definitions.concat(declared); }
+        } catch (err) {
+          slog('getSettingDefinitions 读取失败: ' + String(err));
+        }
+      }
+      if (tab) { tab._sandboxSettings = collected; }
+      sandboxSettingTabRef = tab || null;
+      return request('settings.register', { definitionsJson: JSON.stringify(definitions) }).then(function () {
+        return definitions;
+      });
+    };
     SandboxPlugin.prototype.addRibbonIcon = function () { return {}; };
     SandboxPlugin.prototype.registerMarkdownCodeBlockProcessor = function () { return {}; };
     var obsidian = {
       Plugin: SandboxPlugin,
-      // P1-003d(R28):可构造的最小 ItemView/PluginSettingTab(见上方注释;宿主执行面
-      // 属 view/settings 域,P4-005 批次)。
+      // P1-003d(R28):可构造的最小 ItemView(宿主执行面属 view 域,P4-005 批次)。
+      // P4-001:PluginSettingTab 为真实设置面(见 addSettingTab);Modal/Menu/Setting
+      // Builder 为真实交互面(描述符经 request 链出站,结果经 sandbox.ui 回推)。
       ItemView: SandboxItemView,
       PluginSettingTab: SandboxPluginSettingTab,
+      Modal: SandboxModal,
+      Menu: SandboxMenu,
+      Setting: SandboxSetting,
       // 最小面(本轮切片):codeblock/ribbon 属 UI 域,宿主面就绪后在后续切片提供。
       Notice: function Notice(message) { this.show = function () { makeNotice(String(message)); }; },
       normalizePath: normalizeSandboxPath,
@@ -545,6 +906,8 @@
     if (data.type === 'sandbox.ping') { postToHost({ type: 'sandbox.pong', contextId: contextId }); return; }
     // P1-003b 编辑器切片:容器轨命令回推带 editor 快照(宿主按清单档位脱敏后的载荷)。
     if (data.type === 'sandbox.command') { runSandboxCommand(String(data.fullId || ''), data.editor); return; }
+    // P4-001 交互面回推:宿主用户操作/设置值变更(port 轨分支;容器轨等价分支在 window listener)。
+    if (data.type === 'sandbox.ui') { runSandboxUiEvent(data); return; }
     if (data.type === 'sandbox.response') { finish(data.requestId, data); return; }
     if (data.type === 'sandbox.run' && typeof data.source === 'string') {
       try {
@@ -589,6 +952,9 @@
     // 容器轨命令回推:宿主 invokePluginCommand/invokeEditorCommand → 容器页 lexiSandboxCommand →
     // 本通道(port 轨等价分支在 onPortMessage;两路共用 runSandboxCommand,表同源)。
     if (data.type === 'sandbox.command') { runSandboxCommand(String(data.fullId || ''), data.editor); return; }
+    // P4-001 交互面回推:宿主用户操作/设置值变更(容器页 lexiSandboxUiEvent 路由;
+    // port 轨等价分支在 onPortMessage;两路共用 runSandboxUiEvent)。
+    if (data.type === 'sandbox.ui') { runSandboxUiEvent(data); return; }
     if (data.type === 'sandbox.init' && !inited) {
       inited = true;
       contextId = typeof data.contextId === 'string' ? data.contextId : '';

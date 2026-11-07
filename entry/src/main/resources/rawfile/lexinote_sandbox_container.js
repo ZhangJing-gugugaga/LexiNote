@@ -167,4 +167,30 @@
       log('命令已回推沙箱: ' + String(body.fullId || ''));
     } catch (err) { log('命令回推失败: ' + String(err)); }
   };
+
+  // ---- P4-001:宿主交互面事件回推(Modal 关闭/Menu 点选/设置值变更) -------------------
+  // 与 lexiSandboxCommand 同一信任形态:宿主 runJavaScript 直调,本页按 pluginId 路由进
+  // 对应 iframe 的 window 通道。pluginId 等身份字段只用于本页路由,frame 一律不带——
+  // 身份永不进 iframe(与命令回推同一纪律)。
+  window.lexiSandboxUiEvent = function (bodyJson) {
+    let body = null;
+    try { body = JSON.parse(String(bodyJson || '{}')); } catch (err) { log('ui 事件帧解析失败'); return; }
+    const pluginId = String(body.pluginId || '');
+    if (!pluginId) { log('ui 事件帧缺 pluginId(丢弃)'); return; }
+    let target = null;
+    pendingContexts.forEach((context) => {
+      if (!target && context.pluginId === pluginId) { target = context; }
+    });
+    if (!target) { log('ui 事件找不到上下文: ' + pluginId); return; }
+    const frame = {
+      __lexiSandbox: true, type: 'sandbox.ui',
+      kind: String(body.kind || ''), id: String(body.id || ''), event: String(body.event || '')
+    };
+    if (body.itemId !== undefined && body.itemId !== null) { frame.itemId = body.itemId; }
+    if (body.values && typeof body.values === 'object') { frame.values = body.values; }
+    try {
+      target.win.postMessage(frame, '*');
+      log('ui 事件已回推沙箱: ' + frame.kind + '/' + frame.event);
+    } catch (err) { log('ui 事件回推失败: ' + String(err)); }
+  };
 })();

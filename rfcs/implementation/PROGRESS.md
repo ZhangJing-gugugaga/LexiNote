@@ -905,4 +905,30 @@ release-gate --ci **32/32**（31→32：新增 examples 步）、plugin-examples
 
 Phase 3 收口复核（P3-005 热重载/P3-006 Inspector 完整化待排）；P4-001 Modal/Menu/Settings 与 P4-005 夹具批次（示例中的 pending 标记即迁移清单）。
 
-最近更新时间：2026-11-07（Round 36）。
+## Round 37 — 2026-11-07（R37-A = P4-001 Modal/Menu/Setting Builder 实现 → 离线全绿）
+
+### 本轮完成
+
+1. **P4-001 三交互面（沙箱轨,不只类型声明）**——端口链纪律全程:iframe 零 DOM 句柄,描述符经既有 request 链出站,结果经容器回推帧回流,身份永不进 iframe（ADR-R18-01）：
+   - **Modal**：`lexinote_plugin_sandbox.html` 新 `SandboxModal`（setTitle/setContent/onOpen/onClose/open/close）→ `ui.modal.open/close`（宿主 handler,身份段表键 `pluginId#modalId` 只能寻址自己的在途面）→ 新组件 `LexiPluginSurfaceHost.ets`（观察 `lexiPluginRevision`,Index.ets Stack 嵌入）原生弹层;用户关闭 → 容器 `window.lexiSandboxUiEvent`（新,按 pluginId 路由,帧零身份字段）→ iframe `sandbox.ui{kind:modal}` → onClose + open() Promise 兑现（幂等 settle,重复回推 no-op;宿主拒绝 fail-visible 落 slog）。
+   - **Menu**：`SandboxMenu`（addItem 桩记录声明式条目+onClick/addSeparator/showAtPosition/showAtMouseEvent/hide/onHide）→ `ui.menu.show/hide`（payload schema: items 必须 array）→ 宿主原生菜单（钳制呈现 x/y）;点选/点外 → `sandbox.ui{kind:menu,event:item|closed,itemId}` → onClick 动作与 onHide、show() Promise 兑现。
+   - **Setting Builder**：`SandboxSetting` 收集器（display() 内 `new Setting(containerEl)` 落账声明式控件 type/key/default/options/min/max/step/placeholder+onChange 回调;`setKey`=LexiNote 寻址键,缺 key 数据控件不进定义并落痕）+ `SandboxPlugin.addSettingTab` 真实化（收集窗口跑 display()→并上 getSettingDefinitions() legacy 形状→既有 `settings.register` 出站→宿主既有 `LexiPluginSettingsSheet` 原生渲染,值持久化 data.json）。**值运行中回推通道已接**（R36 调查缺口收口）:`writePluginData` → `sandbox.ui{kind:settings,values}` → 控件 onChange（按 key 寻址）+ tab.onSettingsChanged;setControlValue 同帧兑现。legacy 轨 dispatch('settings.values') 保持不动。
+   - **宿主侧加固**：broker 矩阵 ui-domain 增 4 方法（capability 域映射 notifications=与 Notice 同域,未声明即拒;独立 ui.popups 域留 manifest 键轮决策）、Gateway schema 4 条、`dropPluginSurfaces` 随 P1-008 销毁尾序回收在途面、BUNDLED_PLUGIN_IDS 增 `plugins/sandbox-ui-min`。
+2. **夹具+示例**：`plugins/sandbox-ui-min`（gitignore 同批本地暂存,manifest v2 sandbox: + notifications,命令 ui-modal/ui-menu 触发 Modal/Menu,PluginSettingTab 子类 display() 建 toggle/dropdown/slider 三控件+onSettingsChanged 记账);`examples/example-ui`（第六例,沙箱轨声明 `faces: all-real`,README 记录端口链语义与 capability 对账）。
+3. **门禁**：context-isolation 86→**111**（S34×4 交互面静态+S42×5 宿主接线+**E4/E4b 业务链行为级探针**:真实沙箱页脚本 vm 装载 sandbox-ui-min,settings.register 定义出站/ui.modal.open 描述符/sandbox.ui 关闭回推→onClose 落账/menu.show 条目表/item 回推→onClick+onHide 落账/settings.values 回推→控件 onChange+onSettingsChanged 双路径落账/全链帧零身份,8 项×CJS+IIFE 双分支）;examples 51→**63**（六类+E0 对账+example-ui 命令回调真实执行断言）;dist-regression 42→**43**（P4-001 接线:handler/身份段表键/capability 映射/回推分流/销毁回收/渲染组件嵌入/容器帧零身份/夹具对账）;契约三份快照手改（api-surface.json+capability-map.json 67→71 方法,symbols.json 两处行锚 1809→1973/1610→1767,SDK 副本 sync-sdk.cjs 刷新）;lexi-cli-contract 45（API 面 67→71 方法）;docs-contract 17（plugin-api-reference ui 域增 4 方法行）。**examples strict boot 空转修正**:stub `load` 此前不驱动 onload,R36 的"onload 全链"断言对沙箱例空转——修为与宿主 SandboxPlugin.load 同语义真驱动(example-ui 行为断言暴露,全例回绿)。
+
+### 诚实边界（IMPLEMENTED ≠ VERIFIED）
+
+- 全部离线证据（vm 行为级+静态接线）。**设备批次 P4-005** 才验收:弹层/菜单真实呈现、用户点按回流、设置页改值回推、多插件并发弹层、菜单坐标精确锚定（本轮 x/y 仅钳制呈现——沙箱坐标与宿主视口无换算基准）。
+- `sandbox.ui` 回推通道与 `lexiSandboxCommand` 同信任形态（容器页按 pluginId 路由+帧零身份）;容器页被攻破时同 realm 残余与 R30-B 登记同级,不在本轮夸大。
+- 沙箱 UI 交互面能力域复用 notifications（最小清单改动,指纹标签已在案）;独立 ui.popups 域（清单键/指纹/SDK schema）留 manifest 键轮,届时换映射=重授权 diff。
+
+### 实际执行的测试
+
+release-gate --ci **32/32**、context-isolation **111**（含 E4/E4b 全链探针）、plugin-examples **63**、dist-regression **43/43**、authz-matrix **93**、shim-regression **12**、channel-audit 死通道 0、lexi-cli-contract **45**、docs-contract **17**、sdk-contract **39**、hvigorw assembleHap **BUILD SUCCESSFUL**。
+
+### 下一轮
+
+P4-005 夹具批次（设备验收:含本面三交互+R36 示例的 runtime 页轨面迁移）;P4-002 Suggest 系（依赖本面 Modal 载体）。
+
+最近更新时间：2026-11-07（Round 37）。

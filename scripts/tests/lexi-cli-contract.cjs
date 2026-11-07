@@ -306,7 +306,7 @@ if (fs.existsSync(CLI)) {
     const r = lexi(['plugin', 'compatibility', proj]);
     ok('C11.1 兼容面读数(API 版本/标签/CM 矩阵)', r.status === 0 &&
       /宿主 API 版本=1\.0\.0/.test(r.output) && /授权标签=\[\]/.test(r.output) &&
-      /CodeMirror 宿主矩阵 @codemirror\//.test(r.output) && /API 面 67 方法/.test(r.output),
+      /CodeMirror 宿主矩阵 @codemirror\//.test(r.output) && /API 面 71 方法/.test(r.output),
       r.output.split('\n').slice(-2).join('|'));
     const withCaps = JSON.parse(originalManifest);
     withCaps.capabilities = { vault: { write: true }, network: ['https://API.example.com/path'] };

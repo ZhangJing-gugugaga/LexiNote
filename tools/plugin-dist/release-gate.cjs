@@ -268,7 +268,7 @@ function ciMode() {
     ['update-policy: T4.3/T4.4 市场+更新策略(RFC)', 'scripts/tests/plugin-update-policy.cjs', []],
     ['sdk-contract: T5.1 SDK 对账(RFC)', 'scripts/tests/plugin-sdk-contract.cjs', []],
     ['cli-contract: T5.2 lexi CLI(RFC)', 'scripts/tests/lexi-cli-contract.cjs', []],
-    ['examples: P3-007 五类示例 CLI 构建链(每例 validate→build→inspect→pack+boot)', 'scripts/tests/plugin-examples.cjs', []],
+    ['examples: P3-007/P4-001 六类示例 CLI 构建链(每例 validate→build→inspect→pack+boot)', 'scripts/tests/plugin-examples.cjs', []],
     ['inspector: T5.3 观察面(RFC)', 'scripts/tests/plugin-inspector.cjs', []],
     ['docs-contract: T5.4 文档对账(RFC)', 'scripts/tests/plugin-docs-contract.cjs', []],
     ['market-regression: v1 索引解析', 'scripts/tests/plugin-market-regression.cjs', []],

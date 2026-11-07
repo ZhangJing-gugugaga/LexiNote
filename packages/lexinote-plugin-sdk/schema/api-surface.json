@@ -561,6 +561,54 @@
       "bridge": false
     },
     {
+      "method": "ui.menu.hide",
+      "domain": "ui",
+      "kind": "ui-domain",
+      "roles": [
+        "session",
+        "plugin"
+      ],
+      "status": "stable",
+      "hostHandler": true,
+      "bridge": false
+    },
+    {
+      "method": "ui.menu.show",
+      "domain": "ui",
+      "kind": "ui-domain",
+      "roles": [
+        "session",
+        "plugin"
+      ],
+      "status": "stable",
+      "hostHandler": true,
+      "bridge": false
+    },
+    {
+      "method": "ui.modal.close",
+      "domain": "ui",
+      "kind": "ui-domain",
+      "roles": [
+        "session",
+        "plugin"
+      ],
+      "status": "stable",
+      "hostHandler": true,
+      "bridge": false
+    },
+    {
+      "method": "ui.modal.open",
+      "domain": "ui",
+      "kind": "ui-domain",
+      "roles": [
+        "session",
+        "plugin"
+      ],
+      "status": "stable",
+      "hostHandler": true,
+      "bridge": false
+    },
+    {
       "method": "ui.notice",
       "domain": "ui",
       "kind": "ui-domain",

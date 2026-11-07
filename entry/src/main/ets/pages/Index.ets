@@ -5,6 +5,7 @@ import { LexiDesktopWorkspace } from '../components/LexiDesktopWorkspace';
 import { LexiPluginRuntimeHost } from '../components/plugin/LexiPluginRuntimeHost';
 import { LexiSandboxHost } from '../components/plugin/LexiSandboxHost';
 import { LexiSandboxContainerHost } from '../components/plugin/LexiSandboxContainerHost';
+import { LexiPluginSurfaceHost } from '../components/plugin/LexiPluginSurfaceHost';
 import { LexiIcon } from '../components/LexiIcon';
 import { LexiTitleBackdrop } from '../components/LexiTitleBackdrop';
 import { LexiNavigation } from '../components/LexiNavigation';
@@ -1436,6 +1437,10 @@ struct Index {
       }
       LexiContextActionHost({ onOpen: (id: string, mode: string): void => { this.openContextContent(id, mode); },
         onSearch: (target: LexiContextTarget): void => { this.searchContext(target); } })
+      // P4-001:插件 Modal/Menu 宿主原生渲染面(观察 lexiPluginRevision;无在途交互面时
+      // hitTest None 不挡 UI)。沙箱插件交互描述符在此出站为真实弹层/菜单,用户操作经
+      // manager 落账并回推沙箱兑现插件侧回调
+      LexiPluginSurfaceHost()
       if (this.showSettingsWindow) {
         LexiSettingsWindow({
           theme: this.theme,

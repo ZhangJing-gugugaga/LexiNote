@@ -123,6 +123,11 @@ export class LexiRpcGateway {
     schema.set('commands.execute', [field('id', 'string')]);
     // --- data（plugin-storage 家族；data.load 无必需字段） ---
     schema.set('data.save', [field('dataJson', 'string')]);
+    // --- P4-001 插件 Modal/Menu 宿主面（ui-domain 家族；描述符出站的入口闸） ---
+    schema.set('ui.modal.open', [field('modalId', 'string'), field('title', 'string'), field('content', 'string')]);
+    schema.set('ui.modal.close', [field('modalId', 'string')]);
+    schema.set('ui.menu.show', [field('menuId', 'string'), field('items', 'array')]);
+    schema.set('ui.menu.hide', [field('menuId', 'string')]);
     return schema;
   }
 

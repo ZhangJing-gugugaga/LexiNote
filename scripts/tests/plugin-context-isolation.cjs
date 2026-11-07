@@ -162,6 +162,36 @@ if (fs.existsSync(SANDBOX_HTML)) {
     /getRightLeaf: function \(\)/.test(sandbox) &&
     /叶面未接入沙箱轨/.test(sandbox),
     'workspace 叶面缺失面(P4-005)必须 fail-visible,裸 TypeError 会被误读成插件代码 bug');
+  // R37(P4-001):Modal/Menu/Setting Builder 交互面——描述符经既有 request 链出站
+  // (ui.modal.open / ui.menu.show / settings.register),结果经容器 sandbox.ui 回推帧
+  // 回流;iframe 零 DOM 挂载(端口链纪律,ADR-R18-01)。
+  ok('S34 沙箱 Modal/Menu/Setting 交互面在案(描述符经 request 链,宿主原生渲染)',
+    /function SandboxModal\(/.test(sandbox) &&
+    /'ui\.modal\.open'/.test(sandbox) && /'ui\.modal\.close'/.test(sandbox) &&
+    /function SandboxMenu\(/.test(sandbox) &&
+    /'ui\.menu\.show'/.test(sandbox) && /'ui\.menu\.hide'/.test(sandbox) &&
+    /function SandboxSetting\(/.test(sandbox) && /'settings\.register'/.test(sandbox) &&
+    /Modal: SandboxModal/.test(sandbox) && /Menu: SandboxMenu/.test(sandbox) &&
+    /Setting: SandboxSetting/.test(sandbox),
+    '交互面缺失任一形状即 P4-001 回退为 no-op 桩(不只类型声明)');
+  ok('S34b 沙箱交互面零 DOM 句柄(Modal/Menu/Setting 区域不触 document/parent)',
+    (() => {
+      const start = sandbox.indexOf('function settleSandboxUiSurface');
+      const end = sandbox.indexOf('function parentRequest');
+      const faces = start >= 0 && end > start ? sandbox.slice(start, end) : '';
+      return faces.length > 0 && !/document\./.test(faces) && !/window\.parent/.test(faces) &&
+        !/createElement/.test(faces);
+    })(),
+    'iframe 交互面必须是纯内容描述符;DOM 面孔=宿主 UI 泄漏进沙箱(端口链纪律)');
+  ok('S34c sandbox.ui 回推帧 port/window 两 listener 接线且共用 runSandboxUiEvent',
+    (sandbox.match(/data\.type === 'sandbox\.ui'/g) || []).length >= 2 &&
+    (sandbox.match(/runSandboxUiEvent\(/g) || []).length >= 3,
+    '回推处理缺失任一通道 = 对应轨的交互面结果蒸发(port 轨 / 容器 window 轨)');
+  ok('S34d Setting Builder 收集窗口与 key 寻址在案(缺 key 不进定义)',
+    /settingCollecting = \[\]/.test(sandbox) &&
+    /definitionsOf = function/.test(sandbox) &&
+    /控件缺 key,声明式定义跳过/.test(sandbox),
+    '收集窗口缺失 = Setting Builder 不落账;缺 key 静默入定义 = 宿主写值不可寻址');
 }
 {
   const runtimeHtml = fs.readFileSync(path.join(RAWFILE, 'lexinote_plugin_runtime.html'), 'utf8');
@@ -321,6 +351,46 @@ console.log('== S41 P1-008 销毁闭环(容器 iframe 销毁面 + 宿主接线�
     /window\.lexiContainerTeardown && window\.lexiContainerTeardown\(/.test(disableBody));
 }
 
+// ------------------------------------------------- S42 P4-001 交互面回推链(R37)
+// 验收行:Modal/Menu/Setting 三面的宿主执行端——容器 ui 事件路由(身份不进帧)、
+// 宿主 handler/capability 映射、原生渲染组件接线、设置值回推、销毁回收。
+console.log('== S42 P4-001 交互面回推链(容器路由 + 宿主接线) ==');
+{
+  const containerSrc = fs.readFileSync(path.join(RAWFILE, 'lexinote_sandbox_container.js'), 'utf8');
+  const runtimeSrc = fs.readFileSync(path.join(ROOT, 'entry/src/main/ets/core/plugin/LexiPluginRuntime.ets'), 'utf8');
+  const surfaceHostPath = path.join(ROOT, 'entry/src/main/ets/components/plugin/LexiPluginSurfaceHost.ets');
+  const surfaceHost = fs.existsSync(surfaceHostPath) ? fs.readFileSync(surfaceHostPath, 'utf8') : '';
+  const indexSrc = fs.readFileSync(path.join(ROOT, 'entry/src/main/ets/pages/Index.ets'), 'utf8');
+  const uiFrameZone = (containerSrc.match(/type: 'sandbox\.ui'[\s\S]{0,260}/) || [''])[0];
+  ok('S42a 容器 ui 事件回推按 pluginId 路由且帧本体零身份字段',
+    /window\.lexiSandboxUiEvent = function/.test(containerSrc) &&
+    /context\.pluginId === pluginId/.test(containerSrc) &&
+    uiFrameZone.length > 0 && !/pluginId|token|activationId/.test(uiFrameZone),
+    '容器路由用 pluginId(身份只在本页路由),frame 只允许 kind/id/event/itemId/values(与命令回推同一纪律)');
+  ok('S42b 宿主 Modal/Menu handler 在案且 capability 映射 notifications(与 Notice 同域)',
+    /registerHandler\('ui\.modal\.open'/.test(runtimeSrc) &&
+    /registerHandler\('ui\.modal\.close'/.test(runtimeSrc) &&
+    /registerHandler\('ui\.menu\.show'/.test(runtimeSrc) &&
+    /registerHandler\('ui\.menu\.hide'/.test(runtimeSrc) &&
+    /'ui\.modal\.open' \|\| method === 'ui\.modal\.close'/.test(runtimeSrc) &&
+    /return caps\.notifications; \}/.test(runtimeSrc),
+    'handler 缺失 = 描述符出站 unknown_method;capability 映射缺失 = 未声明 notifications 的插件可弹 UI');
+  ok('S42c 交互面宿主渲染组件在案并嵌入主页面(观察修订号,用户操作回流 manager)',
+    /struct LexiPluginSurfaceHost/.test(surfaceHost) &&
+    /lexiPluginRevision/.test(surfaceHost) &&
+    /dismissPluginModal|choosePluginMenuItem/.test(surfaceHost) &&
+    /LexiPluginSurfaceHost\(\)/.test(indexSrc),
+    '渲染组件缺失 = 描述符出站后无宿主面(弹层/菜单不出现)');
+  ok('S42d 设置值沙箱回推接线(writePluginData → sandbox.ui;legacy dispatch 保持)',
+    /notifySandboxUiEvent\(pluginId, 'settings', 'values', 'changed', -1, values\)/.test(runtimeSrc) &&
+    /dispatch\('settings\.values'/.test(runtimeSrc) &&
+    /private notifySandboxUiEvent\(/.test(runtimeSrc),
+    'R36 调查的"运行中值回推无通道"缺口:沙箱轨收口在 sandbox.ui,legacy 轨等价通道不得移除');
+  ok('S42e 交互面随插件销毁回收(disable 尾序 dropPluginSurfaces)',
+    /dropPluginSurfaces\(pluginId\)/.test(runtimeSrc),
+    '在途弹层/菜单残留 = 插件销毁后宿主仍渲染其 UI(销毁闭环缺口)');
+}
+
 // ---------------------------------------------------------------- E1/E2 vm 求值探针
 console.log('== E* vm 求值恶意探针 ==');
 function probeSource() {
@@ -406,6 +476,10 @@ async function runProbe(hostile) {
 const SEC_FIXTURE_DIR = path.join(RAWFILE, 'plugins', 'sandbox-sec-probe');
 const SEC_FIXTURE_MAIN = path.join(SEC_FIXTURE_DIR, 'main.js');
 const SEC_PLUGIN_ID = 'sandbox-sec-probe';
+// R37(P4-001)交互面探针夹具:与设备验收同一份源码(与 E3 同纪律,gitignore 本地暂存物)。
+const UI_FIXTURE_DIR = path.join(RAWFILE, 'plugins', 'sandbox-ui-min');
+const UI_FIXTURE_MAIN = path.join(UI_FIXTURE_DIR, 'main.js');
+const UI_PLUGIN_ID = 'sandbox-ui-min';
 
 /** 提取沙箱页内联引导脚本(文档本体唯一脚本,与真机同源)。 */
 function sandboxPageScript() {
@@ -560,6 +634,101 @@ async function assertBusinessProbe(label, mode) {
     '身份泄漏帧: ' + leakyIdentity.map((f) => f.method || f.type).join(','));
 }
 
+/**
+ * E4 交互面业务链探针(P4-001/R37):与 E3 同一容器轨 vm 环境(真实沙箱页脚本),
+ * 装载 sandbox-ui-min 夹具,Modal/Menu/Setting 三面全链行为级——
+ *   出站:命令回推驱动 Modal/Menu 描述符帧(ui.modal.open/ui.menu.show)、
+ *         addSettingTab 驱动 Setting Builder 定义帧(settings.register);
+ *   回流:宿主侧以 sandbox.ui 帧回推(用户关闭/点选/设置值变更),插件回调
+ *         (onClose/onClick/onHide/控件 onChange/onSettingsChanged)经 data.save 落账对账。
+ * 宿主 ArkTS 渲染端的行为级验收归设备批次(本探针证明 iframe 侧全链 + 帧协议两端形状)。
+ */
+async function assertUiProbe(label, mode) {
+  const env = makeBusinessSandboxEnv();
+  vm.runInContext(sandboxPageScript(), env, { filename: 'lexinote_plugin_sandbox.html#inline' });
+  const code = fs.readFileSync(UI_FIXTURE_MAIN, 'utf8');
+  const pluginCode = mode === 'iife' ? wrapViaShim(code, UI_PLUGIN_ID) : code;
+  env.__deliver({
+    __lexiSandbox: true, type: 'sandbox.init', contextId: 'ui-ctx',
+    plugin: {
+      code: pluginCode,
+      manifestJson: JSON.stringify({ id: UI_PLUGIN_ID, name: '沙箱交互面夹具(R37)', version: '1.0.0' })
+    }
+  });
+  const until = async (condition, what) => {
+    for (let i = 0; i < 400; i++) {
+      if (condition()) { return true; }
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    return false;
+  };
+  const requestFrames = (method) => env.__frames.filter((f) => f.type === 'sandbox.request' && f.method === method);
+  const lastSaveJson = () => {
+    const saves = requestFrames('data.save');
+    return saves.length > 0 ? JSON.stringify(saves[saves.length - 1].params) : '';
+  };
+  // 1. 设置面:display() 收集窗口 → settings.register 定义出站。
+  await until(() => requestFrames('settings.register').length > 0, 'settings.register');
+  const regFrame = requestFrames('settings.register')[0];
+  let defs = [];
+  try { defs = JSON.parse(regFrame.params.definitionsJson); } catch (err) { defs = []; }
+  const defOf = (key) => defs.find((def) => def.key === key) || null;
+  ok(label + ' a 设置面:Setting Builder 定义出站(toggle/dropdown/slider 全键位)', !!regFrame &&
+    !!defOf('showBadge') && defOf('showBadge').type === 'toggle' &&
+    !!defOf('uiLevel') && defOf('uiLevel').type === 'dropdown' &&
+    defOf('uiLevel').options && defOf('uiLevel').options.simple === '简洁' &&
+    !!defOf('maxItems') && defOf('maxItems').type === 'slider' &&
+    defOf('maxItems').min === 1 && defOf('maxItems').max === 50,
+    'defs=' + JSON.stringify(defs).slice(0, 160));
+  // 2. Modal:命令回推 → 描述符出站;宿主关闭回推 → onClose 落账。
+  env.__deliver({ __lexiSandbox: true, type: 'sandbox.command', fullId: UI_PLUGIN_ID + ':ui-modal' });
+  await until(() => requestFrames('ui.modal.open').length > 0, 'ui.modal.open');
+  const modalFrame = requestFrames('ui.modal.open')[0];
+  ok(label + ' b Modal 描述符出站(modalId/title/content 经 ui.modal.open)', !!modalFrame &&
+    typeof modalFrame.params.modalId === 'string' && modalFrame.params.modalId.length > 0 &&
+    modalFrame.params.title === '沙箱交互面' &&
+    typeof modalFrame.params.content === 'string' && modalFrame.params.content.length > 0,
+    'params=' + JSON.stringify(modalFrame && modalFrame.params).slice(0, 160));
+  env.__deliver({ __lexiSandbox: true, type: 'sandbox.ui', kind: 'modal', id: modalFrame.params.modalId, event: 'closed' });
+  await until(() => lastSaveJson().indexOf('modalClosedAt') >= 0, 'modal onClose data.save');
+  ok(label + ' c Modal 关闭回推兑现 onClose(onClose 落账 modalClosedAt)', lastSaveJson().indexOf('modalClosedAt') >= 0,
+    '最后一次 data.save=' + lastSaveJson().slice(0, 160));
+  // 3. Menu:条目表出站(2 数据项 + 1 分隔线);宿主点选回推 → onClick + onHide 落账。
+  env.__deliver({ __lexiSandbox: true, type: 'sandbox.command', fullId: UI_PLUGIN_ID + ':ui-menu' });
+  await until(() => requestFrames('ui.menu.show').length > 0, 'ui.menu.show');
+  const menuFrame = requestFrames('ui.menu.show')[0];
+  ok(label + ' d Menu 条目表出站(2 数据项 + 1 分隔线,声明式字段)', !!menuFrame &&
+    Array.isArray(menuFrame.params.items) && menuFrame.params.items.length === 3 &&
+    menuFrame.params.items.filter((item) => item.separator === true).length === 1 &&
+    menuFrame.params.items.some((item) => item.title === '标记为重要') &&
+    typeof menuFrame.params.menuId === 'string',
+    'items=' + JSON.stringify(menuFrame && menuFrame.params.items).slice(0, 160));
+  env.__deliver({ __lexiSandbox: true, type: 'sandbox.ui', kind: 'menu', id: menuFrame.params.menuId, event: 'item', itemId: 0 });
+  // needle 用裸词 star:JSON.stringify 会转义 dataJson 内层引,\"star\" 不含 "star" 子串。
+  await until(() => lastSaveJson().indexOf('menuClosedAt') >= 0 && lastSaveJson().indexOf('star') >= 0,
+    'menu onClick/onHide data.save');
+  ok(label + ' e Menu 点选回推兑现 onClick 与 onHide(menuPick=star + menuClosedAt)',
+    lastSaveJson().indexOf('star') >= 0 && lastSaveJson().indexOf('menuClosedAt') >= 0,
+    '最后一次 data.save=' + lastSaveJson().slice(0, 160));
+  // 4. 设置值回推:控件 onChange 与 tab.onSettingsChanged 双路径兑现。
+  env.__deliver({ __lexiSandbox: true, type: 'sandbox.ui', kind: 'settings', values: { showBadge: false, uiLevel: 'pro' } });
+  await until(() => lastSaveJson().indexOf('lastChanged') >= 0, 'settings.values data.save');
+  let lastSave = {};
+  try { lastSave = JSON.parse(requestFrames('data.save').slice(-1)[0].params.dataJson); } catch (err) { lastSave = {}; }
+  ok(label + ' f 设置值回推兑现控件 onChange 与 onSettingsChanged 双路径',
+    lastSave.controlFired >= 1 && lastSave.changes >= 1 && lastSave.lastChanged &&
+    lastSave.lastChanged.uiLevel === 'pro' && lastSave.lastChanged.showBadge === false,
+    'state=' + JSON.stringify(lastSave).slice(0, 200));
+  // 5. 身份纪律 + boot 收尾(与 E3 同判)。
+  const leakyIdentity = env.__frames.filter((f) => f && (f.pluginId !== undefined || f.token !== undefined ||
+    f.activationId !== undefined || (f.params && (f.params.pluginId !== undefined || f.params.token !== undefined))));
+  ok(label + ' g 交互全链 iframe 帧零身份字段(身份只在宿主侧)', leakyIdentity.length === 0,
+    '身份泄漏帧: ' + leakyIdentity.map((f) => f.method || f.type).join(','));
+  ok(label + ' h 业务链收尾帧(plugin.onload.done)在案',
+    requestFrames('plugin.onload.done').length > 0,
+    'onload 未完成——交互面探针的装载链中途断裂');
+}
+
 async function main() {
   try {
     const report = await runProbe(true);
@@ -593,6 +762,13 @@ async function main() {
     // IIFE 分支:同一份夹具经宿主 shim 单一真源包装器包装后,按字节原样经 bootPlugin
     // 新 require 管线装载(ADR-R25-01 遗留项收口的行为级证明)。
     await assertBusinessProbe('E3b', 'iife');
+  }
+  console.log('== E4 交互面业务链探针(P4-001/R37:Modal/Menu/Setting 三面全链) ==');
+  if (!fs.existsSync(UI_FIXTURE_MAIN)) {
+    console.log('  [skip] E4/E4b: 交互面夹具未暂存(plugins/sandbox-ui-min,夹具环境约定)');
+  } else {
+    await assertUiProbe('E4', 'cjs');
+    await assertUiProbe('E4b', 'iife');
   }
 }
 

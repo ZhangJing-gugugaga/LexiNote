@@ -1,0 +1,22 @@
+{
+  "manifestVersion": 2,
+  "id": "example-ui",
+  "name": "示例:交互面",
+  "version": "1.0.0",
+  "author": "LexiNote Team",
+  "description": "交互面示例:Modal/Menu/Setting Builder 三面经端口链行使——描述符出站宿主原生渲染,用户操作/设置值经 sandbox.ui 回推兑现插件回调。沙箱轨可装载。",
+  "license": "MIT",
+  "entrypoints": {
+    "service": "sandbox:"
+  },
+  "compatibility": {
+    "lexinote": { "min": "1.0.0" },
+    "obsidianApiLevel": "1.14.4"
+  },
+  "platforms": ["harmonyos-phone", "harmonyos-tablet", "harmonyos-pc"],
+  "capabilities": {
+    "workspace": { "commands": true },
+    "notifications": true,
+    "storage": { "quotaBytes": 16384 }
+  }
+}

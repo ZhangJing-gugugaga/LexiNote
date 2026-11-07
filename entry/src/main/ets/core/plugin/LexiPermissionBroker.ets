@@ -94,7 +94,9 @@ export class LexiPermissionBroker {
       'commands.list', 'commands.execute',
       'workspace.openView', 'workspace.openLinkText',
       'events.on',
-      'app.localStorage.get', 'app.localStorage.set'
+      'app.localStorage.get', 'app.localStorage.set',
+      // P4-001:插件 Modal/Menu 宿主面(描述符出站;capability 域映射在 notifications)。
+      'ui.modal.open', 'ui.modal.close', 'ui.menu.show', 'ui.menu.hide'
     ];
     for (const method of uiDomain) { matrix.set(method, 'ui-domain'); }
     // --- fs-read：会话 + 插件（metadata/editor.state 同为只读域） ---

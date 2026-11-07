@@ -106,6 +106,10 @@ kind 为授权矩阵类别（见 `capability-map.json` 与 `LexiPermissionBroker
 | `settings.unregister` | register | plugin | stable | ✓ |  |
 | `ui.addIcon` | ui-domain | session/plugin | stable | ✓ |  |
 | `ui.addRibbon` | ui-domain | session/plugin | stable | ✓ |  |
+| `ui.menu.hide` | ui-domain | session/plugin | stable | ✓ |  |
+| `ui.menu.show` | ui-domain | session/plugin | stable | ✓ |  |
+| `ui.modal.close` | ui-domain | session/plugin | stable | ✓ |  |
+| `ui.modal.open` | ui-domain | session/plugin | stable | ✓ |  |
 | `ui.notice` | ui-domain | session/plugin | stable | ✓ |  |
 | `ui.placeholder` | ui-domain | session/plugin | stable | ✓ |  |
 | `ui.removeRibbon` | ui-domain | session/plugin | stable | ✓ |  |

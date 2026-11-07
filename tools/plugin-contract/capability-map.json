@@ -195,6 +195,22 @@
       "kind": "ui-domain"
     },
     {
+      "method": "ui.menu.hide",
+      "kind": "ui-domain"
+    },
+    {
+      "method": "ui.menu.show",
+      "kind": "ui-domain"
+    },
+    {
+      "method": "ui.modal.close",
+      "kind": "ui-domain"
+    },
+    {
+      "method": "ui.modal.open",
+      "kind": "ui-domain"
+    },
+    {
       "method": "ui.notice",
       "kind": "ui-domain"
     },

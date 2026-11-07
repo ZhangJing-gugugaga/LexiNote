@@ -1188,6 +1188,76 @@ test('P2-005/P1-003b 编辑器切片：editor 分级档位接线(域映射+精�
   }
 });
 
+// --- R37(P4-001) Modal/Menu/Setting Builder 三交互面接线 ------------------------------------
+test('P4-001 交互面接线:handler/registry/sandbox.ui 回推/设置值回推/销毁回收/宿主渲染组件', () => {
+  const text = runtimeEts();
+  // 宿主 handler 面:描述符出站四方法全部在案(身份段表键 + 修订号驱动渲染)。
+  for (const method of ['ui.modal.open', 'ui.modal.close', 'ui.menu.show', 'ui.menu.hide']) {
+    assert.match(text, new RegExp("registerHandler\\('" + method.replace(/\./g, '\\.') + "'"),
+      method + ' handler 必须在案(P4-001)');
+  }
+  assert.match(text, /manager\.modalSurfaces\.set\(identity \+ '#' \+ modalId, surface\)/,
+    'Modal 在途表键必须带身份段(插件只能寻址自己的在途面)');
+  assert.match(text, /manager\.menuSurfaces\.set\(identity \+ '#' \+ menuId, surface\)/,
+    'Menu 在途表键必须带身份段');
+  // capability 域映射:与 Notice 同域(notifications),未声明即拒(fail-closed)。
+  assert.match(text,
+    /method === 'ui\.modal\.open' \|\| method === 'ui\.modal\.close' \|\|\s*\n\s*method === 'ui\.menu\.show' \|\| method === 'ui\.menu\.hide'\) \{ return caps\.notifications; \}/,
+    'ui.modal.*/ui.menu.* 的 capability 域必须映射 notifications(与 Notice 同域)');
+  // sandbox.ui 回推链:与 dispatchSandboxCommand 同一信任形态(身份只用于容器路由)。
+  assert.match(text, /private notifySandboxUiEvent\(/, 'sandbox.ui 回推派发器必须在案');
+  assert.match(text, /window\.lexiSandboxUiEvent && window\.lexiSandboxUiEvent\(/,
+    '容器页回推函数必须带存在性守卫(旧容器页 fail-safe)');
+  const notifyBody = text.slice(text.indexOf('private notifySandboxUiEvent('),
+    text.indexOf('private notifySandboxUiEvent(') + 1600);
+  assert.match(notifyBody, /record\.manifest\.sandboxService/,
+    'sandbox.ui 回推必须按 sandboxService 分流(legacy 轨无容器回推面)');
+  assert.match(notifyBody, /'pluginId': pluginId as Object/,
+    '容器路由载荷必须携带 pluginId(容器页路由用,不进 iframe 帧)');
+  // 设置值回推:writePluginData 双通道(legacy dispatch 保持 + 沙箱轨 sandbox.ui)。
+  assert.match(text, /this\.runtime\.dispatch\('settings\.values'/,
+    'legacy 轨设置值回推通道不得移除');
+  assert.match(text, /notifySandboxUiEvent\(pluginId, 'settings', 'values', 'changed', -1, values\)/,
+    '沙箱轨设置值回推必须随 writePluginData 派发(R36 缺口收口)');
+  // 销毁回收:disable 尾序 dropPluginSurfaces(在途弹层不残留)。
+  const disableBody = text.slice(text.indexOf('async disablePlugin('),
+    text.indexOf('private failPendingLifecycleWaits('));
+  assert.match(disableBody, /this\.dropPluginSurfaces\(pluginId\)/,
+    '交互面必须随插件销毁回收(disable 尾序)');
+  assert.match(text, /pluginModalSurfaces\(\): LexiPluginModalSurface\[\]/,
+    '渲染读取面(pluginModalSurfaces)必须在案');
+  // 宿主渲染组件:LexiPluginSurfaceHost 观察修订号 + Index 嵌入。
+  const surfaceHost = fs.readFileSync(path.join(REPO_ROOT, 'entry', 'src', 'main', 'ets', 'components',
+    'plugin', 'LexiPluginSurfaceHost.ets'), 'utf8');
+  assert.match(surfaceHost, /struct LexiPluginSurfaceHost/, '宿主渲染组件必须在案');
+  assert.match(surfaceHost, /lexiPluginRevision/, '渲染组件必须观察插件修订号(与 Ribbon 同纪律)');
+  assert.match(surfaceHost, /dismissPluginModal\(/, '用户关闭必须回流 manager(回推 onClose)');
+  assert.match(surfaceHost, /choosePluginMenuItem\(/, '用户点选必须回流 manager(回推 onClick)');
+  const indexText = fs.readFileSync(path.join(REPO_ROOT, 'entry', 'src', 'main', 'ets', 'pages', 'Index.ets'), 'utf8');
+  assert.match(indexText, /LexiPluginSurfaceHost\(\)/, '渲染组件必须嵌入主页面(Index Stack)');
+  // 容器页路由:lexiSandboxUiEvent 按 pluginId 路由,frame 本体零身份字段。
+  const containerText = fs.readFileSync(path.join(REPO_ROOT, 'entry', 'src', 'main', 'resources', 'rawfile',
+    'lexinote_sandbox_container.js'), 'utf8');
+  assert.match(containerText, /window\.lexiSandboxUiEvent = function/, '容器 ui 事件路由必须在案');
+  const frameZone = containerText.slice(containerText.indexOf("type: 'sandbox.ui'"),
+    containerText.indexOf("type: 'sandbox.ui'") + 260);
+  assert.doesNotMatch(frameZone, /pluginId|token|activationId/,
+    'sandbox.ui 帧本体不得携带身份字段(身份只在容器路由)');
+  // 内置夹具对账(夹具环境约定:在库时强校验)。
+  const fixturePath = path.join(REPO_ROOT, 'entry', 'src', 'main', 'resources', 'rawfile', 'plugins',
+    'sandbox-ui-min', 'manifest.json');
+  if (fs.existsSync(fixturePath)) {
+    const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+    assert.equal(fixture.manifestVersion, 2, '交互面夹具必须是 manifestVersion 2');
+    assert.equal(fixture.entrypoints && fixture.entrypoints.service, 'sandbox:',
+      '交互面夹具必须声明沙箱轨入口');
+    assert.equal(fixture.capabilities && fixture.capabilities.notifications, true,
+      '交互面夹具必须声明 notifications(ui.modal.*/ui.menu.* 的 capability 域)');
+    assert.ok(text.indexOf("'plugins/sandbox-ui-min'") >= 0,
+      '交互面夹具必须进内置夹具白名单(BUNDLED_PLUGIN_IDS)');
+  }
+});
+
 test('P5-004 分级呈现(§4.5 必需/可选/高风险)：capabilityTagsOfV2Caps 标签三档分类真跑', () => {
   const v2Mod = loadEts('plugin/LexiPluginManifestV2', kits);
   const caps = new v2Mod.LexiManifestV2Caps();

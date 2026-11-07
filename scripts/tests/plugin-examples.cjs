@@ -1,8 +1,8 @@
 'use strict';
 // RFC §10.4 / P3-007 示例工程组 · 门禁。
 //
-// 验收目标:tools/lexinote-plugin-template/examples/ 下五类示例(命令/Vault/视图/
-//   Markdown/设置)每例都经**真实 CLI**(tools/lexi-cli/lexi.cjs)在临时目录独立走完
+// 验收目标:tools/lexinote-plugin-template/examples/ 下六类示例(命令/Vault/交互面/
+//   视图/Markdown/设置)每例都经**真实 CLI**(tools/lexi-cli/lexi.cjs)在临时目录独立走完
 //   validate → build → inspect → pack,全绿;并对构建产物做行为级校验:
 //   - build 产物必须是 lexi-iife:v1 自执行包装(ADR-R25-01 单一真源包装器);
 //   - 产物在 vm 内以宿主同形 stub 求值 → 注册表交付插件类 → onload boot 通过;
@@ -27,9 +27,9 @@ const EXAMPLES = path.join(ROOT, 'tools', 'lexinote-plugin-template', 'examples'
 const SANDBOX_HTML = path.join(ROOT, 'entry', 'src', 'main', 'resources', 'rawfile', 'lexinote_plugin_sandbox.html');
 const SHIM_JS = path.join(ROOT, 'entry', 'src', 'main', 'resources', 'rawfile', 'lexinote_plugin_shim.js');
 
-const EXPECTED = ['example-commands', 'example-vault', 'example-view', 'example-markdown', 'example-settings'];
+const EXPECTED = ['example-commands', 'example-vault', 'example-ui', 'example-view', 'example-markdown', 'example-settings'];
 // 沙箱轨声明示例:面全实现,严格对账;其余为 runtime 页(legacy)示例,README 必须带 pending 标记。
-const SANDBOX_TRACK = new Set(['example-commands', 'example-vault']);
+const SANDBOX_TRACK = new Set(['example-commands', 'example-vault', 'example-ui']);
 
 let passed = 0;
 const failures = [];
@@ -82,8 +82,11 @@ function extractLegacyPluginMethods() {
 // 时在这里红(fail-visible),保证 stub 永远贴着真实面,而不是悄悄变宽。
 function sandboxPluginMethodStub(name, state) {
   const table = {
-    load: function () { return null; },
-    unload: function () { return null; },
+    // R37 修正:load 必须真实驱动 onload(与宿主 SandboxPlugin.prototype.load 同语义)。
+    // 此前返回 null 使 bootEval 的 onload 全链断言对沙箱轨示例空转(求值+交付成立,
+    // onload 未跑)——example-ui 的交互面行为断言暴露了这一空转,修为真驱动。
+    load: function () { return typeof this.onload === 'function' ? this.onload() : null; },
+    unload: function () { return typeof this.onunload === 'function' ? this.onunload() : null; },
     register: function (fn) { state.cleanups.push(fn); },
     loadData: function () { state.loadDataCalls++; return Promise.resolve(null); },
     saveData: function (data) { state.savedData = data; state.saveDataCalls++; return Promise.resolve(); },
@@ -131,6 +134,49 @@ function buildStubWorld(strict, state) {
   ItemViewStub.prototype.getDisplayText = function () { return ''; };
   const PluginSettingTabStub = function PluginSettingTab(app, plugin) { this.app = app; this.plugin = plugin; };
   PluginSettingTabStub.prototype.getSettingDefinitions = function () { return []; };
+  PluginSettingTabStub.prototype.display = function () {};
+  PluginSettingTabStub.prototype.hide = function () {};
+  PluginSettingTabStub.prototype.setControlValue = function () {};
+  PluginSettingTabStub.prototype.onSettingsChanged = function () {};
+  // P4-001 交互面 stub:形状贴宿主 SandboxModal/SandboxMenu/SandboxSetting(boot 期
+  // 命令回调可真实执行并计数;宿主链路行为级验收在 plugin-context-isolation E4)。
+  const ModalStub = function Modal() { this.titleText = ''; this.contentText = ''; };
+  ModalStub.prototype.setTitle = function (t) { this.titleText = String(t === undefined ? '' : t); return this; };
+  ModalStub.prototype.setContent = function (c) { this.contentText = String(c === undefined ? '' : c); return this; };
+  ModalStub.prototype.onOpen = function () {};
+  ModalStub.prototype.onClose = function () {};
+  ModalStub.prototype.open = function () { state.modalsOpened = (state.modalsOpened || 0) + 1; return Promise.resolve({ closedBy: 'stub' }); };
+  ModalStub.prototype.close = function () { return Promise.resolve({ closedBy: 'stub' }); };
+  const MenuStub = function Menu() { this.items = []; };
+  MenuStub.prototype.addItem = function (cb) {
+    const item = {
+      title: '', disabled: false, action: null,
+      setTitle: function (t) { this.title = String(t === undefined ? '' : t); return this; },
+      setIcon: function () { return this; },
+      setChecked: function () { return this; },
+      setDisabled: function (d) { this.disabled = Boolean(d); return this; },
+      setSection: function () { return this; },
+      onClick: function (cb2) { this.action = cb2; return this; }
+    };
+    if (typeof cb === 'function') { cb(item); }
+    this.items.push(item);
+    return this;
+  };
+  MenuStub.prototype.addSeparator = function () { return this; };
+  MenuStub.prototype.showAtPosition = function () {
+    state.menusShown = (state.menusShown || 0) + 1;
+    return Promise.resolve({ closedBy: 'stub' });
+  };
+  MenuStub.prototype.showAtMouseEvent = function () { return Promise.resolve({ closedBy: 'stub' }); };
+  MenuStub.prototype.hide = function () { return Promise.resolve({ closedBy: 'stub' }); };
+  MenuStub.prototype.onHide = function () {};
+  const SettingStub = function Setting() { this.controls = []; };
+  for (const method of ['setName', 'setDesc', 'setClass', 'setHeading', 'setTooltip', 'setDisabled',
+    'setErrorMessage', 'setKey', 'addToggle', 'addText', 'addTextArea', 'addDropdown', 'addSlider',
+    'addButton', 'addExtraButton', 'addSearch', 'addMomentFormat', 'addColorPicker', 'addProgressBar',
+    'addDisplay', 'addComponent', 'then', 'clear']) {
+    SettingStub.prototype[method] = function () { return this; };
+  }
   const NoticeStub = function Notice(message) { this.message = String(message); };
   NoticeStub.prototype.show = function () {};
   NoticeStub.prototype.hide = function () {};
@@ -138,6 +184,9 @@ function buildStubWorld(strict, state) {
     Plugin: PluginStub,
     ItemView: ItemViewStub,
     PluginSettingTab: PluginSettingTabStub,
+    Modal: ModalStub,
+    Menu: MenuStub,
+    Setting: SettingStub,
     Notice: NoticeStub,
     normalizePath: function (p) { return String(p || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, ''); },
     moment: function () {
@@ -260,14 +309,14 @@ try {
 }
 
 async function main() {
-  section('E0 示例工程组在库(五类,无漂移)');
+  section('E0 示例工程组在库(六类,无漂移)');
   ok('E0.1 examples/ 目录在库', fs.existsSync(EXAMPLES));
   let actual = [];
   if (fs.existsSync(EXAMPLES)) {
     actual = fs.readdirSync(EXAMPLES, { withFileTypes: true })
       .filter((e) => e.isDirectory()).map((e) => e.name).sort();
   }
-  ok('E0.2 五类示例恰好在位(命令/Vault/视图/Markdown/设置)', actual.length === EXPECTED.length &&
+  ok('E0.2 六类示例恰好在位(命令/Vault/交互面/视图/Markdown/设置)', actual.length === EXPECTED.length &&
     EXPECTED.every((name) => actual.indexOf(name) >= 0), 'actual=' + actual.join(', '));
 
   if (fs.existsSync(EXAMPLES) && actual.length === EXPECTED.length) {
@@ -303,6 +352,20 @@ async function main() {
           ok(name + ' boot:沙箱严格面 data 往返计数在案', boot.state.loadDataCalls >= 0 &&
             boot.state.commands.length >= 0, 'load=' + boot.state.loadDataCalls +
             ' commands=' + boot.state.commands.length);
+        }
+
+        // 3b R37/P4-001:交互面示例 boot 后命令回调真实执行——Modal.open/Menu.showAtPosition
+        // 在 stub 世界计数,设置页经 addSettingTab 登记(宿主链路的行为级验收在
+        // plugin-context-isolation E4:真实沙箱页脚本 × sandbox-ui-min 夹具)。
+        if (name === 'example-ui' && boot.ok) {
+          const uiCommands = boot.state.commands.filter((command) =>
+            command.id === 'hello-modal' || command.id === 'hello-menu');
+          for (const command of uiCommands) { await command.callback(); }
+          ok(name + ' boot:交互命令回调真实执行(Modal/Menu/Setting 三面登记)',
+            boot.state.modalsOpened === 1 && boot.state.menusShown === 1 &&
+            boot.state.settingTab !== null,
+            'modals=' + (boot.state.modalsOpened || 0) + ' menus=' + (boot.state.menusShown || 0) +
+            ' settingTab=' + (boot.state.settingTab ? 'registered' : 'missing'));
         }
 
         // 4 沙箱轨诚实对账:解构成员 ⊆ 真实沙箱 namespace(legacy 示例不跑此严格面)。
