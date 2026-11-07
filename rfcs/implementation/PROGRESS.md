@@ -1016,3 +1016,11 @@ P4-005 夹具批次（设备验收:含本面三交互+R36 示例的 runtime 页�
 **实际执行的测试**:release-gate --ci **32/32**(含新 sdk-contract 49/docs-contract 32/contract-matrix --fixtures-required);contract-matrix/report.cjs --check 双重渲染一致(compat-matrix.md 已重渲染入库);hvigorw assembleHap **BUILD SUCCESSFUL**(33 tasks,无签名配置=既有 WARN)。负例三件实测红→撤销回绿:①审核清单发明门禁→docs-contract D5.4 红;②SDK 包锚翻转 stable→sdk-contract S7.2+S8.3 双红;③登记册孤儿条目(S8 开发期实测,后按节边界切片修复)。
 
 **诚实边界(IMPLEMENTED ≠ VERIFIED)**:①三件为治理文档+离线对账工具,无设备面;②Trusted 级为前瞻定义(B-002/P5-002/009/P4-004 未闭环,无候选,文档明示);③M1 标记当前=未出口,翻转程序是给人执行的流程(S8 只能钉住"未出口⇒experimental"方向,出口方向的一致性靠 S7.2 绊线+M1 出口评审);④安全流程的入口渠道依赖 ADR-015/B-003(公开仓未启用,文档如实标注待开放);⑤方法级 status 硬编码现状未翻案(登记 P3-003,本轮只保证其不越词表+可披露)。
+
+### Round 45 追记（同日,P1-010 台账设备负例批次,证据 /tmp/r45/）
+
+- **P1-011 Track2 拒载 PASS**：P2-013 修复后开关单击=恰好一条 `开关已切换:…false`；cap-probe-open 启用被拒 `插件装载被拒(legacy 轨停用,P1-003d)…fail-closed`，**零求值**（无 sourceChunk/onload 行），errorState 行内可见；回开=单条 true。台账关闭。
+- **R41 Suggest 面真机 PASS**：宿主原生 popover（"legal note"/"letter count" 两项渲染+截图）；点选回环 data.json `{"suggests":2,"suggestSettled":"item","suggestPick":"legal"}`（空笔记首跑如实记 `no-trigger`）。台账关闭。
+- **R31 Gateway unknown_method BLOCKED（诚实）**：无外部注入器、夹具无未知方法调用点——离线 authz-matrix 101 项覆盖；同族匿名 fail-closed 设备可见（`identity.anonymous method=runtime.ready … identity_untrusted`）。
+- **P2-014 设备复测 FAIL（残留层发现）**：修复只包了 `runJavaScript` 入队失败（页面丢失/超时）；页面存活时入队成功即静默——shim 侧失败通道（console.warn+ui.notice）均未触发，pre-fix 行为仍在。→**登记 P2-014b**：命令执行失败在页面内的吞点对宿主不可见，需 shim→host 的失败上报通道（复用 ui.notice 携令牌路径的失败分支或 dispatch 回执）。
+- 设备终态：bm clean 首启 6 夹具启用零异常（4 条 BLOCKED 行=sec-probe 逃逸向量如实报告），legacy ON、各夹具恢复原状。
