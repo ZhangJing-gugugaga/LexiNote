@@ -60,6 +60,16 @@ if (registryMod && brokerMod) {
     (pluginId) => pluginId === 'cap-a',
     (pluginId, method) => pluginId === 'cap-a' &&
       (method === 'vault.read' || method === 'vault.modify' || method === 'editor.replace'));
+  // P1-008/R32:D 组需要 Gateway 入口双闸(unknown_method)作分层拒绝对账。
+  let gatewayMod = null;
+  try {
+    gatewayMod = loadEts(path.join(CORE, 'LexiRpcGateway.ets'), (spec) => {
+      if (String(spec).indexOf('LexiPermissionBroker') >= 0) { return brokerMod; }
+      throw new Error('意外依赖: ' + spec);
+    });
+  } catch (error) {
+    ok('D0 Gateway 模块可转译求值', false, 'threw: ' + error.message);
+  }
 
   function frame(method, payload, id, version) {
     return JSON.stringify(Object.assign({ v: version || 1, type: 'request', id: id || 'r1', method }, payload === undefined ? {} : { payload }));
@@ -145,6 +155,64 @@ if (registryMod && brokerMod) {
     // recA + act-5 存活;cap-b 的两条已在 R2.2 吊销。
     return registry.aliveCount() === 2;
   })(), 'alive=' + registry.aliveCount());
+
+  // ------------------------------------- D P1-008/R32 销毁闭环(SEC-013 自动化)
+  // 验收行:卸载后旧通道 RPC 一律拒绝。D 组在真实 registry(+broker/gateway)上重演完整
+  // 销毁序:enable(两上下文)→ 销毁(revokePlugin)→ 旧通道帧逐条必须拒,且吊销先于
+  // 身份剥离/路径白名单等一切后续判定(fail-closed 顺序即防线)。
+  section('D P1-008 销毁闭环(SEC-013 旧通道一律拒;SEC-009×013 交叠:吊销先于路径判定)');
+  {
+    const destroyedRegistry = new registryMod.LexiContextRegistry();
+    const dSvc = destroyedRegistry.create('cap-a', 'act-d1', 'service');
+    const dView = destroyedRegistry.create('cap-a', 'act-d2', 'view');
+    ok('D1 对照:销毁前旧通道真实可用(装载面反查身份)', (() => {
+      const d = destroyedRegistry.adjudicate(dSvc.contextId, frame('data.load'));
+      return d.ok && d.identity === 'cap-a';
+    })());
+    const destroyed = destroyedRegistry.revokePlugin('cap-a');
+    const dSvcFrame = destroyedRegistry.adjudicate(dSvc.contextId, frame('data.load'));
+    const dViewFrame = destroyedRegistry.adjudicate(dView.contextId, frame('vault.read', { path: 'notes/a.md' }));
+    ok('D2 销毁后全部旧通道帧拒绝(context_revoked,SEC-013 卸载残留)',
+      destroyed === 2 && !dSvcFrame.ok && dSvcFrame.code === registryMod.CONTEXT_ERROR_REVOKED &&
+      !dViewFrame.ok && dViewFrame.code === registryMod.CONTEXT_ERROR_REVOKED);
+    ok('D3 吊销先于载荷判定:伪造他人身份+穿越路径的旧帧同样 context_revoked(不进身份/fs 层)',
+      (() => {
+        const forged = destroyedRegistry.adjudicate(dSvc.contextId,
+          frame('vault.read', { pluginId: 'cap-b', path: '../../../etc/passwd' }));
+        return !forged.ok && forged.code === registryMod.CONTEXT_ERROR_REVOKED;
+      })());
+    ok('D4 重复销毁幂等(无僵尸复活):返回 0 且旧通道仍拒',
+      destroyedRegistry.revokePlugin('cap-a') === 0 &&
+      destroyedRegistry.adjudicate(dSvc.contextId, frame('data.load')).code === registryMod.CONTEXT_ERROR_REVOKED);
+    ok('D5 未注册通道独立拒绝;销毁保留记录本体(审计可对账 revoked=true)',
+      (() => {
+        const ghost = destroyedRegistry.adjudicate('ctx-ghost', frame('data.load'));
+        const record = destroyedRegistry.recordOf(dSvc.contextId);
+        return !ghost.ok && ghost.code === registryMod.CONTEXT_ERROR_UNREGISTERED &&
+          record !== null && record.revoked === true;
+      })());
+    ok('D6 新 contextId 不受旧销毁影响(重装重启用全新通道)',
+      (() => {
+        const fresh = destroyedRegistry.create('cap-a', 'act-d3', 'service');
+        return destroyedRegistry.adjudicate(fresh.contextId, frame('data.load')).ok;
+      })());
+    if (gatewayMod) {
+      // 双码分层:Gateway 入口层拒未登记方法(unknown_method);已登记方法放行后,
+      // 已吊销通道仍在 registry 层被拒(context_revoked)——销毁后的旧通道撞哪层都是显式拒绝。
+      const gateway = new gatewayMod.LexiRpcGateway();
+      gateway.registerHandler('data.load', async () => '{\"ok\":true}');
+      const entryReject = gateway.entryReject('lexinote.destroyed.channel', '{}');
+      const entryParsed = JSON.parse(entryReject);
+      ok('D7 Gateway 入口双闸:未登记方法显式 unknown_method(销毁后旧方法面同样显式拒)',
+        entryParsed.ok === false && entryParsed.code === 'unknown_method');
+      ok('D8 分层拒绝顺序:方法已登记(Gateway 方法面放行)但已吊销通道仍在 registry 层先拒',
+        gateway.entryReject('data.load', '{}').length === 0 &&
+        (() => {
+          const decision = destroyedRegistry.adjudicate(dSvc.contextId, frame('data.load'));
+          return !decision.ok && decision.code === registryMod.CONTEXT_ERROR_REVOKED;
+        })());
+    }
+  }
 }
 
 console.log('\n[summary] 通过 ' + passed + ' 项 / 失败 ' + failures.length + ' 项');

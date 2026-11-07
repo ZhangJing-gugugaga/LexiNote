@@ -56,6 +56,11 @@ export class LexiInstalledPlugin {
   errorState: string = '';
   /** 当前 activation(生命周期管理器签发);停用后清空。 */
   activationId: string = '';
+  /**
+   * P2-009/P1-008(R32):安全隔离原因(非空 = quarantined 面)。enablePlugin 隔离门
+   * 据此拒绝启用;随记录重建/卸载清除——宿主侧文档化唯一用户出口 = 卸载后重装。
+   */
+  quarantineReason: string = '';
 }
 
 /**

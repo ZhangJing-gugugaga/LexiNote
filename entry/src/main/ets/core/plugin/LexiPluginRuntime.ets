@@ -19,7 +19,8 @@ import {
   parsePluginManifest,
   checkFsCapability,
   vaultPathAllowed,
-  ERROR_CAPABILITY_DENIED
+  ERROR_CAPABILITY_DENIED,
+  ERROR_INTEGRITY_MISMATCH
 } from './LexiPluginManifest';
 import { capabilityTagsOfV2Caps } from './LexiPluginManifestV2';
 import {
@@ -603,7 +604,13 @@ export class LexiPluginManager {
   private legacyTrackEnabled: boolean = true;
   private ready: boolean = false;
   private pendingOnload: Map<string, () => void> = new Map();
+  /**
+   * P1-008(R32):装载等待的快速失败通道——销毁闭环"清 pending"一步用。
+   * 宿主拒绝/吊销在途等待时 reject(不再干等 LOAD_TIMEOUT);正常回执路径双表同清。
+   */
+  private pendingOnloadFail: Map<string, (reason: string) => void> = new Map();
   private pendingUnload: Map<string, () => void> = new Map();
+  private pendingUnloadFail: Map<string, (reason: string) => void> = new Map();
   private viewOpenHandler: ((viewType: string) => void) | null = null;
   private viewCloseHandler: ((viewType: string) => void) | null = null;
   private pendingViewOpens: string[] = [];
@@ -836,33 +843,89 @@ export class LexiPluginManager {
     // P2-008(§9.5):optionsJson.grantApproved = 用户已在 UI 确认本次权限变化。
     // 此前该缝从 UI 不可达(审计确认的死端):grantApproved 安装后 enablePlugin 的
     // 授权门仍会按新指纹打回 regrant-required。现在确认过的权限变化直接落账再启用。
+    // P2-009(R32):optionsJson.targetPluginId = 市场安装链携带的目标插件 id——
+    // 升级包完整性失败(integrity_mismatch,P5-001)时宿主据此把已装版本转入安全隔离
+    // (§6.4 身份/完整性校验失败 → quarantine),不再等它带病运行。
     let grantApproved = false;
+    let targetPluginId = '';
     if (optionsJson.length > 0) {
       try {
-        grantApproved = (JSON.parse(optionsJson) as Record<string, Object>)['grantApproved'] === true;
+        const parsed = JSON.parse(optionsJson) as Record<string, Object>;
+        grantApproved = parsed['grantApproved'] === true;
+        const claimed = parsed['targetPluginId'];
+        targetPluginId = typeof claimed === 'string' ? claimed as string : '';
       } catch { /* 非法 options 视为未批准 */ }
     }
-    const manifest = await this.ensureInstaller().installZip(zipSource, expectedSha256, optionsJson);
+    let manifest: LexiPluginManifest;
+    try {
+      manifest = await this.ensureInstaller().installZip(zipSource, expectedSha256, optionsJson);
+    } catch (error) {
+      const message = String(error);
+      if (targetPluginId.length > 0 && message.indexOf(ERROR_INTEGRITY_MISMATCH + ':') === 0) {
+        pluginError('升级包完整性校验失败,目标插件转入隔离: ' + targetPluginId + ' — ' + message);
+        await this.quarantinePlugin(targetPluginId, 'integrity_mismatch: 升级包完整性校验失败(§9.2/§6.4)');
+      }
+      // arkts-limited-throw:重抛必须定型(原始 message 保留,调用方按既有 Error 链消费)。
+      throw new Error(message);
+    }
     // 升级重启判定必须在 scanPluginDir 重建记录之前取:enabledIds 是启用的持久真源。
     const wasEnabled = this.enabledIds.has(manifest.id);
     await this.scanPluginDir();
     pluginLog('插件安装完成: ' + manifest.id + ' v' + manifest.version);
+    // T4.4:能力收缩升级(只减不增,更新策略放行)= RFC §4.1 的 degraded 运行面:
+    // 已装插件以部分能力继续服务,状态机落 degraded(转出:重启用/停用/隔离/卸载)。
+    const removedCaps = this.ensureInstaller().lastRemovedCaps;
     if (grantApproved) {
       this.permissionStore.grant(manifest.id, manifest.version, this.capabilityFingerprintOf(manifest));
       this.persistPermissions();
       pluginLog('权限已按用户确认落账: ' + manifest.id + ' v' + manifest.version);
       await this.enablePlugin(manifest.id);
+      this.markDegradedIfShrunk(manifest.id, removedCaps);
       return manifest.id;
     }
     if (wasEnabled) {
       await this.enablePlugin(manifest.id);
+      this.markDegradedIfShrunk(manifest.id, removedCaps);
       return manifest.id;
     }
     // P5-004 首装默认路径:装完不启用。授权面板展示权限清单后由用户决定;
     // bumpPluginRevision 让宿主增量渲染出这条"已安装未启用"的新行。
+    // P2-009(R32):该面在状态机落 permission-pending(转出:同意→starting/拒绝→disabled)。
+    this.lifecycle.markPermissionPending(manifest.id, 'P5-004: 已安装未授权(等待用户同意)');
     pluginLog('插件已安装(未启用,等待用户授权): ' + manifest.id + ' v' + manifest.version);
     this.bumpPluginRevision();
     return manifest.id;
+  }
+
+  /** P2-009:能力收缩升级后的降级运行记账(仅 running 面生效;其余状态按迁移表拒绝即无副作用)。 */
+  private markDegradedIfShrunk(pluginId: string, removedCaps: string[]): void {
+    if (removedCaps.length === 0) { return; }
+    const outcome = this.lifecycle.markDegraded(pluginId, 'capability-shrink: 升级移除 ' + removedCaps.join(', '));
+    if (outcome.ok) {
+      pluginLog('插件降级运行(degraded): ' + pluginId + ' — 移除能力 ' + removedCaps.join(', '));
+    }
+  }
+
+  /**
+   * P2-009/P1-008(R32):安全事件 → 插件级隔离(§6.4 高风险异常)。
+   * 先落隔离标记(销毁途中并发 enable 一并被隔离门拒绝),再走 disablePlugin 的销毁闭环
+   * (通道全拒),最后状态机落 quarantined。隔离中的插件不得启用;宿主侧文档化唯一
+   * 用户出口 = 卸载(卸载后重装走全新信任判定)。
+   * 触发源:安装/升级包 integrity_mismatch(P5-001 链,经 installZip catch);
+   * 运行期强停(RFC §4.3,activation 级 quarantine)仍由 disablePlugin 内部路径承接。
+   */
+  async quarantinePlugin(pluginId: string, reason: string): Promise<boolean> {
+    const record = this.plugins.get(pluginId);
+    if (!record) {
+      pluginLog('隔离目标未安装,无需记账(零残留): ' + pluginId);
+      return false;
+    }
+    record.quarantineReason = reason;
+    await this.disablePlugin(pluginId);
+    this.lifecycle.markQuarantined(pluginId, reason);
+    pluginError('插件已隔离(安全事件): ' + pluginId + ' — ' + reason + ' | 解除方式: 卸载');
+    this.bumpPluginRevision();
+    return true;
   }
 
   /** Downloads a plugin zip and installs it. expectedSha256 comes from the index entry. */
@@ -997,6 +1060,9 @@ export class LexiPluginManager {
     // 扫描落账:发现的插件进入生命周期 installed 态(T1.1,verify 细化随 T4 PackageVerifier)
     this.plugins.forEach((record: LexiInstalledPlugin): void => {
       this.lifecycle.markInstalled(record.manifest.id, record.manifest.version);
+      // P2-009(R32):verified 可达——init 扫描清单解析成功 = 安装面验证通过(RFC §4.1
+      // Installed→Verified;结构/哈希校验在安装链 installer 已做)。已 verified 幂等。
+      this.lifecycle.markVerified(record.manifest.id, 'init-scan: manifest 解析通过(安装面验证)');
     });
     // 首次运行自动启用官方示范插件(仅一次;用户可在设置中停用)。
     // P5-004(B-004 待审设计):内置开发夹具显式白名单——随 HAP 签名分发、不经用户
@@ -1143,6 +1209,9 @@ export class LexiPluginManager {
         // 生命周期表只认 installed/disabled 为未运行面(discovered→starting 非法迁移,
         // 真机回归"装得上却永不 onload"的根因)。markInstalled 对重复扫描幂等。
         this.lifecycle.markInstalled(manifest.id, manifest.version);
+        // P2-009(R32):verified 可达——扫描期清单解析成功即安装面验证通过(RFC §4.1
+        // Installed→Verified)。幂等:已 verified/其他状态按迁移表拒绝,不回退。
+        this.lifecycle.markVerified(manifest.id, 'scan: manifest 解析通过(安装面验证)');
       } catch (error) {
         const broken = new LexiInstalledPlugin();
         broken.manifest.id = entry;
@@ -1175,7 +1244,7 @@ export class LexiPluginManager {
       const activationId = manager.lifecycle.currentActivationIdOf(id);
       if (activationId.length > 0) { manager.lifecycle.markRunning(activationId); }
       const waiter = manager.pendingOnload.get(id);
-      if (waiter) { manager.pendingOnload.delete(id); waiter(); }
+      if (waiter) { manager.pendingOnload.delete(id); manager.pendingOnloadFail.delete(id); waiter(); }
       return okResponse(null);
     });
     runtime.registerHandler('plugin.onload.error', async (payload: string): Promise<string> => {
@@ -1187,14 +1256,14 @@ export class LexiPluginManager {
       const activationId = manager.lifecycle.currentActivationIdOf(id);
       if (activationId.length > 0) { manager.lifecycle.markFailed(activationId, record ? record.errorState : 'onload error'); }
       const waiter = manager.pendingOnload.get(id);
-      if (waiter) { manager.pendingOnload.delete(id); waiter(); }
+      if (waiter) { manager.pendingOnload.delete(id); manager.pendingOnloadFail.delete(id); waiter(); }
       return okResponse(null);
     });
     runtime.registerHandler('plugin.unload.done', async (payload: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
       const id = rpcString(request, 'id');
       const waiter = manager.pendingUnload.get(id);
-      if (waiter) { manager.pendingUnload.delete(id); waiter(); }
+      if (waiter) { manager.pendingUnload.delete(id); manager.pendingUnloadFail.delete(id); waiter(); }
       return okResponse(null);
     });
     runtime.registerHandler('commands.add', async (payload: string, identity: string): Promise<string> => {
@@ -2137,6 +2206,9 @@ export class LexiPluginManager {
     if (ok) {
       this.persistPermissions();
       await this.disablePlugin(pluginId);
+      // P2-009(R32):撤销链在状态机落账(disabled/verified/permission-pending → revoked);
+      // 出口 = 卸载,或用户显式重新落账后 enablePlugin 内 liftRevocation 恢复授权通道。
+      this.lifecycle.markRevoked(pluginId, 'user-revoke: 用户撤销授权(P2-010 链)');
       this.bumpPluginRevision();
     }
     return ok;
@@ -2438,42 +2510,60 @@ export class LexiPluginManager {
     }
   }
 
+  /**
+   * P2-009(R32):授权拒绝统一出口——错误态可见 + 插件面落 permission-pending
+   * (转出:同意→starting/拒绝→disabled/撤销→revoked/卸载)。调用点必须紧跟 return false。
+   */
+  private rejectToPending(pluginId: string, record: LexiInstalledPlugin, message: string, reason: string): void {
+    record.errorState = message;
+    pluginError('插件启用被拒 ' + pluginId + ': ' + message);
+    this.lifecycle.markPermissionPending(pluginId, reason);
+  }
+
   async enablePlugin(pluginId: string): Promise<boolean> {
     pluginLog('请求启用插件: ' + pluginId + ' safeMode=' + this.safeMode);
     if (this.safeMode) { return false; }
     const record = this.plugins.get(pluginId);
     if (!record) { return false; }
-    // 幂等早退(RFC §4.5):已启用/已运行的插件重复 enable 不得再派发 onload。
-    if (record.enabled || this.lifecycle.stateOf(pluginId) === 'running') { return true; }
-    // 状态机起停:installed/failed → starting;running 中 alreadyRunning=true 同样早退。
-    const start = this.lifecycle.beginStartIfNotRunning(pluginId, record.manifest.version);
-    if (!start.ok) {
-      record.errorState = start.reason;
-      pluginError('插件启动被拒 ' + pluginId + ': ' + start.reason);
+    // P2-009(R32):安全隔离门——quarantined 插件不得启用,唯一出口=卸载(§6.4)。
+    // 先于幂等早退与状态机迁移(fail-closed,不产生 activation)。
+    if (record.quarantineReason.length > 0) {
+      record.errorState = '插件处于安全隔离(' + record.quarantineReason + '),解除方式: 卸载后重装';
+      pluginError('插件启用被拒(隔离中) ' + pluginId + ': ' + record.errorState);
       return false;
     }
-    const activationId = start.activation !== null ? start.activation.activationId : '';
-    const compatMessage = manifestCompatMessage(record.manifest);
-    if (compatMessage.length > 0) {
-      record.errorState = compatMessage;
-      pluginError('插件版本不兼容: ' + pluginId + ' — ' + compatMessage);
-      return false;
+    // 幂等早退(RFC §4.5):已启用/已运行的插件重复 enable 不得再派发 onload。
+    if (record.enabled || this.lifecycle.stateOf(pluginId) === 'running') { return true; }
+    // P2-009(R32):撤销态恢复通道——授权已重新落账(granted)时 lift 回 permission-pending,
+    // 由下方授权门放行进入 starting;未重新落账则拒绝(revoked 的非卸载出口只有显式重新同意)。
+    if (this.lifecycle.stateOf(pluginId) === 'revoked') {
+      const grantForLift = this.permissionStore.grantOf(pluginId);
+      if (grantForLift !== null && grantForLift.state === 'granted') {
+        this.lifecycle.liftRevocation(pluginId, '用户重新落账授权(revoked → permission-pending)');
+        pluginLog('插件撤销态解除(重新同意): ' + pluginId);
+      } else {
+        record.errorState = '插件权限已被用户撤销,请在设置中重新授权';
+        pluginError('插件启用被拒 ' + pluginId + ': ' + record.errorState);
+        return false;
+      }
     }
     // 授权决定门(T2.2/P2-010):撤销状态对所有清单版本生效——用户明确"不许"不因 v1
     // 而失效(此前 v1 撤销后仍可重新启用,撤销语义被版本门短路)。指纹级 regrant 与
     // 首启落账仍只对声明型清单(v1 沿用启用即授权、无指纹折腾的存量语义)。
+    // P2-009(R32):授权前置检查整体前置于状态机 starting——拒绝即落 permission-pending /
+    // revoked 记账,不再产生卡死 starting 的 activation(转出:同意→starting)。
     const storedGrant = this.permissionStore.grantOf(pluginId);
     if (storedGrant !== null && storedGrant.state === 'revoked') {
       record.errorState = '插件权限已被用户撤销,请在设置中重新授权';
       pluginError('插件启用被拒 ' + pluginId + ': ' + record.errorState);
+      this.lifecycle.markRevoked(pluginId, '启用被拒: 授权存储 revoked(未重新落账)');
       return false;
     }
     if (record.manifest.capabilitiesDeclared) {
       const fingerprint = this.capabilityFingerprintOf(record.manifest);
       const decision = this.permissionStore.decisionFor(pluginId, record.manifest.version, fingerprint);
       if (decision === PERMISSION_REGRANT_REQUIRED) {
-        record.errorState = '插件升级引入权限变化,需要重新授权';
-        pluginError('插件启用被拒 ' + pluginId + ': ' + record.errorState);
+        this.rejectToPending(pluginId, record, '插件升级引入权限变化,需要重新授权', 'regrant-required(指纹变化待重授权)');
         return false;
       }
       if (decision !== PERMISSION_GRANTED) {
@@ -2482,10 +2572,15 @@ export class LexiPluginManager {
         // 未同意的插件拒绝启用。降级语义(本轮定案):授权是整体性的,不完整授权 =
         // 不运行(停在 installed/permission-pending 面),按能力部分授权的降级运行留给
         // P2-009 状态机(v2 权限清单的必需/可选/高风险分档仅作呈现,不拆分授权)。
-        record.errorState = '插件权限尚未授权,请在授权面板同意后启用';
-        pluginError('插件启用被拒 ' + pluginId + ': ' + record.errorState);
+        this.rejectToPending(pluginId, record, '插件权限尚未授权,请在授权面板同意后启用', 'not-granted(等待授权面板同意)');
         return false;
       }
+    }
+    const compatMessage = manifestCompatMessage(record.manifest);
+    if (compatMessage.length > 0) {
+      record.errorState = compatMessage;
+      pluginError('插件版本不兼容: ' + pluginId + ' — ' + compatMessage);
+      return false;
     }
     const mainPath = `${record.dir}/main.js`;
     if (!fs.accessSync(mainPath)) {
@@ -2493,6 +2588,15 @@ export class LexiPluginManager {
       pluginError('插件缺少 main.js: ' + pluginId);
       return false;
     }
+    // 状态机起停:installed/verified/permission-pending/degraded/failed/disabled → starting;
+    // running 中 alreadyRunning=true 同样早退;quarantined/revoked/removed 一律拒绝(迁移表)。
+    const start = this.lifecycle.beginStartIfNotRunning(pluginId, record.manifest.version);
+    if (!start.ok) {
+      record.errorState = start.reason;
+      pluginError('插件启动被拒 ' + pluginId + ': ' + start.reason);
+      return false;
+    }
+    const activationId = start.activation !== null ? start.activation.activationId : '';
     try {
       // 上一次尝试留下的失败记录不能冒充本次结果:先清空,再由 onload 回调写回
       record.errorState = '';
@@ -2560,7 +2664,12 @@ export class LexiPluginManager {
         'token': token as Object
       };
       const payload = JSON.stringify(payloadBody);
-      const done = new Promise<void>((resolve: () => void): void => { this.pendingOnload.set(pluginId, resolve); });
+      // P1-008(R32):装载等待挂双通道——正常回执 resolve;销毁闭环"清 pending"一步 reject
+      // (在途等待快速失败,不再干等 LOAD_TIMEOUT)。
+      const done = new Promise<void>((resolve: () => void, reject: (reason: Error) => void): void => {
+        this.pendingOnload.set(pluginId, resolve);
+        this.pendingOnloadFail.set(pluginId, (failReason: string): void => { reject(new Error(failReason)); });
+      });
       await this.runtime.waitReady();
       pluginLog('插件源码就绪: ' + pluginId + ' ' + code.length + ' 字符');
       await this.runtime.dispatchWithTimeout('load.plugin', payload, LOAD_TIMEOUT_MS);
@@ -2590,6 +2699,7 @@ export class LexiPluginManager {
       record.errorState = String(error);
       pluginError('插件启用失败 ' + pluginId + ': ' + String(error));
       this.pendingOnload.delete(pluginId);
+      this.pendingOnloadFail.delete(pluginId);
       if (activationId.length > 0) { this.lifecycle.markFailed(activationId, String(error)); }
       return false;
     }
@@ -2598,58 +2708,100 @@ export class LexiPluginManager {
   async disablePlugin(pluginId: string): Promise<void> {
     const record = this.plugins.get(pluginId);
     pluginLog('请求停用插件: ' + pluginId + ' (当前启用=' + (record ? record.enabled : false) + ')');
-    if (!record || !record.enabled) { return; }
-    const activationId = this.lifecycle.currentActivationIdOf(pluginId);
-    if (activationId.length > 0) {
-      // 先释放后停(RFC §4.3):关闭宿主侧记账的全部执行上下文,再请求状态机迁移。
-      for (const ctx of this.lifecycle.contextsOf(activationId)) {
-        this.lifecycle.closeContext(ctx.contextId);
+    if (record && record.enabled) {
+      const activationId = this.lifecycle.currentActivationIdOf(pluginId);
+      if (activationId.length > 0) {
+        // 先释放后停(RFC §4.3):关闭宿主侧记账的全部执行上下文,再请求状态机迁移。
+        for (const ctx of this.lifecycle.contextsOf(activationId)) {
+          this.lifecycle.closeContext(ctx.contextId);
+        }
+        const stop = this.lifecycle.beginStop(activationId, 'user-disable');
+        if (!stop.ok) {
+          // 状态机拒绝(仍有未关上下文等):强制隔离后释放残骸(§4.3 强制停止语义)。
+          pluginError('插件停止被拒 ' + pluginId + ': ' + stop.reason + ' → 强制隔离');
+          this.lifecycle.quarantine(activationId, stop.reason);
+          const forced = this.lifecycle.beginStop(activationId, 'forced-quarantine-release');
+          if (!forced.ok) { return; }
+        }
       }
-      const stop = this.lifecycle.beginStop(activationId, 'user-disable');
-      if (!stop.ok) {
-        // 状态机拒绝(仍有未关上下文等):强制隔离后释放残骸(§4.3 强制停止语义)。
-        pluginError('插件停止被拒 ' + pluginId + ': ' + stop.reason + ' → 强制隔离');
-        this.lifecycle.quarantine(activationId, stop.reason);
-        const forced = this.lifecycle.beginStop(activationId, 'forced-quarantine-release');
-        if (!forced.ok) { return; }
-      }
+      try {
+        await this.runtime.waitReady();
+        // P1-008(R32):卸载等待挂双通道(正常回执 resolve / 销毁清 pending 时 reject)。
+        const done = new Promise<void>((resolve: () => void, reject: (reason: Error) => void): void => {
+          this.pendingUnload.set(pluginId, resolve);
+          this.pendingUnloadFail.set(pluginId, (failReason: string): void => { reject(new Error(failReason)); });
+        });
+        const unloadBody: Record<string, Object> = { 'id': pluginId as Object };
+        await this.runtime.dispatchWithTimeout('unload.plugin', JSON.stringify(unloadBody), LOAD_TIMEOUT_MS);
+        await LexiWebRuntime.withTimeout(done, LOAD_TIMEOUT_MS, 'onunload');
+      } catch { /* force removal locally even if the runtime page is gone */ }
+      this.pendingUnload.delete(pluginId);
+      this.pendingUnloadFail.delete(pluginId);
+      // onunload 逻辑完成(含页面丢失的强制路径):stopping → disabled,凭据与扩展随后回收。
+      if (activationId.length > 0) { this.lifecycle.markStopped(activationId); }
+      record.enabled = false;
+      record.activationId = '';
+      this.extensionRegistry.unregisterPlugin(pluginId);
+      this.viewSessions.dropPlugin(pluginId);
+      this.commands.removePluginCommands(pluginId);
+      LexiPluginViewRegistry.removePlugin(pluginId);
+      this.settingDefs.delete(pluginId);
+      this.pluginSources.delete(pluginId);
+      const doomedRibbons: string[] = [];
+      this.ribbonItems.forEach((row: LexiRibbonRow, key: string): void => {
+        if (row.pluginId === pluginId) { doomedRibbons.push(key); }
+      });
+      for (const key of doomedRibbons) { this.ribbonItems.delete(key); }
+      const languages: string[] = [];
+      this.codeBlockPlugins.forEach((owner: string, language: string): void => {
+        if (owner === pluginId) { languages.push(language); }
+      });
+      for (const language of languages) { this.codeBlockPlugins.delete(language); }
+      this.enabledIds.delete(pluginId);
+      await this.persistEnabled();
+      pluginLog('插件已停用: ' + pluginId);
+      this.bumpPluginRevision();
     }
-    try {
-      await this.runtime.waitReady();
-      const done = new Promise<void>((resolve: () => void): void => { this.pendingUnload.set(pluginId, resolve); });
-      const unloadBody: Record<string, Object> = { 'id': pluginId as Object };
-      await this.runtime.dispatchWithTimeout('unload.plugin', JSON.stringify(unloadBody), LOAD_TIMEOUT_MS);
-      await LexiWebRuntime.withTimeout(done, LOAD_TIMEOUT_MS, 'onunload');
-    } catch { /* force removal locally even if the runtime page is gone */ }
-    this.pendingUnload.delete(pluginId);
-    // onunload 逻辑完成(含页面丢失的强制路径):stopping → disabled,凭据与扩展随后回收。
-    if (activationId.length > 0) { this.lifecycle.markStopped(activationId); }
-    record.enabled = false;
-    record.activationId = '';
-    this.extensionRegistry.unregisterPlugin(pluginId);
-    this.viewSessions.dropPlugin(pluginId);
-    this.commands.removePluginCommands(pluginId);
-    LexiPluginViewRegistry.removePlugin(pluginId);
-    this.settingDefs.delete(pluginId);
-    this.pluginSources.delete(pluginId);
-    this.runtime.revokePluginTokens(pluginId);
-    // P1-003a:同步吊销端口身份(撤销/停用立即生效的载体级形态,P2-010 联动)。
+    // ---------------- P1-008(R32) 执行环境销毁闭环(幂等尾序,无论启用记账与否都执行) ----------------
+    // 顺序即防线(停用段在上):吊销端口身份(旧通道帧立即 context_revoked)→ 销毁容器
+    // iframe(求值面拆除)→ 吊销凭据(页面通道身份失配)→ 清 pending(在途装载/卸载等待
+    // 快速失败)。每步幂等:重复停用/未启用/记录缺失时均为无副作用的空回收。
+    // (容器端口 contextPort 是 runtime 页级共享口,非 per-plugin,不在销毁面——per-plugin
+    // 通道载体是 contextRegistry 记录 + 沙箱 iframe,见上两步;视图会话已在启用段 dropPlugin。)
+    // P1-003a/P2-010:同步吊销端口身份——此后该插件一切旧通道帧 fail-closed(context_revoked)。
     const revokedContexts = this.contextRegistry.revokePlugin(pluginId);
     if (revokedContexts > 0) { pluginLog('context registry 吊销 ' + revokedContexts + ' 个上下文: ' + pluginId); }
-    const doomedRibbons: string[] = [];
-    this.ribbonItems.forEach((row: LexiRibbonRow, key: string): void => {
-      if (row.pluginId === pluginId) { doomedRibbons.push(key); }
-    });
-    for (const key of doomedRibbons) { this.ribbonItems.delete(key); }
-    const languages: string[] = [];
-    this.codeBlockPlugins.forEach((owner: string, language: string): void => {
-      if (owner === pluginId) { languages.push(language); }
-    });
-    for (const language of languages) { this.codeBlockPlugins.delete(language); }
-    this.enabledIds.delete(pluginId);
-    await this.persistEnabled();
-    pluginLog('插件已停用: ' + pluginId);
-    this.bumpPluginRevision();
+    // P1-008:容器侧 per-plugin iframe 销毁(沙箱轨求值面拆除;容器页丢失时 catch 记录,
+    // 幂等安全——重复调用/无匹配上下文为 no-op,见 lexiContainerTeardown)。
+    if (this.sandboxController !== null) {
+      try {
+        await this.sandboxController.runJavaScript(
+          'window.lexiContainerTeardown && window.lexiContainerTeardown(' + JSON.stringify(pluginId) + ');');
+      } catch (error) {
+        pluginError('容器 iframe 销毁失败(fail-visible,幂等): ' + pluginId + ' — ' + String(error));
+      }
+    }
+    // 吊销凭据:页面侧令牌表清空——旧通道既使绕过端口层也解析不出身份(anonymous → 拒)。
+    const revokedTokens = this.runtime.revokePluginTokens(pluginId);
+    if (revokedTokens > 0) { pluginLog('plugin tokens 吊销 ' + revokedTokens + ' 个: ' + pluginId); }
+    // 清 pending:在途 onload/onunload 等待快速失败(销毁后不再等待旧通道回执)。
+    this.failPendingLifecycleWaits(pluginId, '插件已销毁,装载/卸载等待作废(fail-closed): ' + pluginId);
+  }
+
+  /** P1-008(R32):清 pending——销毁后拒绝在途生命周期等待(fail-closed 快速失败,不等超时)。 */
+  private failPendingLifecycleWaits(pluginId: string, reason: string): void {
+    const onloadFail = this.pendingOnloadFail.get(pluginId);
+    if (onloadFail) {
+      this.pendingOnload.delete(pluginId);
+      this.pendingOnloadFail.delete(pluginId);
+      onloadFail(reason);
+    }
+    const unloadFail = this.pendingUnloadFail.get(pluginId);
+    if (unloadFail) {
+      this.pendingUnload.delete(pluginId);
+      this.pendingUnloadFail.delete(pluginId);
+      unloadFail(reason);
+    }
   }
 
   private async persistEnabled(): Promise<void> {

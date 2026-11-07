@@ -1193,8 +1193,13 @@ test('P5-004 市场 UI：安装 → 授权面板 → 同意启用;拒绝 = 保�
   assert.match(sheetText, /高风险权限/, '高风险权限必须显式标注');
   assert.match(sheetText, /安装授权确认/, '授权面板必须展示插件元数据与权限用途披露');
   // 首装不携带 grantApproved(那是升级重授权专用通道):只在 pendingGrantEntry 确认行置真。
+  // P2-009(R32):options 改携带 targetPluginId——升级包 integrity_mismatch 时宿主据此
+  // 隔离已装版本(§6.4/§9.2);grantApproved 仍只在重授权确认行置真(首装默认不授权)。
   const installBody = sheetText.slice(sheetText.indexOf('private async install('), sheetText.indexOf('private async revokePermissions('));
-  assert.match(installBody, /grantApproved \? '\{"grantApproved":true\}' : ''/, '安装选项三目保持:默认为空(不授权)');
+  assert.match(installBody, /const optionsBody: Record<string, Object> = \{ 'targetPluginId': entry\.id as Object \};/,
+    '安装选项必须携带目标插件 id(P2-009 完整性失败隔离的归属依据)');
+  assert.match(installBody, /if \(grantApproved\) \{ optionsBody\['grantApproved'\] = true as Object; \}/,
+    'grantApproved 仅在重授权确认行置真(首装默认不授权,P5-004 语义保持)');
   assert.match(installBody, /pendingConsentId = pluginId/, '首装成功后进入待授权');
 });
 
@@ -1207,6 +1212,53 @@ test('P5-004 设置页接线：未授权插件的开关 = 同意行内权限清�
     assert.match(text, /待授权/, name + ': 未授权插件必须标出待授权状态');
     assert.match(text, /已安装插件（未启用/, name + ': 侧载安装提示必须明示未启用');
   }
+});
+
+// --- 10. R32(P1-008 + P2-009) 执行环境销毁闭环 + 生命周期状态机补全 ----------------------
+test('R32 销毁闭环与状态机接线：五步尾序/quarantine 触发链/permission-pending/revoked/degraded', () => {
+  const text = runtimeEts();
+  const managerEts = fs.readFileSync(path.join(CORE, 'plugin', 'LexiPluginLifecycleManager.ets'), 'utf8');
+  const activationEts = fs.readFileSync(path.join(CORE, 'plugin', 'LexiPluginActivation.ets'), 'utf8');
+  const containerEts = fs.readFileSync(path.join(REPO_ROOT, 'entry', 'src', 'main', 'resources', 'rawfile',
+    'lexinote_sandbox_container.js'), 'utf8');
+  // P2-009:RFC §4.1 全量状态面进状态机(类型面);可达性/转出行为级断言在 lifecycle-once L7。
+  assert.match(activationEts, /'permission-pending' \| 'disabled'/, 'permission-pending 进 LexiLifecycleState');
+  assert.match(activationEts, /'degraded' \| 'stopping'/, 'degraded 进 LexiLifecycleState');
+  assert.match(activationEts, /'quarantined' \| 'revoked'/, 'revoked 进 LexiLifecycleState');
+  assert.match(managerEts, /static canTransitStatic\(from: LexiLifecycleState, to: LexiLifecycleState\): boolean/,
+    '迁移表静态查询面(门禁逐格对账/Inspector 对账)');
+  assert.match(managerEts, /table\['revoked'\] = \['permission-pending', 'uninstalling', 'removed'\];/,
+    'revoked 转出: 卸载或重新落账 lift(不得直接 starting)');
+  assert.match(managerEts, /table\['quarantined'\] = \['stopping', 'disabled', 'uninstalling'\];/,
+    'quarantined 转出: 强停释放或卸载(不得直接 starting)');
+  // P2-009:quarantine 由真实安全事件触发(P5-001 完整性失败链),不是死状态。
+  assert.match(text, /async quarantinePlugin\(pluginId: string, reason: string\): Promise<boolean> \{/,
+    'quarantine 插件级入口(标记→销毁闭环→落账)');
+  assert.match(text, /import \{[\s\S]*ERROR_INTEGRITY_MISMATCH[\s\S]*\} from '\.\/LexiPluginManifest';/,
+    'integrity_mismatch 机器码进 runtime(触发源接线)');
+  assert.match(text, /message\.indexOf\(ERROR_INTEGRITY_MISMATCH \+ ':'\) === 0[\s\S]{0,300}quarantinePlugin\(targetPluginId,/,
+    '升级包完整性失败 → 已装版本隔离(§6.4/§9.2)');
+  assert.match(text, /record\.quarantineReason\.length > 0[\s\S]{0,240}return false/,
+    'enablePlugin 隔离门:quarantined 拒绝启用(唯一出口=卸载)');
+  assert.match(text, /this\.lifecycle\.markRevoked\(pluginId, 'user-revoke/, '撤销链落 revoked(P2-010 联动)');
+  assert.match(text, /this\.lifecycle\.markPermissionPending\(manifest\.id, 'P5-004: 已安装未授权\(等待用户同意\)'\)/,
+    '首装默认路径落 permission-pending(R26 面)');
+  assert.match(text, /markDegradedIfShrunk\(manifest\.id, removedCaps\)/, '能力收缩升级落 degraded(降级运行记账)');
+  const installerEts = fs.readFileSync(path.join(CORE, 'plugin', 'LexiPluginInstaller.ets'), 'utf8');
+  assert.match(installerEts, /lastRemovedCaps = diff\.removed\.slice\(\);/, 'installer 快照能力收缩(T4.4 只减不增放行)');
+  assert.match(text, /this\.lifecycle\.markVerified\(manifest\.id, 'scan: manifest 解析通过\(安装面验证\)'\)/,
+    '扫描链 verified 可达');
+  // P1-008:销毁闭环尾序 + 容器销毁面(行为级负例在 context-registry D 组)。
+  assert.match(text, /private failPendingLifecycleWaits\(pluginId: string, reason: string\): void/,
+    '清 pending:在途装载/卸载等待快速失败');
+  assert.match(text, /pendingOnloadFail: Map<string, \(reason: string\) => void> = new Map\(\)/,
+    '装载等待快速失败通道');
+  assert.match(containerEts, /window\.lexiContainerTeardown = function \(pluginId\) \{/,
+    '容器侧 per-plugin iframe 销毁面(SEC-013)');
+  assert.match(text, /window\.lexiContainerTeardown && window\.lexiContainerTeardown\(/,
+    '宿主接线带存在性守卫(fail-safe)');
+  // 市场安装链携带目标插件 id(完整性失败隔离的归属依据)。
+  assert.match(text, /const claimed = parsed\['targetPluginId'\];/, 'installZip 解析 targetPluginId');
 });
 
 test('静态审核的模块白名单：@codemirror 放行，其它 require 红灯', () => {

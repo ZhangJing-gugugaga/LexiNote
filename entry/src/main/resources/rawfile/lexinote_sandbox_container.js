@@ -109,6 +109,34 @@
     }
   }
 
+  // ---- P1-008(R32)·宿主停用/卸载链的容器侧 iframe 销毁(runJavaScript 调 lexiContainerTeardown) ----
+  // 销毁闭环第 3 步(顺序:contextRegistry 吊销 → 本函数 → 凭据吊销 → 清 pending):
+  //   - 按插件 id 移除其全部 iframe(opaque origin 求值面随 DOM 移除而销毁)并清 pendingContexts
+  //     记账——此后该插件在容器内无任何 event.source 可匹配,旧通道请求帧按"无归属上下文"丢弃;
+  //   - 幂等:未知插件 id / 无匹配上下文 / 宿主重复调用一律 no-op(fail-visible 留痕);
+  //   - 返回移除数(诊断日志用;宿主侧 runJavaScript 不消费返回值)。
+  window.lexiContainerTeardown = function (pluginId) {
+    const target = String(pluginId || '');
+    if (!target) { log('teardown 缺少插件 id(fail-visible)'); return 0; }
+    const doomed = [];
+    pendingContexts.forEach((context, cid) => {
+      if (context.pluginId === target) { doomed.push(cid); }
+    });
+    for (let i = 0; i < doomed.length; i++) {
+      const cid = doomed[i];
+      const context = pendingContexts.get(cid);
+      pendingContexts.delete(cid);
+      try {
+        if (context && context.iframe && context.iframe.parentNode) {
+          context.iframe.parentNode.removeChild(context.iframe);
+        }
+      } catch (err) { log('iframe 移除失败(忽略,记账已清): ' + cid + ' ' + String(err)); }
+      log('sandbox context destroyed: ' + cid);
+    }
+    if (doomed.length === 0) { log('teardown 无匹配上下文(幂等 no-op): ' + target); }
+    return doomed.length;
+  };
+
   // proxy 就绪探测:javaScriptProxy 注入早于页脚本;宿主 onPageEnd 的 ready ping 兜底置位。
   try {
     if (window.sandboxHost && typeof window.sandboxHost.call === 'function') {

@@ -32,6 +32,6 @@
 
 ## SEC 计划编号映射（RFC §13.4 现状）
 
-已覆盖(离线,PoC 或宿主面)：SEC-002 部分(bridge-security)、SEC-003 部分(context-isolation)。
-未覆盖：SEC-001/004/005 在业务轨道(P1-006/009)、SEC-006..008/011/012 部分、SEC-009 路径(P2-004)、
-SEC-010 origin 之外的 method/size(P2-006)、SEC-013 卸载残留(P1-008)、SEC-014..017 信任链(P5-002/003/009)。
+已覆盖(离线,PoC 或宿主面)：SEC-002 部分(bridge-security)、SEC-003 部分(context-isolation)、SEC-013 卸载残留离线面(P1-008/R32:context-registry 23 含 D 组——销毁后旧通道帧全拒 context_revoked/伪造身份+穿越路径帧先于身份与 fs 层被拒/幂等无僵尸/Gateway unknown_method 分层对账;context-isolation 86 含 S41 容器 iframe 销毁面+宿主五步尾序;设备负例待 P4-005 批次)。
+未覆盖：SEC-001/004/005 在业务轨道(P1-006/009)、SEC-006..008/011/012 部分、SEC-009 路径面(P2-004;P1-008 销毁序中「吊销先于路径判定」已入 D 组断言)、
+SEC-010 origin 之外的 method/size(P2-006)、SEC-014..017 信任链(P5-002/003/009)。

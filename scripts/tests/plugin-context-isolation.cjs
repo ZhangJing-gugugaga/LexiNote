@@ -290,6 +290,37 @@ console.log('== S40 P1-005 身份纯端口化(端口↔身份绑定,报文零身
     'load.plugin 的 token 字段只允许存在于 legacy 轨分支(开关 false 时整体不派发,形态退役)');
 }
 
+// ------------------------------------------------- S41 P1-008 销毁闭环(R32,SEC-013)
+// 验收行:卸载后旧通道 RPC 一律拒绝。容器侧销毁面 + 宿主五步尾序(行为级负例在
+// context-registry D 组:context_revoked/unknown_method)。
+console.log('== S41 P1-008 销毁闭环(容器 iframe 销毁面 + 宿主接线顺序) ==');
+{
+  const containerSrc = fs.readFileSync(path.join(RAWFILE, 'lexinote_sandbox_container.js'), 'utf8');
+  const runtimeSrc = fs.readFileSync(path.join(ROOT, 'entry/src/main/ets/core/plugin/LexiPluginRuntime.ets'), 'utf8');
+  const disableBody = runtimeSrc.indexOf('async disablePlugin(') > 0
+    ? runtimeSrc.slice(runtimeSrc.indexOf('async disablePlugin('), runtimeSrc.indexOf('private async persistEnabled('))
+    : '';
+  ok('S41a 容器销毁面在案:lexiContainerTeardown 移除 per-plugin iframe 并清 pendingContexts',
+    /window\.lexiContainerTeardown = function/.test(containerSrc) &&
+    /removeChild\(context\.iframe\)/.test(containerSrc) &&
+    /pendingContexts\.delete\(cid\)/.test(containerSrc),
+    'SEC-013:容器侧 iframe 残留 = opaque origin 求值面未销毁(卸载残留)');
+  ok('S41b 容器销毁面幂等:缺 id fail-visible / 无匹配 no-op(宿主重复调用安全)',
+    /teardown 缺少插件 id\(fail-visible\)/.test(containerSrc) &&
+    /teardown 无匹配上下文\(幂等 no-op\)/.test(containerSrc));
+  ok('S41c 宿主五步尾序有序:吊销端口身份 → 容器 iframe 销毁 → 吊销凭据 → 清 pending',
+    (() => {
+      const atRevoke = disableBody.indexOf('contextRegistry.revokePlugin(pluginId)');
+      const atTeardown = disableBody.indexOf('lexiContainerTeardown');
+      const atTokens = disableBody.indexOf('revokePluginTokens(pluginId)');
+      const atPending = disableBody.indexOf('failPendingLifecycleWaits(pluginId');
+      return atRevoke > 0 && atTeardown > atRevoke && atTokens > atTeardown && atPending > atTokens;
+    })(),
+    'P1-008 顺序即防线:旧通道帧先被拒(context_revoked),再拆求值面,再断凭据,再清在途等待');
+  ok('S41d 宿主调用带存在性守卫(旧容器页/页丢失 fail-safe,不抛)',
+    /window\.lexiContainerTeardown && window\.lexiContainerTeardown\(/.test(disableBody));
+}
+
 // ---------------------------------------------------------------- E1/E2 vm 求值探针
 console.log('== E* vm 求值恶意探针 ==');
 function probeSource() {

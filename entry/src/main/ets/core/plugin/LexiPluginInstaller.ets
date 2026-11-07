@@ -209,6 +209,12 @@ export class LexiPluginInstaller {
   private pluginsRoot: string;
   private io: PluginStorageIo;
 
+  /**
+   * P2-009(R32):最近一次 installExtracted 的能力收缩清单(T4.4 更新策略只减不增放行时,
+   * 宿主据此把已启用的插件落 degraded 降级运行记账)。仅减不增以外为空。
+   */
+  lastRemovedCaps: string[] = [];
+
   constructor(context: common.Context, pluginsRoot: string, io: PluginStorageIo | null = null) {
     this.context = context;
     this.pluginsRoot = pluginsRoot;
@@ -373,6 +379,8 @@ export class LexiPluginInstaller {
    */
   async installExtracted(root: string, options: PluginInstallOptions): Promise<PluginInstallOutcome> {
     const outcome = new PluginInstallOutcome();
+    // P2-009(R32):每次安装先清上一轮收缩快照(失败/无收缩时不得残留旧数据)。
+    this.lastRemovedCaps = [];
     let manifest: LexiPluginManifest;
     try {
       manifest = parsePluginManifest(this.io.readText(root + '/manifest.json'));
@@ -420,6 +428,8 @@ export class LexiPluginInstaller {
       outcome.message = policy.reason;
       return outcome;
     }
+    // P2-009(R32):能力收缩快照(只减不增的放行升级)——宿主在启用后落 degraded 记账。
+    this.lastRemovedCaps = diff.removed.slice();
     const dir = this.pluginDir(id);
     const versions = this.versionsDir(id);
     const staging = versions + '/.staging-' + Date.now();

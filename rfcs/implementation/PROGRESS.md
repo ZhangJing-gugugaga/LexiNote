@@ -796,3 +796,32 @@ release-gate 29/29 ×2、authz-matrix 93、dist-reg 39/39、bridge-security 50�
 **R32 = P1-008 + P2-009**（销毁闭环 SEC-009/013 自动化;quarantine 由安全事件触发可达）。
 
 最近更新时间：2026-11-07（Round 31）。
+
+## Round 32 — 2026-11-07（P1-008 + P2-009 → 离线全绿;销毁闭环五步尾序 + 状态机五新态可达 + quarantine 安全事件触发链）
+
+### 本轮完成
+
+1. **P1-008 执行环境销毁闭环**：`disablePlugin` 重构为「启用段（lifecycle 停用+unload 派发+宿主登记面回收,原序不变）→销毁尾序（幂等,未启用/记录缺失也执行——卸载路径旧通道无条件回收）」四步：①`contextRegistry.revokePlugin`（旧通道帧立即 context_revoked）→②容器页 iframe 销毁——`lexinote_sandbox_container.js` 新增 `window.lexiContainerTeardown(pluginId)`（按插件 id 移除 per-plugin iframe+清 pendingContexts;缺 id fail-visible、无匹配幂等 no-op;此前容器页只有 boot/inbox/command 三个入口,销毁面缺失=SEC-013 残留）,宿主经 sandboxController.runJavaScript 带存在性守卫调用→③`revokePluginTokens`（页面通道身份失配→anonymous 拒）→④清 pending——新增 `pendingOnloadFail/pendingUnloadFail` 双通道,`failPendingLifecycleWaits` 使在途 onload/onunload 等待快速失败（不再干等 LOAD_TIMEOUT）,onload.done/error、unload.done 回执双表同清。contextPort=runtime 页级共享口非 per-plugin（销毁面=registry 记录+沙箱 iframe;视图会话已 dropPlugin）,注释+L9 锚点登记。
+2. **P2-009 生命周期状态机补全**：`LexiLifecycleState` 补 `permission-pending/degraded/revoked`（+既有 quarantined/verified 凑齐 RFC §4.1 全量面）；迁移表 14 状态全量+静态查询面 `canTransitStatic`；每次迁移落 `LexiLifecycleEvent` 原因账（journal 环形 256,`historyOf` 供审计/Inspector）。语义映射：verified=安装面验证通过（scan 链 markInstalled 后 markVerified）；permission-pending=R26 安装未授权（installZip 首装路径落账;enablePlugin 授权前置整体**前置于状态机 starting**——not-granted/regrant 经 rejectToPending 落 permission-pending,顺带修掉「拒绝分支卡死 starting activation」的旧缺陷;转出:同意→starting/撤销/隔离/卸载）；degraded=能力收缩升级降级运行（T4.4 只减不增放行,installer.lastRemovedCaps 快照→启用后 markDegraded）；quarantined=安全事件隔离；revoked=P2-010 链（revokePluginPermissions→disablePlugin→markRevoked;出口=卸载或重新落账后 enablePlugin 内 liftRevocation→permission-pending）。
+3. **quarantine 安全事件触发链（验收行核心）**：市场安装链 options 携带 `targetPluginId`（LexiPluginMarketSheet entry.id;grantApproved 仅重授权确认行置真的 P5-004 语义保持）→ installZip catch 命中 `integrity_mismatch`（P5-001 verifyPackageHash 机器码）→ `quarantinePlugin`：先落 `record.quarantineReason` 标记（销毁途中并发 enable 一并被隔离门拒绝）→ disablePlugin 销毁闭环 → markQuarantined。enablePlugin 隔离门拒绝启用,唯一出口=卸载后重装。运行期 §4.3 强停路径（activation 级 quarantine）原样保留。
+4. **门禁**：lifecycle-once **37→71**（L7 迁移表 13×13 逐格对账+五新态可达/转出/原因账行为级真跑+L9 销毁闭环接线锚点）；context-registry **15→23**（D 组 SEC-013 行为级负例:销毁后旧通道帧全拒 context_revoked、伪造身份+穿越路径帧先于身份与 fs 层被拒、重复销毁幂等无僵尸、新 contextId 不受影响、Gateway unknown_method 分层对账）；context-isolation **82→86**（S41 容器销毁面+宿主五步尾序）；dist-regression **39→40**（R32 接线对账;MarketSheet options 三目锚随实现升级,grantApproved 语义保持由新断言钉死）；contract-matrix symbols.json 2 处行号漂移手修（:1740→:1809[throw 定型后二次漂移]、:1542→:1610）。**release-gate 29/29 ×2** + assembleHap BUILD SUCCESSFUL。
+
+### 100% 口径（如实裁定）
+
+销毁闭环覆盖的通道面：①沙箱轨 per-plugin iframe（容器页 teardown,SEC-013 主对象）②contextRegistry 端口身份（sandboxHost.call/端口帧两条前门的身份真源）③页面凭据表（legacy 轨 credential 第 4 参形态+源码分片通道）④在途生命周期等待（onload/onunload 快速失败）。视图会话（dropPlugin）、命令/扩展/ribbon/codeblock 登记面回收在启用段原位。旧通道拒绝的机器码分层：registry 层 context_revoked（先于身份剥离与 fs/路径判定）→ Gateway 层 unknown_method/bad_request → 身份层 identity_untrusted。设备负例（卸载→旧通道 RPC 真机拒绝）待 P4-005 批次,IMPLEMENTED ≠ VERIFIED。
+
+### 实际执行的测试
+
+release-gate 29/29 ×2、lifecycle-once 71、context-registry 23、context-isolation 86、dist-reg 40/40、bridge-security 50、authz-matrix 93、update-policy 16、permission-store 28、shim-reg 12、kernel-reg 6、contract-matrix(--fixtures-required)、assembleHap PASS（BUILD SUCCESSFUL）。
+
+### 预存红（与本轮无关,上轮已登记）
+
+- `plugin-route-coverage`：editor.* 孤儿（R27 起的 `_apply` 间接,非本轮引入）。
+- `input-robustness-evidence`：设备证据项(2026-11-02 会话)。
+- `plugin-tasks-compat`：PENDING（夹具态）。
+
+### 下一轮
+
+**R33 = P1-009 + P1-010**（SEC 全表进门禁;Phase 1 出口评审,RELEASE_READINESS 复核）。设备批次补:P1-008 卸载→旧通道 RPC 真机拒绝负例。
+
+最近更新时间：2026-11-07（Round 32）。

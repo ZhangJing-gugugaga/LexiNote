@@ -121,7 +121,11 @@ export struct LexiPluginMarketSheet {
     this.busy = true;
     this.status = grantApproved ? `正在按用户确认的新权限安装 ${entry.name}…` : `正在安装 ${entry.name}…`;
     try {
-      const options = grantApproved ? '{"grantApproved":true}' : '';
+      // P2-009(R32):options 携带目标插件 id——升级包完整性失败(integrity_mismatch)时
+      // 宿主据此把已装版本转入安全隔离(§6.4/§9.2),不再只是一个无归属的失败。
+      const optionsBody: Record<string, Object> = { 'targetPluginId': entry.id as Object };
+      if (grantApproved) { optionsBody['grantApproved'] = true as Object; }
+      const options = JSON.stringify(optionsBody);
       const pluginId = await manager.installFromUrl(entry.zipUrl, entry.sha256, options);
       // P5-004:安装不再自动 enable。回读落点:已启用 = 升级重启/重授权通路;未启用 =
       // 首装默认停在待授权,渲染授权面板(权限清单→用户同意→启用)而不是报"已启用"。
