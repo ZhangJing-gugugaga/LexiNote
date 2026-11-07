@@ -1621,14 +1621,16 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
     }).catch(function (err) { console.warn('[lexinote] 命令注册失败', err); });
     self.register(function () {
       commandTable.delete(fullId);
-      hostCall('commands.remove', { fullId: fullId }).catch(function () {});
+      // P2-015:清理 RPC 显式携带登记者身份——不依赖现场栈(卸载路径可能没有身份上下文,
+      // 匿名会被宿主 fail-closed 拒绝,清理失效)。
+      hostCall('commands.remove', { fullId: fullId }, objectToken(self) || currentToken()).catch(function () {});
     });
     return Object.assign({}, command, { id: fullId });
   };
   PluginShim.prototype.removeCommand = function (commandId) {
     var fullId = commandId.indexOf(':') >= 0 ? commandId : this.manifest.id + ':' + commandId;
     commandTable.delete(fullId);
-    hostCall('commands.remove', { fullId: fullId }).catch(function () {});
+    hostCall('commands.remove', { fullId: fullId }, objectToken(this) || currentToken()).catch(function () {});
   };
   PluginShim.prototype.addRibbonIcon = function (icon, title, callback) {
     var self = this;
@@ -1639,7 +1641,8 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
     }).catch(function (err) { console.warn('[lexinote] Ribbon 注册失败', err); });
     self.register(function () {
       ribbonTable.delete(key);
-      hostCall('ui.removeRibbon', { pluginId: self.manifest.id, title: String(title) }).catch(function () {});
+      // P2-015:清理 RPC 显式携带登记者身份(同 commands.remove)。
+      hostCall('ui.removeRibbon', { pluginId: self.manifest.id, title: String(title) }, objectToken(self) || currentToken()).catch(function () {});
     });
     return null;
   };
@@ -1672,7 +1675,8 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
       definitionsJson: JSON.stringify(definitions || [])
     }).catch(function (err) { console.warn('[lexinote] 设置注册失败', err); });
     self.register(function () {
-      hostCall('settings.unregister', { pluginId: self.manifest.id }).catch(function () {});
+      // P2-015:清理 RPC 显式携带登记者身份(同 commands.remove)。
+      hostCall('settings.unregister', { pluginId: self.manifest.id }, objectToken(self) || currentToken()).catch(function () {});
     });
   };
   PluginShim.prototype.registerView = function (type, creator) {
@@ -1683,7 +1687,8 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
     }).catch(function (err) { console.warn('[lexinote] 视图注册失败', err); });
     self.register(function () {
       viewCreators.delete(type);
-      hostCall('views.remove', { type: type }).catch(function () {});
+      // P2-015:清理 RPC 显式携带登记者身份(同 commands.remove)。
+      hostCall('views.remove', { type: type }, objectToken(self) || currentToken()).catch(function () {});
     });
   };
   PluginShim.prototype.registerExtensions = function () {};
@@ -1735,7 +1740,8 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
     });
     self.register(function () {
       codeBlockTable.delete(key);
-      hostCall('codeblocks.unregister', { pluginId: self.manifest.id, language: key }).catch(function () {});
+      // P2-015:清理 RPC 显式携带登记者身份(同 commands.remove)。
+      hostCall('codeblocks.unregister', { pluginId: self.manifest.id, language: key }, objectToken(self) || currentToken()).catch(function () {});
     });
   };
   PluginShim.prototype.registerEditorSuggest = function () {};
@@ -2487,18 +2493,27 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
 
   async function unloadPlugin(pluginId) {
     var instance = plugins.get(pluginId);
+    // P2-015:teardown 身份先行捕获(WeakMap 随实例存活,删表与否不影响取用,但统一在
+    // 删表前取,语义最直白)。onunload 清理链(views.remove/commands.remove/
+    // settings.unregister/events.off…)必须以原插件身份发出:卸载路径没有任何身份上下文
+    // 时,清理调用以匿名进宿主 → fail-closed 全灭,清理整体失效(P4-005 设备证据
+    // cal_off:calendar 停用 7 条 authz.denied)。与 loadPlugin 的
+    // withToken(pluginToken, …instance.load()) 对称:装载和卸载都在插件身份里执行。
+    var pluginToken = instance ? objectToken(instance) : '';
     plugins.delete(pluginId);
     // 扩展卸载必须真撤销:否则插件卸载后它的 ViewPlugin/StateField 还挂在编辑器上。
     editorExtensionsByPlugin.delete(pluginId);
     var unloadApi = editorApi();
     if (unloadApi) { unloadApi.releaseExtensions(pluginId); }
     if (instance) {
-      try { instance.unload(); } catch (err) { console.warn('[lexinote] onunload error', err); }
+      try { withToken(pluginToken, function () { instance.unload(); }); } catch (err) { console.warn('[lexinote] onunload error', err); }
     }
     commandTable.forEach(function (_command, fullId) {
       if (fullId.indexOf(pluginId + ':') === 0) { commandTable.delete(fullId); }
     });
-    await hostCall('plugin.unload.done', { id: pluginId });
+    // unload.done 是 public 方法(匿名本就放行),带上原身份只是让审计面不再落
+    // identity.anonymous 噪音;实例缺失(页面重载后旧 unload)时回退现场栈。
+    await hostCall('plugin.unload.done', { id: pluginId }, pluginToken || undefined);
   }
 
   window.lexiRuntime = {
@@ -2540,7 +2555,12 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
             });
           }).catch(function (err) {
             console.warn('[lexinote] 命令执行失败', err);
-            hostCall('ui.notice', { message: '插件命令出错: ' + (err && err.message ? err.message : String(err)) }).catch(function () {});
+            // P2-014:失败必须可见(fail-visible)。通知必须带命令归属插件的令牌——
+            // 匿名 ui.notice 会被宿主 fail-closed 拒绝,通知永远到不了用户,命令失败
+            // 就退化成静默无操作(P4-005 设备证据:open-weekly-note 零通知零日志)。
+            hostCall('ui.notice', {
+              message: '命令执行失败 ' + String(message.fullId || '') + ': ' + (err && err.message ? err.message : String(err))
+            }, commandToken).catch(function () {});
           });
         }
         return;
@@ -2549,11 +2569,18 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
         acceptEditorState(message.editor);
         var editorCommand = commandTable.get(message.fullId);
         if (editorCommand && typeof editorCommand.editorCallback === 'function') {
-          var editor = new EditorProxy(message.editor || {}, commandToken);
+          var editorCommandToken = tokenForPluginId(String(message.fullId || '').split(':')[0]);
+          var editor = new EditorProxy(message.editor || {}, editorCommandToken);
           var ctx = { app: app, file: null, editor: editor };
           Promise.resolve().then(function () {
             return editorCommand.editorCallback(editor, ctx);
-          }).catch(function (err) { console.warn('[lexinote] 编辑器命令执行失败', err); });
+          }).catch(function (err) {
+            console.warn('[lexinote] 编辑器命令执行失败', err);
+            // P2-014:同类吞噬点收口——编辑器命令回调失败同样以归属身份发可见通知。
+            hostCall('ui.notice', {
+              message: '编辑器命令执行失败 ' + String(message.fullId || '') + ': ' + (err && err.message ? err.message : String(err))
+            }, editorCommandToken).catch(function () {});
+          });
         }
         return;
       }
@@ -2567,8 +2594,13 @@ var editorExtensionsByPlugin = new Map(); // pluginId -> Extension[] (real CM6 m
       if (method === 'invoke.ribbon') {
         var ribbon = ribbonTable.get(message.pluginId + ':' + message.title);
         if (typeof ribbon === 'function') {
+          var ribbonToken = tokenForPluginId(String(message.pluginId || ''));
           Promise.resolve().then(function () { return ribbon(new MouseEvent('click')); }).catch(function (err) {
             console.warn('[lexinote] Ribbon 回调失败', err);
+            // P2-014:同类吞噬点收口——Ribbon 回调失败以归属插件身份发可见通知。
+            hostCall('ui.notice', {
+              message: 'Ribbon 回调失败 ' + String(message.pluginId || '') + ':' + String(message.title || '') + ': ' + (err && err.message ? err.message : String(err))
+            }, ribbonToken).catch(function () {});
           });
         }
         return;

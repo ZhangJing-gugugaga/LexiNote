@@ -943,3 +943,21 @@ P4-005 夹具批次（设备验收:含本面三交互+R36 示例的 runtime 页�
 ### Round 38（P4-005 证据批次 + 定级）
 
 **证据**（/tmp/p4005/ 全套 dump+hilog）：①**calendar C2**——enable/onload OK,1 视图+3 命令注册,show-calendar-view 执行但视图面为"已退役"占位（P4-001 视图域证据）、open-weekly-note **静默无操作**（`LexiPluginRuntime.ets:2520 invokePluginCommand .catch(()=>{})` 吞失败=fail-visible 违例→登记 **P2-014**）、依赖 periodic-notes 缺失；②**obsidian-outliner C1**——eval 失败"不支持模块 @codemirror/view"（**fixture 未打包依赖**→登记 **P4-006**）；③**compat-probe C1**——同类(@codemirror/state)；④**附带缺陷：卸载清理身份丢失**——calendar 停用 onunload 清理 7 条 authz.denied（anonymous 无权删自有资源,identity 上下文在 teardown 丢失→登记 **P2-015**）；⑤无崩溃、P2-013 修复后开关单击=单次切换实证。**sandbox 系 5 夹具定级：沙箱原生面全用（C4 等价）**（R24-R37 data.json 铁证链）。
+
+### Round 39-A（P2-014 + P2-015：P4-005 设备批次暴露的两个缺陷,离线修复）
+
+**P2-014 命令失败 fail-visible**（设备证据:open-weekly-note 经命令面板=静默无操作,零 hilog 零通知）:
+- 根因两层:①宿主 `LexiPluginRuntime.ets invokePluginCommand` 以 `.catch((): void => {})` 吞派发失败（原 R38 登记）;②**shim 侧失败通知通道本身匿名**——`invoke.command` 回调异常的 catch 虽发 `ui.notice`,但不带令牌→ui-domain 对匿名 fail-closed→通知被宿主拒收,失败永远不可见（这是"零通知"的完整根因,R38 未识别）。
+- 修复:①宿主 `reportCommandDispatchFailure` 统一出口（pluginError+record.errorState+uiHost.toast 三面,不向上抛,成功路径零改动）;invokeEditorCommand/invokeRibbon 同类吞噬点一并接同一出口。②shim 命令/编辑器/Ribbon 回调失败的 ui.notice 补带归属令牌（commandToken/tokenForPluginId）;顺带修正编辑器分支误用命令分支悬挂变量 commandToken → editorCommandToken（原形态跨派发残留上一次命令的令牌）。
+
+**P2-015 卸载清理身份链**（设备证据:cal_off.hilog 7 条 authz.denied）:
+- 7 条两类,吊销时序无责（P2-010 吊销本就后置于 onunload 完成,disablePlugin 顺序核实无需动）:
+  - 5 条 anonymous（views.remove/commands.remove×3/settings.unregister）:shim `unloadPlugin` 裸调 `instance.unload()` 无身份上下文——loadPlugin 有 `withToken(pluginToken,…)` 对称面,unload 没有;清理闭包依赖现场栈,栈空→匿名→fail-closed。
+  - 2 条"资源归属不明"（events.off/workspace.closeView,identity=calendar 在案）:**宿主预检缺陷**——`LexiWebRuntime.call` 的 resource-less 预检对 plugin-owned 用 resource=null 直判 `authorize`→"归属不明"拒绝,处理器层的 authzFor（带 resource 的真正归属复查）经页面通道永远不可达。此缺陷殃及全部 plugin-owned 方法的插件身份调用,非 unload 特有。
+- 修复:①shim `unloadPlugin` 先捕 `objectToken(instance)`→`withToken(pluginToken, instance.unload())`+unload.done 带令牌;五个清理闭包（views.remove/commands.remove×2 形态/ui.removeRibbon/settings.unregister/codeblocks.unregister）显式 `objectToken(self)||currentToken()`。②broker 增 `entryAuthorize(ctx, method)`:仅 plugin-owned+插件角色后置到处理器 authzFor（匿名照旧入口 fail-closed、会话照旧代管、其余 kind 与 authorize(...,null) 全矩阵逐格一致）——归属校验本身零放宽,M3.3 门禁钉死五方法带 resource 复查。
+
+**门禁**:shim-regression 12→**14**（卸载清理链逐 RPC 断言携带装载令牌/失败命令产生可见+带身份通知,host mock 记录第 4 参凭据）;authz-matrix 93→**101**（M2d entryAuthorize 8 项,含全矩阵逐格一致性）;dist-regression 43→**44**（R39 接线:宿主三出口+无空 catch+entryAuthorize 后置+卸载身份链,含"五 owned 方法必须带 authzFor"前提断言）;symbols.json 3 处行锚手修（shim 2185→2191/runtime 1973→1974/1767→1776,R39 代码位移）。**附带**:dist-audit 扫描卫生——注释体等长留白后再扫（bridge-security R7a 同口径）:非压缩重打的 CM6 文档注释"starting from \`from\`."被 from-反引号正则误读成 import（R39-B 夹具重打暴露的审核器误报）,真实违规零漏（malicious 两 findings 原样）。
+
+**实际执行的测试**:release-gate --ci **32/32**、shim-regression **14**、authz-matrix **101**、dist-regression **44/44**、dist-audit --all ok、hvigorw assembleHap **BUILD SUCCESSFUL**。
+
+**诚实边界（IMPLEMENTED ≠ VERIFIED）**:全部离线证据。设备复测归主线程批次:calendar 卸载清理零 authz.denied+命令失败可见通知（P2-014 的设备面还依赖 shim 通知通道——失败命令应出现 toast）。

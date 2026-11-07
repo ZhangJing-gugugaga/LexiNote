@@ -19,6 +19,7 @@ async function until(condition,label){
 }
 
 // Mock of the ArkWeb javaScriptProxy host: records every call, scripts every response.
+// P2-015:第 4 参(credential)一并记录——卸载清理链的身份断言靠它对账。
 const calls=[];
 const savedData=[];
 let hostEventRef=0;
@@ -33,9 +34,9 @@ const hostFiles=[
 ];
 function makeHost(){
  return {
-  call(callId,method,payloadJson){
+  call(callId,method,payloadJson,credential){
    const payload=safeParse(payloadJson,{});
-   calls.push({method,payload});
+   calls.push({method,payload,credential:typeof credential==='string'?credential:''});
    let result=null;
    if(method==='vault.files'){result=hostFiles;}
    else if(method==='data.save'){savedData.push(payload.dataJson);}
@@ -369,6 +370,58 @@ const tests=[
   await dispatch('invoke.command',{fullId:'lexi-sample-plugin:sample-notice'});
   await tick();await tick();
   assert.equal(calls.filter(c=>c.method==='ui.notice').length,noticeBefore);
+ }],
+ // P2-015:卸载清理链必须携带原插件身份。生产序里宿主随 load.plugin 载荷下发铸造令牌,
+ // onunload 的 views.remove/commands.remove/settings.unregister/events.off 若不带身份,
+ // 会以匿名被宿主 fail-closed(设备证据 P4-005 cal_off:calendar 停用 7 条 authz.denied,
+ // 清理整体失效)。unload 路径必须与 loadPlugin 的 withToken(pluginToken,…load) 对称。
+ ['unload teardown RPCs carry the plugin credential (P2-015: cleanup is not anonymous)',async()=>{
+  const token='tk-p2015unit000042';
+  const teardown=[
+    "module.exports = class extends require('obsidian').Plugin {",
+    "  async onload(){",
+    "    this.registerView('p2015-view', () => ({}));",
+    "    this.addCommand({ id:'p2015-cmd', name:'p2015', callback: () => {} });",
+    "    this.addSettingTab({ getSettingDefinitions: () => [] });",
+    "    this.registerEvent(this.app.vault.on('rename', () => {}));",
+    "  }",
+    "};"
+  ].join('\n');
+  await dispatch('load.plugin',{manifest:{id:'p2015-probe'},code:teardown,token:token});
+  await until(()=>calls.some(c=>c.method==='views.add'&&c.payload.pluginId==='p2015-probe'),'views.add');
+  const mark=calls.length;
+  await dispatch('unload.plugin',{id:'p2015-probe'});
+  await until(()=>calls.slice(mark).some(c=>c.method==='plugin.unload.done'),'plugin.unload.done');
+  const teardownCalls=calls.slice(mark);
+  for(const expected of ['views.remove','commands.remove','settings.unregister','events.off','plugin.unload.done']){
+    const hit=teardownCalls.find(c=>c.method===expected);
+    assert.ok(hit,expected+' 必须在卸载清理链上发出');
+    assert.equal(hit.credential,token,
+      expected+' 必须携带装载时下发的插件令牌(匿名=宿主 fail-closed,清理失效)');
+  }
+ }],
+ // P2-014:命令回调失败必须可见(fail-visible)。页面侧 catch 以命令归属插件的身份发
+ // ui.notice——不带令牌的匿名 ui.notice 会被宿主 fail-closed 拒绝,失败退化成静默无操作
+ // (设备证据:open-weekly-note 零通知零日志)。
+ ['failing command produces a visible, identity-carrying notice (P2-014)',async()=>{
+  const token='tk-p2014unit000042';
+  const probe=[
+    "module.exports = class extends require('obsidian').Plugin {",
+    "  async onload(){",
+    "    this.addCommand({ id:'p2014-boom', name:'boom', callback: () => { throw new Error('weekly-note 依赖缺失'); } });",
+    "  }",
+    "};"
+  ].join('\n');
+  await dispatch('load.plugin',{manifest:{id:'p2014-probe'},code:probe,token:token});
+  await until(()=>calls.some(c=>c.method==='commands.add'&&c.payload.pluginId==='p2014-probe'),'commands.add');
+  const noticeBefore=calls.filter(c=>c.method==='ui.notice').length;
+  await dispatch('invoke.command',{fullId:'p2014-probe:p2014-boom'});
+  await until(()=>calls.filter(c=>c.method==='ui.notice').length>noticeBefore,'ui.notice');
+  const notice=calls.filter(c=>c.method==='ui.notice').pop();
+  assert.ok(notice.payload.message.indexOf('p2014-probe:p2014-boom')>=0,'失败通知必须点明是哪条命令');
+  assert.ok(notice.payload.message.indexOf('weekly-note 依赖缺失')>=0,'失败通知必须带出错误原因');
+  assert.equal(notice.credential,token,'失败通知必须携带命令归属插件的令牌(匿名会被宿主拒收)');
+  await dispatch('unload.plugin',{id:'p2014-probe'});
  }],
  // P1-003c:注入通道(真机 runtime 页通道)行为级验证。上面的用例都在"无 document"环境,
  // 走的是过渡通道(new Function,工作区页同款);本用例在独立 vm 沙箱里安装"会执行脚本文本"

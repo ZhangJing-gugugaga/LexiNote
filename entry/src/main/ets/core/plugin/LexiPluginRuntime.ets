@@ -412,7 +412,11 @@ export class LexiWebRuntime {
         ' tokenTail=' + LexiWebRuntime.tokenTail(credential));
     }
     // 授权矩阵预检(T0.3):身份解析之后、进处理器之前。矩阵未登记的方法在此默认拒绝。
-    const authz = this.broker.authorize(LexiWebRuntime.contextOf(role, trusted), method, null);
+    // P2-015:预检用 entryAuthorize——plugin-owned 的归属判定必须由处理器带 resource
+    // 复查(资源键在载荷里,入口看不到);预检 resource=null 直判会把插件身份的全部
+    // 清理类调用误杀成"资源归属不明"(P4-005 设备证据:calendar 卸载 events.off/
+    // workspace.closeView 以合法身份被拒)。
+    const authz = this.broker.entryAuthorize(LexiWebRuntime.contextOf(role, trusted), method);
     if (!authz.allowed) {
       pluginError('authz.denied method=' + method + ' role=' + role + ' identity=' +
         (trusted.length > 0 ? trusted : '(none)') + ' kind=' + authz.kind +
@@ -883,9 +887,12 @@ export class LexiPluginManager {
   /** 点击 Ribbon:派发到插件侧回调。 */
   async invokeRibbon(pluginId: string, title: string): Promise<void> {
     const body: Record<string, Object> = { 'pluginId': pluginId as Object, 'title': title as Object };
-    await this.runtime.dispatchWithTimeout('invoke.ribbon', JSON.stringify(body), LOAD_TIMEOUT_MS).catch((error: Error): void => {
-      pluginError('Ribbon 回调派发失败: ' + String(error));
-    });
+    try {
+      await this.runtime.dispatchWithTimeout('invoke.ribbon', JSON.stringify(body), LOAD_TIMEOUT_MS);
+    } catch (error) {
+      // P2-014:同类吞噬点收口——Ribbon 派发失败同样走统一可见出口。
+      this.reportCommandDispatchFailure(pluginId, 'Ribbon 回调 ' + title, error as Error);
+    }
   }
 
   private static positionOf(raw: Object | undefined): LexiEditorPosition {
@@ -2521,11 +2528,31 @@ export class LexiPluginManager {
     const body: Record<string, Object> = { 'fullId': fullId as Object, 'pluginId': pluginId as Object };
     // P1-003b:沙箱轨插件的命令回调在沙箱 iframe 内——经容器页回推;旧轨保持原通道。
     const record = this.plugins.get(pluginId);
-    if (record && record.manifest.sandboxService && this.sandboxController !== null) {
-      await this.dispatchSandboxCommand(body);
-      return;
+    try {
+      if (record && record.manifest.sandboxService && this.sandboxController !== null) {
+        await this.dispatchSandboxCommand(body);
+        return;
+      }
+      await this.runtime.dispatchWithTimeout('invoke.command', JSON.stringify(body), LOAD_TIMEOUT_MS);
+    } catch (error) {
+      // P2-014:派发失败不再吞(fail-visible)——页面丢失/超时曾经是零日志零通知的静默
+      // 无操作(设备证据:open-weekly-note 经命令面板执行后无任何反馈)。
+      this.reportCommandDispatchFailure(pluginId, '插件命令 ' + fullId, error as Error);
     }
-    await this.runtime.dispatchWithTimeout('invoke.command', JSON.stringify(body), LOAD_TIMEOUT_MS).catch((): void => {});
+  }
+
+  /**
+   * P2-014:命令族(invoke.command/invoke.editorCommand/invoke.ribbon)派发失败的统一
+   * 可见出口。三面记录:①pluginError 日志(设备可对账);②record.errorState(设置页/
+   * Inspector 可见的插件错误态);③uiHost toast(用户可见通知,既有 Notice 通道)。
+   * 成功路径零改动;不向上抛——调用方(命令表回调/调色板/ribbon)保持既有语义。
+   */
+  private reportCommandDispatchFailure(pluginId: string, label: string, error: Error): void {
+    const message: string = label + ' 派发失败: ' + String(error);
+    pluginError(message);
+    const record = this.plugins.get(pluginId);
+    if (record) { record.errorState = message; }
+    if (this.uiHost) { this.uiHost.toast(label + ' 执行失败'); }
   }
 
   /** P1-003b:命令执行回推沙箱容器(容器按 pluginId 路由进对应 iframe)。 */
@@ -2628,9 +2655,12 @@ export class LexiPluginManager {
       await this.dispatchSandboxCommand(body);
       return;
     }
-    await this.runtime.dispatchWithTimeout('invoke.editorCommand', JSON.stringify(body), LOAD_TIMEOUT_MS).catch((error: Error): void => {
-      pluginError('编辑器命令派发失败: ' + String(error));
-    });
+    try {
+      await this.runtime.dispatchWithTimeout('invoke.editorCommand', JSON.stringify(body), LOAD_TIMEOUT_MS);
+    } catch (error) {
+      // P2-014:同类吞噬点收口——编辑器命令派发失败同样走统一可见出口。
+      this.reportCommandDispatchFailure(pluginId, '编辑器命令 ' + fullId, error as Error);
+    }
   }
 
   /** Palette/workspace fallback entry: executes a plugin command and reports whether it existed. */

@@ -1360,6 +1360,78 @@ test('R32 销毁闭环与状态机接线：五步尾序/quarantine 触发链/per
   assert.match(text, /const claimed = parsed\['targetPluginId'\];/, 'installZip 解析 targetPluginId');
 });
 
+// --- R39(P2-014 + P2-015) 命令失败可见 + 卸载清理身份链 ------------------------------------
+test('R39 P2-014/P2-015: 命令派发失败 fail-visible + plugin-owned 入口预检后置 + 卸载清理带身份', () => {
+  const text = runtimeEts();
+  const shimSrc = fs.readFileSync(path.join(REPO_ROOT, 'entry', 'src', 'main', 'resources', 'rawfile',
+    'lexinote_plugin_shim.js'), 'utf8');
+  const brokerEts = fs.readFileSync(path.join(CORE, 'plugin', 'LexiPermissionBroker.ets'), 'utf8');
+  // --- P2-014:命令族派发失败统一可见出口(不再 .catch(()=>{}) 吞) ---
+  assert.match(text, /private reportCommandDispatchFailure\(pluginId: string, label: string, error: Error\): void/,
+    'P2-014: 统一失败出口必须存在(日志+错误态+用户通知三面记录)');
+  const helperPos = text.indexOf('private reportCommandDispatchFailure(');
+  const helper = text.slice(helperPos, text.indexOf('private async invokePluginCommand(') > helperPos
+    ? text.indexOf('private async invokePluginCommand(') : helperPos + 1200);
+  assert.match(helper, /pluginError\(/, '失败出口必须落 pluginError 日志(设备可对账)');
+  assert.match(helper, /record\.errorState = message/, '失败出口必须记 record.errorState(设置页/Inspector 可见)');
+  assert.match(helper, /this\.uiHost\.toast\(/, '失败出口必须发用户可见通知(既有 Notice 通道)');
+  const invokeCmd = text.slice(text.indexOf('private async invokePluginCommand('),
+    text.indexOf('private async dispatchSandboxCommand('));
+  assert.ok(invokeCmd.length > 0, 'invokePluginCommand 必须存在');
+  assert.match(invokeCmd, /reportCommandDispatchFailure\(pluginId, '插件命令 ' \+ fullId, error as Error\)/,
+    'invokePluginCommand 派发失败必须走可见出口');
+  assert.doesNotMatch(invokeCmd, /\.catch\(\(\): void => \{\}\)/,
+    'P2-014 主缺陷: invoke.command 派发失败不得再被 .catch(()=>{}) 吞掉');
+  for (const [fn, label] of [['private async invokeEditorCommand(', '编辑器命令 '],
+    ['async invokeRibbon(', 'Ribbon 回调 ']]) {
+    const slice = text.slice(text.indexOf(fn));
+    assert.match(slice, new RegExp('reportCommandDispatchFailure\\(pluginId, \'' + label.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&') + "'"),
+      fn + ' 同类吞噬点必须一并修(P2-014)');
+  }
+  // 页面侧:命令回调失败的 ui.notice 必须带命令归属插件的令牌(匿名通知会被宿主
+  // fail-closed 拒收,失败退化成静默——设备证据 open-weekly-note 零通知零日志)。
+  const cmdCatch = shimSrc.slice(shimSrc.indexOf("if (method === 'invoke.command')"),
+    shimSrc.indexOf("if (method === 'invoke.editorCommand')"));
+  assert.match(cmdCatch, /hostCall\('ui.notice', \{[\s\S]*\}, commandToken\)/,
+    'P2-014: 命令失败通知必须携带归属插件令牌');
+  assert.match(cmdCatch, /命令执行失败 ' \+ String\(message\.fullId/,
+    '失败通知必须点明是哪条命令(可对账)');
+  const editorCatch = shimSrc.slice(shimSrc.indexOf("if (method === 'invoke.editorCommand')"),
+    shimSrc.indexOf("if (method === 'load.plugin')"));
+  assert.match(editorCatch, /editorCommandToken/, '编辑器命令回调必须有自己的身份令牌(原实现误用命令分支的悬挂变量)');
+  assert.match(editorCatch, /hostCall\('ui.notice',[\s\S]*\}, editorCommandToken\)/,
+    '编辑器命令失败通知必须带身份(P2-014 同类吞噬点)');
+  // --- P2-015:入口预检后置(plugin-owned 归属判定在处理器层)+ 卸载清理身份链 ---
+  assert.match(text, /this\.broker\.entryAuthorize\(LexiWebRuntime\.contextOf\(role, trusted\), method\)/,
+    'P2-015: call() 预检必须用 entryAuthorize(resource-less 预检不得直判 plugin-owned)');
+  assert.match(brokerEts, /entryAuthorize\(ctx: LexiCallerContext, method: string\): LexiAuthzDecision \{/,
+    'entryAuthorize 必须在 broker(矩阵知识单一真源)');
+  const entryBody = brokerEts.slice(brokerEts.indexOf('entryAuthorize(ctx: LexiCallerContext, method: string): LexiAuthzDecision {'),
+    brokerEts.indexOf('authorize(ctx: LexiCallerContext, method: string, resource: LexiAuthzResource | null = null)'));
+  assert.match(entryBody, /ctx\.role === 'plugin' && this\.kindOf\(method\) === 'plugin-owned'/,
+    '仅 plugin-owned+插件角色后置(其余逐格与 authorize 一致)');
+  assert.match(entryBody, /return this\.authorize\(ctx, method, null\);/, '其余 kind 委托 authorize(resource=null 语义不变)');
+  // 处理器层归属复查不得缺席(entryAuthorize 后置的前提:五个 owned 方法都带 resource 复查)。
+  for (const method of ['commands.remove', 'views.remove', 'events.off', 'workspace.closeView', 'codeblocks.unregister']) {
+    assert.match(text, new RegExp("registerHandler\\('" + method.replace(/\./g, '\\.') + "'[\\s\\S]{0,600}authzFor\\("),
+      method + ' 处理器必须带 resource 复查(authzFor)——入口后置的语义前提');
+  }
+  // 卸载清理身份链:unloadPlugin 与 loadPlugin 的 withToken 对称 + 清理闭包显式带身份。
+  const unloadBody = shimSrc.slice(shimSrc.indexOf('async function unloadPlugin(pluginId)'),
+    shimSrc.indexOf('window.lexiRuntime = {'));
+  assert.match(unloadBody, /var pluginToken = instance \? objectToken\(instance\) : '';/,
+    'P2-015: 卸载路径必须先捕获插件身份');
+  assert.match(unloadBody, /withToken\(pluginToken, function \(\) \{ instance\.unload\(\); \}\)/,
+    'onunload 必须在插件身份里执行(与 loadPlugin 的 withToken 装载对称)');
+  assert.match(unloadBody, /hostCall\('plugin\.unload\.done', \{ id: pluginId \}, pluginToken \|\| undefined\)/,
+    'unload.done 带原身份(审计面不再落 identity.anonymous 噪音)');
+  const boundCleanups = shimSrc.match(/objectToken\(self\) \|\| currentToken\(\)\)/g) || [];
+  assert.ok(boundCleanups.length >= 5,
+    '清理闭包显式携带登记者身份(views.remove/commands.remove/ui.removeRibbon/settings.unregister/codeblocks.unregister),实际 ' + boundCleanups.length);
+  assert.doesNotMatch(shimSrc, /hostCall\('commands\.remove', \{ fullId: fullId \}\)\.catch/,
+    'commands.remove 清理不得再有无身份形态(匿名=宿主 fail-closed,清理失效)');
+});
+
 // --- 9c. P1-009(R33) SEC runtime gates 行为级真跑(SEC-005/006/008/009/011/012) ------------
 // 此前 P2-003/004/005 的执行面在本门禁只有静态锚(§6),路径白名单另有 manifest 级真跑
 // (manifest-v2 V5.6-9);本节把 LexiPluginRuntime.ets 转译装载,从类原型上真调

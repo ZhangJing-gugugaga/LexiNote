@@ -167,6 +167,28 @@ export class LexiPermissionBroker {
   }
 
   /**
+   * P2-015:入口预检专用(LexiWebRuntime.call 的 resource-less 预检)。与 authorize 的
+   * 唯一差异:plugin-owned + 插件角色 → 放行进处理器,由处理器带 resource(authzFor)
+   * 做真正的归属复查。为什么必须有这一步:入口看不到载荷里的资源键(owner 由 handler
+   * 查表),resource=null 的 authorize 会把一切插件身份的 plugin-owned 调用误判成
+   * "资源归属不明"——清理类调用(commands.remove/views.remove/events.off/
+   * codeblocks.unregister/workspace.closeView)经页面通道全灭,插件卸载清理整体失效
+   * (P4-005 设备证据:calendar 停用 7 条 authz.denied)。语义不放宽:归属校验本身
+   * 原样保留在处理器层(M3.3 门禁钉死五个 owned 方法都带 resource 复查);匿名在入口
+   * 照旧 fail-closed;会话照旧可代管。
+   */
+  entryAuthorize(ctx: LexiCallerContext, method: string): LexiAuthzDecision {
+    if (ctx.role === 'plugin' && this.kindOf(method) === 'plugin-owned') {
+      const deferred = new LexiAuthzDecision();
+      deferred.method = method;
+      deferred.role = ctx.role as string;
+      deferred.kind = 'plugin-owned';
+      return this.allow(deferred, '归属复查在处理器层(资源键入口不可见),插件身份放行进处理器');
+    }
+    return this.authorize(ctx, method, null);
+  }
+
+  /**
    * 唯一授权入口。resource 在所有权敏感的方法上必须携带当前归属；
    * 归属为空时插件一律拒绝（会话可代管），即"不能删除看不清主人的东西"。
    */

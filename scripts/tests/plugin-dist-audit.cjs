@@ -100,13 +100,51 @@ function lineOf(text, index) {
   return line;
 }
 
+// R39 扫描卫生:注释不是代码。模式扫描(require/import/fetch/eval)一律跑在
+// "注释体等长留白"后的文本上 —— 与 bridge-security R7a 的"去注释后代码体"同一口径。
+// 背景:夹具以非压缩形态重打(P4-006b)后,CM6 文档注释("starting from `from`.")
+// 被 esImport 的 from-反引号正则误读成 import 语句(模块名="from"),静态审核误报红。
+// 实现:字符串/模板/转义感知的状态机,注释与字符串内容区分处理;留白而非删除,
+// 偏移与行号完全不变(误报消失,真实违规一个不少)。
+function blankJsComments(input) {
+  let out = '';
+  let i = 0;
+  let state = 'code';
+  while (i < input.length) {
+    const ch = input[i];
+    const next = i + 1 < input.length ? input[i + 1] : '';
+    if (state === 'code') {
+      if (ch === '/' && next === '*') { state = 'block'; out += '  '; i += 2; continue; }
+      if (ch === '/' && next === '/') { state = 'line'; out += '  '; i += 2; continue; }
+      if (ch === '\'' || ch === '"' || ch === '`') { state = ch; out += ch; i += 1; continue; }
+      out += ch; i += 1; continue;
+    }
+    if (state === 'block') {
+      if (ch === '*' && next === '/') { state = 'code'; out += '  '; i += 2; continue; }
+      out += ch === '\n' ? '\n' : ' '; i += 1; continue;
+    }
+    if (state === 'line') {
+      if (ch === '\n') { state = 'code'; out += '\n'; } else { out += ' '; }
+      i += 1; continue;
+    }
+    // 引号/模板字面量状态:内容原样保留(字符串里的 URL/require 字面量本来就是
+    // 扫描对象),只消费转义对,遇同类引号回到 code。
+    if (ch === '\\' && i + 1 < input.length) { out += ch + input[i + 1]; i += 2; continue; }
+    if (ch === state) { state = 'code'; }
+    out += ch; i += 1;
+  }
+  return out;
+}
+
 function snippet(text, index, length) {
   const start = Math.max(0, index - 20);
   const raw = text.slice(start, Math.min(text.length, index + length + 40)).replace(/\s+/g, ' ');
   return (start > 0 ? '…' : '') + raw.trim() + (index + length + 40 < text.length ? '…' : '');
 }
 
-function scanJs(file, text, declared) {
+function scanJs(file, rawText, declared) {
+  // R39:注释体先等长留白再扫描(注释不是代码,见 blankJsComments)。
+  const text = blankJsComments(rawText);
   const findings = [];
   const push = (rule, index, length, detail) => {
     findings.push({ rule, severity: 'critical', file, line: lineOf(text, index), evidence: snippet(text, index, length), detail });

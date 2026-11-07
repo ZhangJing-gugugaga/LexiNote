@@ -301,6 +301,50 @@ if (broker) {
   // 错误码区分
   ok('M2.38 角色错误=ERR_UNAUTHORIZED', verdict('plugin', 'plug-a', 'plugin.load').code === 'ERR_UNAUTHORIZED');
   ok('M2.39 归属错误=ERR_PERMISSION_DENIED', verdict('plugin', 'plug-a', 'commands.remove', res('plug-b')).code === 'ERR_PERMISSION_DENIED');
+
+  // --- M2d P2-015 入口预检(entryAuthorize):plugin-owned 的归属判定必须在处理器层 ----
+  // LexiWebRuntime.call 的预检拿不到 resource(资源键在载荷里,handler 查表后才有):
+  // 预检 resource=null 直判会把插件身份的全部清理类调用误杀成"资源归属不明"
+  // (设备证据 P4-005 cal_off:calendar 卸载 events.off/workspace.closeView 以合法身份
+  // 被拒)。entryAuthorize 语义:plugin+plugin-owned → 放行进处理器(处理器 authzFor
+  // 带 resource 复查,归属校验本身不放宽);anonymous → 照旧入口 fail-closed;
+  // session → 照旧可代管;其余 kind 与 authorize(...,null) 逐格一致。
+  section('M2d 入口预检 entryAuthorize(P2-015:清理类调用的身份链修复)');
+  const entryVerdict = (role, pluginId, method) => broker.entryAuthorize(ctxOf(role, pluginId), method);
+  ok('M2d.1 插件+commands.remove 入口放行(归属复查后置到处理器 authzFor)',
+    entryVerdict('plugin', 'plug-a', 'commands.remove').allowed &&
+    entryVerdict('plugin', 'plug-a', 'commands.remove').kind === 'plugin-owned');
+  ok('M2d.2 插件+workspace.closeView 入口放行(同上)',
+    entryVerdict('plugin', 'plug-a', 'workspace.closeView').allowed);
+  ok('M2d.3 匿名+plugin-owned 入口照旧拒绝(fail-closed 不放宽)',
+    !entryVerdict('anonymous', '', 'views.remove').allowed &&
+    entryVerdict('anonymous', '', 'views.remove').code === 'ERR_UNAUTHORIZED');
+  ok('M2d.4 会话+plugin-owned 入口照旧放行(代管语义不变)',
+    entryVerdict('session', '', 'commands.remove').allowed);
+  ok('M2d.5 插件+控制面入口照旧拒绝(预检不因 entryAuthorize 松动)',
+    !entryVerdict('plugin', 'plug-a', 'plugin.load').allowed &&
+    !entryVerdict('plugin', 'plug-a', 'plugin.unload').allowed);
+  ok('M2d.6 未知方法入口照旧默认拒绝', !entryVerdict('plugin', 'plug-a', 'not.a.method').allowed);
+  ok('M2d.7 匿名+敏感域入口照旧拒绝(ui.notice/vault.read)',
+    !entryVerdict('anonymous', '', 'ui.notice').allowed &&
+    !entryVerdict('anonymous', '', 'vault.read').allowed);
+  ok('M2d.8 非 plugin-owned 方法:entryAuthorize 与 authorize(...,null) 全矩阵逐格一致', (() => {
+    let cells = 0;
+    const bad = [];
+    for (const method of broker.matrixKeys()) {
+      if (broker.kindOf(method) === 'plugin-owned') { continue; }
+      for (const role of ['anonymous', 'session', 'plugin']) {
+        const pluginId = role === 'plugin' ? 'plug-a' : '';
+        const entry = broker.entryAuthorize(ctxOf(role, pluginId), method);
+        const direct = broker.authorize(ctxOf(role, pluginId), method, null);
+        cells += 1;
+        if (entry.allowed !== direct.allowed || entry.code !== direct.code) {
+          bad.push(method + '[' + role + ']');
+        }
+      }
+    }
+    return cells >= 100 && bad.length === 0;
+  })());
 }
 
 // ---------------------------------------------------------------- M3 接线
