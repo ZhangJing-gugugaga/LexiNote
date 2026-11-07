@@ -113,6 +113,8 @@ kind 为授权矩阵类别（见 `capability-map.json` 与 `LexiPermissionBroker
 | `ui.notice` | ui-domain | session/plugin | stable | ✓ |  |
 | `ui.placeholder` | ui-domain | session/plugin | stable | ✓ |  |
 | `ui.removeRibbon` | ui-domain | session/plugin | stable | ✓ |  |
+| `ui.suggest.hide` | ui-domain | session/plugin | stable | ✓ |  |
+| `ui.suggest.show` | ui-domain | session/plugin | stable | ✓ |  |
 
 ## vault
 

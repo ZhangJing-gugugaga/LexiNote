@@ -630,13 +630,14 @@ export class LexiPluginManager {
   /** ui.placeholder 登记表:key=kind#seq, value=标题(真实 DOM 由页面兼容层挂载)。 */
   private placeholders: Map<string, string> = new Map<string, string>();
   /**
-   * P4-001:插件 Modal/Menu 宿主面在途表。key = pluginId + '#' + surfaceId——身份段
-   * 是表键的一部分,插件永远只能寻址自己的在途面(跨插件 close/hide 按未登记失败)。
+   * P4-001/P4-002:插件 Modal/Menu/Suggest 宿主面在途表。key = pluginId + '#' + surfaceId
+   * ——身份段是表键的一部分,插件永远只能寻址自己的在途面(跨插件 close/hide 按未登记失败)。
    * LexiPluginSurfaceHost 按修订号读取渲染;用户关闭/点选经 dismiss/choose 落账并
    * 回推沙箱(sandbox.ui)。
    */
   private modalSurfaces: Map<string, LexiPluginModalSurface> = new Map();
   private menuSurfaces: Map<string, LexiPluginMenuSurface> = new Map();
+  private suggestSurfaces: Map<string, LexiPluginSuggestSurface> = new Map();
 
   static get shared(): LexiPluginManager | null {
     return LexiPluginManager.instanceRef;
@@ -805,6 +806,13 @@ export class LexiPluginManager {
     return rows;
   }
 
+  /** 在途 Suggest 面(P4-002,LexiPluginSurfaceHost 按修订号读取渲染)。 */
+  pluginSuggestSurfaces(): LexiPluginSuggestSurface[] {
+    const rows: LexiPluginSuggestSurface[] = [];
+    this.suggestSurfaces.forEach((row: LexiPluginSuggestSurface): void => { rows.push(row); });
+    return rows;
+  }
+
   /**
    * 用户(或插件自身)关闭弹层:落账移除 + sandbox.ui 回推(iframe 侧 onClose 回调与
    * open() Promise 兑现)。reason 仅用于日志:user=用户点击/plugin=插件主动 hide。
@@ -838,7 +846,33 @@ export class LexiPluginManager {
     }
   }
 
-  /** P1-008/P4-001:插件销毁时回收其全部在途交互面(iframe 已拆,无回推目标,no-op 安全)。 */
+  /**
+   * 用户(或插件自身)关闭建议浮层(P4-002):落账移除 + closed 回推(open() 的 Promise
+   * 兑现)。reason 仅用于日志:user=用户点外/plugin=插件主动 close。
+   */
+  dismissPluginSuggest(pluginId: string, suggestId: string, reason: string): void {
+    const key = pluginId + '#' + suggestId;
+    if (this.suggestSurfaces.delete(key)) {
+      this.bumpPluginRevision();
+      pluginLog('插件 Suggest 关闭(' + reason + '): ' + key);
+      this.notifySandboxUiEvent(pluginId, 'suggest', suggestId, 'closed', -1, null);
+    }
+  }
+
+  /**
+   * 用户点选建议项(P4-002):落账移除(点选即关单)+ item 回推(itemId=建议索引;
+   * iframe 侧按 index 回取原值喂 selectSuggestion——值本身从不越过端口链)。
+   */
+  choosePluginSuggestion(pluginId: string, suggestId: string, itemId: number): void {
+    const key = pluginId + '#' + suggestId;
+    if (this.suggestSurfaces.delete(key)) {
+      this.bumpPluginRevision();
+      pluginLog('插件 Suggest 点选: ' + key + ' item=' + itemId);
+      this.notifySandboxUiEvent(pluginId, 'suggest', suggestId, 'item', itemId, null);
+    }
+  }
+
+  /** P1-008/P4-001/P4-002:插件销毁时回收其全部在途交互面(iframe 已拆,无回推目标,no-op 安全)。 */
   dropPluginSurfaces(pluginId: string): void {
     const doomed: string[] = [];
     this.modalSurfaces.forEach((row: LexiPluginModalSurface, key: string): void => {
@@ -847,9 +881,13 @@ export class LexiPluginManager {
     this.menuSurfaces.forEach((row: LexiPluginMenuSurface, key: string): void => {
       if (row.pluginId === pluginId) { doomed.push(key); }
     });
+    this.suggestSurfaces.forEach((row: LexiPluginSuggestSurface, key: string): void => {
+      if (row.pluginId === pluginId) { doomed.push(key); }
+    });
     for (const key of doomed) {
       this.modalSurfaces.delete(key);
       this.menuSurfaces.delete(key);
+      this.suggestSurfaces.delete(key);
     }
     if (doomed.length > 0) { this.bumpPluginRevision(); }
   }
@@ -1493,6 +1531,30 @@ export class LexiPluginManager {
     runtime.registerHandler('ui.menu.hide', async (payload: string, identity: string): Promise<string> => {
       const request = JSON.parse(payload) as RpcRequest;
       manager.dismissPluginMenu(identity, rpcString(request, 'menuId'), 'plugin');
+      return okResponse(null);
+    });
+    runtime.registerHandler('ui.suggest.show', async (payload: string, identity: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      const suggestId = rpcString(request, 'suggestId');
+      const items = request['items'];
+      if (!identity || !suggestId) { return failResponse('Suggest 参数不完整'); }
+      if (!Array.isArray(items)) { return failResponse('Suggest 条目必须是数组'); }
+      // P4-002:建议值不进宿主——items 只是显示描述符({index,title,detail,icon}),
+      // 点选回推只带 index,原值由 iframe 侧值表回取(端口链纪律,ADR-R18-01)。
+      const surface = new LexiPluginSuggestSurface();
+      surface.pluginId = identity;
+      surface.suggestId = suggestId;
+      surface.query = rpcString(request, 'query');
+      surface.itemsJson = JSON.stringify(items);
+      manager.suggestSurfaces.set(identity + '#' + suggestId, surface);
+      manager.bumpPluginRevision();
+      pluginLog('插件 Suggest 打开: ' + identity + '#' + suggestId + ' query=' + surface.query +
+        ' items=' + items.length);
+      return okResponse(null);
+    });
+    runtime.registerHandler('ui.suggest.hide', async (payload: string, identity: string): Promise<string> => {
+      const request = JSON.parse(payload) as RpcRequest;
+      manager.dismissPluginSuggest(identity, rpcString(request, 'suggestId'), 'plugin');
       return okResponse(null);
     });
     runtime.registerHandler('ui.addRibbon', async (payload: string, identity: string): Promise<string> => {
@@ -2414,12 +2476,14 @@ export class LexiPluginManager {
     if (method === 'views.add') { return caps.workspace.views; }
     if (method === 'codeblocks.register') { return caps.editor.extensions !== 'none'; }
     if (method === 'ui.notice') { return caps.notifications; }
-    // P4-001:Modal/Menu 交互面与 Notice 同域(插件→用户的 UI 表面)。复用既有
-    // notifications 域 = 最小清单改动:声明了通知能力的插件即可发起弹层/菜单,未声明的
-    // 被拒(指纹标签 'notifications' 已在案,权限扩张语义不变)。独立 ui.popups 域
-    // (带清单键/指纹/SDK schema)是后续 manifest 键轮的决策点,届时换映射即重授权 diff。
+    // P4-001/P4-002:Modal/Menu/Suggest 交互面与 Notice 同域(插件→用户的 UI 表面)。
+    // 复用既有 notifications 域 = 最小清单改动:声明了通知能力的插件即可发起弹层/菜单/
+    // 建议浮层,未声明的被拒(指纹标签 'notifications' 已在案,权限扩张语义不变)。
+    // 独立 ui.popups 域(带清单键/指纹/SDK schema)是后续 manifest 键轮的决策点,
+    // 届时换映射即重授权 diff。
     if (method === 'ui.modal.open' || method === 'ui.modal.close' ||
-      method === 'ui.menu.show' || method === 'ui.menu.hide') { return caps.notifications; }
+      method === 'ui.menu.show' || method === 'ui.menu.hide' ||
+      method === 'ui.suggest.show' || method === 'ui.suggest.hide') { return caps.notifications; }
     return true;
   }
 
@@ -3043,5 +3107,17 @@ export class LexiPluginMenuSurface {
   menuId: string = '';
   x: number = 0;
   y: number = 0;
+  itemsJson: string = '[]';
+}
+
+/**
+ * P4-002:插件 Suggest 宿主面会话(itemsJson 是显示描述符数组
+ * [{index,title,detail,icon}]——建议值本身永不越过端口链,点选回推只带 index,
+ * 原值由 iframe 侧值表回取;query 是触发查询串,仅用于浮层呈现)。
+ */
+export class LexiPluginSuggestSurface {
+  pluginId: string = '';
+  suggestId: string = '';
+  query: string = '';
   itemsJson: string = '[]';
 }

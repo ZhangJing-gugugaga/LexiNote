@@ -148,6 +148,7 @@
   var settingCollecting = null;
   var sandboxModalSeq = 0;
   var sandboxMenuSeq = 0;
+  var sandboxSuggestSeq = 0;
   // P1-003b 编辑器切片:bootPlugin 装载完成后登记本上下文的 app 面(RFC §3.1 一 iframe 一
   // 上下文,同帧内只会有一个插件实例——编辑器命令的 ctx.app 复用它,与旧轨 ctx={app} 同形)。
   var sandboxAppRef = null;
@@ -452,6 +453,119 @@
   };
   SandboxMenu.prototype.close = function () { return this.hide(); };
   /**
+   * P4-002 沙箱 EditorSuggest:编辑器锚定的建议浮层基类(形状对齐 Obsidian EditorSuggest:
+   * onTrigger/getSuggestions/selectSuggestion/renderSuggestion/setInstructions/open/close/
+   * setSuggestions,constructor(app),插件 extends 后覆写回调)。端口链纪律:
+   *   - 建议值(value)永不离开 iframe:ui.suggest.show 只带显示描述符
+   *     [{index,title,detail,icon}](_displayOf 投影),宿主点选只回 itemId=index,
+   *     selectSuggestion(value) 在 iframe 内按 index 回取原值(值表 self._values);
+   *   - 触发 = 显式调用 open(editor):宿主没有编辑器事件流(editor.events 归后续切片),
+   *     onTrigger(cursor, editor) 由 open() 驱动,插件返回 {start,end,query} 或 null
+   *     (cursor 来自命令帧携带的编辑器快照,P2-005 档位脱敏在宿主);
+   *   - 渲染 = LexiPluginSurfaceHost 原生浮层(沙箱坐标与宿主视口无换算基准,按 Menu 同款
+   *     钳制默认锚点呈现,光标级精确锚定归设备批次校准);renderSuggestion 只是声明式钩子
+   *     (iframe 无 DOM,宿主渲染 title/detail 描述符,不经过它);
+   *   - 生命周期:setSuggestions(values) 即出站渲染(可重复调用更新条目表);用户点选/
+   *     点外关闭经 sandbox.ui 回推(kind:suggest,event:item/closed)→ selectSuggestion
+   *     动作 + open/setSuggestions 的 Promise 兑现(幂等 settle:重复回推 no-op)。
+   */
+  function SandboxEditorSuggest(app) {
+    this.app = app || null;
+    this.limit = 50;
+    this._suggestId = '';
+    this._query = '';
+    this._values = [];
+    this._instructions = [];
+    this._resolveClosed = null;
+    this._promise = null;
+    this._settled = false;
+  }
+  SandboxEditorSuggest.prototype.onTrigger = function (_cursor, _editor) { return null; };
+  SandboxEditorSuggest.prototype.getSuggestions = function (_query) { return []; };
+  SandboxEditorSuggest.prototype.selectSuggestion = function (_value, _evt) {};
+  SandboxEditorSuggest.prototype.renderSuggestion = function (_value, _el) {};
+  SandboxEditorSuggest.prototype.setInstructions = function (instructions) {
+    this._instructions = Array.isArray(instructions) ? instructions : [];
+    return this;
+  };
+  // 显示投影:建议值 → 宿主描述符(只有 index/title/detail/icon 越链,value 留在 iframe)。
+  SandboxEditorSuggest.prototype._displayOf = function (value, index) {
+    var row = { index: index, title: '', detail: '', icon: '' };
+    if (typeof value === 'string') {
+      row.title = value;
+    } else if (value && typeof value === 'object') {
+      row.title = String(value.title !== undefined ? value.title :
+        (value.display !== undefined ? value.display :
+          (value.name !== undefined ? value.name : '')));
+      if (value.detail !== undefined) { row.detail = String(value.detail); }
+      if (value.icon !== undefined) { row.icon = String(value.icon); }
+    }
+    return row;
+  };
+  SandboxEditorSuggest.prototype._settle = function (detail) {
+    if (this._settled) { return; }
+    this._settled = true;
+    if (this._resolveClosed) { this._resolveClosed(detail); }
+  };
+  SandboxEditorSuggest.prototype.setSuggestions = function (values) {
+    var self = this;
+    var pool = Array.isArray(values) ? values : [];
+    var cap = typeof self.limit === 'number' && self.limit > 0 ? self.limit : pool.length;
+    self._values = pool.slice(0, cap);
+    if (!self._suggestId) {
+      sandboxSuggestSeq += 1;
+      self._suggestId = 's' + sandboxSuggestSeq;
+      self._settled = false;
+      sandboxUiSurfaces.set('suggest#' + self._suggestId, {
+        settle: function (detail) { self._settle(detail || { closedBy: 'host' }); },
+        // 宿主点选:按 index 回取原值喂 selectSuggestion(Obsidian 语义:点选即关单),
+        // 动作异常不影响关闭;越界 index fail-visible 留痕。
+        onItem: function (index) {
+          var value = self._values[index];
+          if (value === undefined) { slog('suggest 点选越界: ' + String(index)); return; }
+          try { self.selectSuggestion(value, null); } catch (err) { slog('selectSuggestion 抛错: ' + String(err)); }
+        }
+      });
+    }
+    var items = self._values.map(function (value, index) { return self._displayOf(value, index); });
+    request('ui.suggest.show', { suggestId: self._suggestId, query: self._query, items: items })
+      .catch(function (err) {
+        // 宿主拒绝(broker/capability)fail-visible:落账并按 error 兑现,不留悬空浮层。
+        slog('suggest.show 被宿主拒绝: ' + String(err));
+        sandboxUiSurfaces.delete('suggest#' + self._suggestId);
+        self._settle({ closedBy: 'error', error: String(err) });
+      });
+    if (self._promise === null) {
+      self._promise = new Promise(function (resolve) { self._resolveClosed = resolve; });
+    }
+    return self._promise;
+  };
+  SandboxEditorSuggest.prototype.open = function (editor) {
+    var self = this;
+    var trigger = null;
+    try {
+      trigger = self.onTrigger(editor && typeof editor.getCursor === 'function' ? editor.getCursor() : null,
+        editor || null);
+    } catch (err) {
+      slog('onTrigger 抛错: ' + String(err));
+      return Promise.resolve({ closedBy: 'no-trigger' });
+    }
+    if (!trigger || typeof trigger !== 'object') { return Promise.resolve({ closedBy: 'no-trigger' }); }
+    self._query = String(trigger.query === undefined ? '' : trigger.query);
+    return Promise.resolve().then(function () { return self.getSuggestions(self._query); })
+      .then(function (values) { return self.setSuggestions(values); });
+  };
+  SandboxEditorSuggest.prototype.close = function () {
+    var self = this;
+    var suggestId = self._suggestId;
+    if (!suggestId || self._settled) { return Promise.resolve({ closedBy: 'not-open' }); }
+    return request('ui.suggest.hide', { suggestId: suggestId }).then(function () {
+      sandboxUiSurfaces.delete('suggest#' + suggestId);
+      self._settle({ closedBy: 'plugin' });
+      return { closedBy: 'plugin' };
+    });
+  };
+  /**
    * P4-001 Setting Builder:声明式控件收集器。插件在 PluginSettingTab.display() 里
    * `new Setting(containerEl).setName().addToggle(t => t.setValue(v).onChange(cb))` —
    * 每个 add* 调用同时登记声明式描述(type/key/default/options/min/max/step/placeholder,
@@ -551,6 +665,7 @@
    * 宿主交互事件落地(sandbox.ui 回推帧;port 轨与容器 window 轨两路共用,同 runSandboxCommand)。
    * kind=modal:closed → onClose + open() Promise 兑现;
    * kind=menu:item/closed → 点选动作 + onHide + show*() Promise 兑现;
+   * kind=suggest:item/closed → 按 index 回取原值喂 selectSuggestion + Promise 兑现(P4-002);
    * kind=settings:values → 控件级 onChange(按 key 寻址) + tab.onSettingsChanged
    * (宿主设置页写 data.json 后的值回推,沙箱轨等价于 legacy 轨 dispatch 'settings.values')。
    */
@@ -570,6 +685,17 @@
       }
       sandboxUiSurfaces.delete(key);
       entry.settle(data.event === 'item' ? { closedBy: 'item' } : { closedBy: 'host' });
+      return;
+    }
+    if (kind === 'suggest') {
+      var keyS = 'suggest#' + id;
+      var entryS = sandboxUiSurfaces.get(keyS);
+      if (!entryS) { slog('suggest 回推无在途面: ' + id); return; }
+      if (data.event === 'item') {
+        if (typeof entryS.onItem === 'function') { entryS.onItem(data.itemId); }
+      }
+      sandboxUiSurfaces.delete(keyS);
+      entryS.settle(data.event === 'item' ? { closedBy: 'item' } : { closedBy: 'host' });
       return;
     }
     if (kind === 'settings') {
@@ -771,6 +897,9 @@
       Modal: SandboxModal,
       Menu: SandboxMenu,
       Setting: SandboxSetting,
+      // P4-002:编辑器锚定的建议浮层基类(真实交互面,见 SandboxEditorSuggest 说明)。
+      // SuggestModal/FuzzySuggestModal/PopoverSuggest 家族仍属沙箱轨未实现面,不假造导出。
+      EditorSuggest: SandboxEditorSuggest,
       // 最小面(本轮切片):codeblock/ribbon 属 UI 域,宿主面就绪后在后续切片提供。
       Notice: function Notice(message) { this.show = function () { makeNotice(String(message)); }; },
       normalizePath: normalizeSandboxPath,

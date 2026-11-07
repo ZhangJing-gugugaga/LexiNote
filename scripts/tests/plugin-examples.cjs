@@ -180,6 +180,24 @@ function buildStubWorld(strict, state) {
   const NoticeStub = function Notice(message) { this.message = String(message); };
   NoticeStub.prototype.show = function () {};
   NoticeStub.prototype.hide = function () {};
+  // P4-002 交互面 stub:形状贴宿主 SandboxEditorSuggest(boot 期命令回调可真实执行并
+  // 计数;触发链全链行为级验收在 plugin-context-isolation E4 的真实沙箱页探针)。
+  const EditorSuggestStub = function EditorSuggest(app) { this.app = app || null; this.limit = 50; };
+  EditorSuggestStub.prototype.onTrigger = function () { return null; };
+  EditorSuggestStub.prototype.getSuggestions = function () { return []; };
+  EditorSuggestStub.prototype.selectSuggestion = function () {};
+  EditorSuggestStub.prototype.renderSuggestion = function () {};
+  EditorSuggestStub.prototype.setInstructions = function () { return this; };
+  EditorSuggestStub.prototype.setSuggestions = function (values) {
+    state.suggestsShown = (state.suggestsShown || 0) + 1;
+    state.suggestItems = Array.isArray(values) ? values.length : 0;
+    return Promise.resolve({ closedBy: 'stub' });
+  };
+  EditorSuggestStub.prototype.open = function () {
+    state.suggestsShown = (state.suggestsShown || 0) + 1;
+    return Promise.resolve({ closedBy: 'stub' });
+  };
+  EditorSuggestStub.prototype.close = function () { return Promise.resolve({ closedBy: 'stub' }); };
   const base = {
     Plugin: PluginStub,
     ItemView: ItemViewStub,
@@ -187,6 +205,7 @@ function buildStubWorld(strict, state) {
     Modal: ModalStub,
     Menu: MenuStub,
     Setting: SettingStub,
+    EditorSuggest: EditorSuggestStub,
     Notice: NoticeStub,
     normalizePath: function (p) { return String(p || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, ''); },
     moment: function () {
@@ -354,17 +373,20 @@ async function main() {
             ' commands=' + boot.state.commands.length);
         }
 
-        // 3b R37/P4-001:交互面示例 boot 后命令回调真实执行——Modal.open/Menu.showAtPosition
-        // 在 stub 世界计数,设置页经 addSettingTab 登记(宿主链路的行为级验收在
-        // plugin-context-isolation E4:真实沙箱页脚本 × sandbox-ui-min 夹具)。
+        // 3b R37/P4-001 + R41/P4-002:交互面示例 boot 后命令回调真实执行——
+        // Modal.open/Menu.showAtPosition/EditorSuggest.open 在 stub 世界计数,设置页经
+        // addSettingTab 登记(宿主链路的行为级验收在 plugin-context-isolation E4:
+        // 真实沙箱页脚本 × sandbox-ui-min 夹具)。
         if (name === 'example-ui' && boot.ok) {
           const uiCommands = boot.state.commands.filter((command) =>
-            command.id === 'hello-modal' || command.id === 'hello-menu');
+            command.id === 'hello-modal' || command.id === 'hello-menu' ||
+            command.id === 'hello-suggest');
           for (const command of uiCommands) { await command.callback(); }
-          ok(name + ' boot:交互命令回调真实执行(Modal/Menu/Setting 三面登记)',
+          ok(name + ' boot:交互命令回调真实执行(Modal/Menu/Suggest/Setting 四面登记)',
             boot.state.modalsOpened === 1 && boot.state.menusShown === 1 &&
-            boot.state.settingTab !== null,
+            (boot.state.suggestsShown || 0) === 1 && boot.state.settingTab !== null,
             'modals=' + (boot.state.modalsOpened || 0) + ' menus=' + (boot.state.menusShown || 0) +
+            ' suggests=' + (boot.state.suggestsShown || 0) +
             ' settingTab=' + (boot.state.settingTab ? 'registered' : 'missing'));
         }
 

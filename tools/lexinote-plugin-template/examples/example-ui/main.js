@@ -1,8 +1,8 @@
-// example-ui — 交互面示例(R37/P4-001)。
+// example-ui — 交互面示例(R37/P4-001 + R41/P4-002)。
 // 轨面:沙箱轨(entrypoints.service='sandbox:')。只使用沙箱轨已实现的真实面:
 //   Plugin / addCommand / Modal / Menu / Setting Builder / PluginSettingTab /
-//   addSettingTab / Notice / loadData / saveData。
-// 三条交互面的端口链(与宿主 lexinote_plugin_sandbox.html 同一实现):
+//   EditorSuggest / addSettingTab / Notice / loadData / saveData。
+// 四条交互面的端口链(与宿主 lexinote_plugin_sandbox.html 同一实现):
 //   Modal:open() 把 {modalId,title,content} 经 ui.modal.open 递交宿主原生弹层;
 //          用户关闭 → 宿主回推 sandbox.ui{kind:modal} → onClose 回调 + open() Promise 兑现。
 //   Menu:  showAtPosition() 把条目表经 ui.menu.show 递交宿主原生菜单;用户点选/点外关闭
@@ -11,16 +11,20 @@
 //          (type/key/default/options/min/max/step)经 settings.register 递交宿主设置页
 //          原生渲染,值持久化 data.json;宿主写值后回推 sandbox.ui{kind:settings,values}
 //          → 控件 onChange + onSettingsChanged(R36 调查的"运行中值回推"缺口已收口)。
-// 能力对账:ui.modal.*/ui.menu.* → notifications(与 Notice 同域);commands.add →
-//   workspace.commands;settings.register → register(身份绑定);data.* → storage。
-// 注意:交互面类(本文件底部)在模块顶层 extends PluginSettingTab,display() 里引用
-// Setting——解构必须落在模块顶层(onload 局部解构对类体不可见)。
-const { Modal, Menu, Setting, PluginSettingTab, Notice } = require('obsidian');
+//   Suggest:EditorSuggest.open(editor) → onTrigger 派生 query → ui.suggest.show 显示
+//          描述符出站(建议值不出 iframe,宿主只收 {index,title,detail,icon});用户点选
+//          → 回推 sandbox.ui{kind:suggest,event:item,itemId} → 按 index 回取原值喂
+//          selectSuggestion;点外关闭 → event:closed → open() Promise 兑现。
+// 能力对账:ui.modal.*/ui.menu.*/ui.suggest.* → notifications(与 Notice 同域);
+//   commands.add → workspace.commands;settings.register → register(身份绑定);data.* → storage。
+// 注意:交互面类(本文件底部)在模块顶层 extends PluginSettingTab/EditorSuggest,
+// display() 里引用 Setting——解构必须落在模块顶层(onload 局部解构对类体不可见)。
+const { Modal, Menu, Setting, PluginSettingTab, Notice, EditorSuggest } = require('obsidian');
 
 module.exports = class ExampleUi extends require('obsidian').Plugin {
   async onload() {
     const self = this;
-    this.state = Object.assign({ opens: 0, menus: 0, changes: 0 }, (await this.loadData()) || {});
+    this.state = Object.assign({ opens: 0, menus: 0, changes: 0, suggests: 0 }, (await this.loadData()) || {});
     this.addCommand({
       id: 'hello-modal',
       name: '交互示例:打开 Modal',
@@ -61,12 +65,45 @@ module.exports = class ExampleUi extends require('obsidian').Plugin {
         return self.saveData(self.state).then(() => menu.showAtPosition({ x: 24, y: 96 }));
       }
     });
+    this.addCommand({
+      id: 'hello-suggest',
+      name: '交互示例:编辑器建议浮层',
+      callback: () => {
+        // P4-002:显式触发形态(编辑器命令里的 editorCallback 同链,query 可从
+        // editor 快照光标派生——见夹具 sandbox-ui-min 的 ui-suggest)。
+        const suggest = new ExampleSuggest(this.app, self);
+        self.state.suggests = (self.state.suggests || 0) + 1;
+        return self.saveData(self.state).then(() => suggest.open(null));
+      }
+    });
     this.addSettingTab(new ExampleUiSettingTab(this.app, self));
-    new Notice('交互示例:已注册 Modal/Menu/设置三个交互命令');
+    new Notice('交互示例:已注册 Modal/Menu/Suggest/设置四个交互命令');
   }
 
   onunload() {}
 };
+
+// EditorSuggest 面:extends 沙箱基类,覆写 onTrigger/getSuggestions/selectSuggestion。
+// 建议值(值表)留在插件侧:ui.suggest.show 只带显示描述符,宿主点选回 itemId=index,
+// selectSuggestion 在插件侧按 index 回取原值——值对象从不越过端口链。
+class ExampleSuggest extends EditorSuggest {
+  constructor(app, plugin) {
+    super(app);
+    this._plugin = plugin;
+    this._pool = [
+      { id: 'legal', title: 'legal note' },
+      { id: 'letter', title: 'letter count' }
+    ];
+    const self = this;
+    this.onTrigger = () => ({ start: { line: 0, ch: 0 }, end: { line: 0, ch: 0 }, query: 'le' });
+    this.getSuggestions = (query) => self._pool.filter((item) =>
+      item.title.toLowerCase().indexOf(String(query).toLowerCase()) >= 0);
+    this.selectSuggestion = (value) => {
+      self._plugin.state.suggestPick = value && value.id ? value.id : String(value);
+      return self._plugin.saveData(self._plugin.state);
+    };
+  }
+}
 
 // Setting Builder 面:display() 里 new Setting 收集声明式控件(宿主按 key 原生渲染);
 // setKey 是 LexiNote 声明式机制的寻址键(Obsidian Setting 无 key 概念,宿主按 key 写值)。

@@ -1202,8 +1202,8 @@ test('P4-001 交互面接线:handler/registry/sandbox.ui 回推/设置值回推/
     'Menu 在途表键必须带身份段');
   // capability 域映射:与 Notice 同域(notifications),未声明即拒(fail-closed)。
   assert.match(text,
-    /method === 'ui\.modal\.open' \|\| method === 'ui\.modal\.close' \|\|\s*\n\s*method === 'ui\.menu\.show' \|\| method === 'ui\.menu\.hide'\) \{ return caps\.notifications; \}/,
-    'ui.modal.*/ui.menu.* 的 capability 域必须映射 notifications(与 Notice 同域)');
+    /method === 'ui\.modal\.open' \|\| method === 'ui\.modal\.close' \|\|\s*\n\s*method === 'ui\.menu\.show' \|\| method === 'ui\.menu\.hide' \|\|\s*\n\s*method === 'ui\.suggest\.show' \|\| method === 'ui\.suggest\.hide'\) \{ return caps\.notifications; \}/,
+    'ui.modal.*/ui.menu.*/ui.suggest.* 的 capability 域必须映射 notifications(与 Notice 同域)');
   // sandbox.ui 回推链:与 dispatchSandboxCommand 同一信任形态(身份只用于容器路由)。
   assert.match(text, /private notifySandboxUiEvent\(/, 'sandbox.ui 回推派发器必须在案');
   assert.match(text, /window\.lexiSandboxUiEvent && window\.lexiSandboxUiEvent\(/,
@@ -1255,6 +1255,76 @@ test('P4-001 交互面接线:handler/registry/sandbox.ui 回推/设置值回推/
       '交互面夹具必须声明 notifications(ui.modal.*/ui.menu.* 的 capability 域)');
     assert.ok(text.indexOf("'plugins/sandbox-ui-min'") >= 0,
       '交互面夹具必须进内置夹具白名单(BUNDLED_PLUGIN_IDS)');
+  }
+});
+
+// --- R41(P4-002) EditorSuggest 接线 ---------------------------------------------------------
+test('P4-002 Suggest 接线:handler/在途表/capability/点选回推/销毁回收/渲染层/网关闸/沙箱基类', () => {
+  const text = runtimeEts();
+  // 宿主 handler 面:建议描述符出站两方法(身份段表键 + 修订号驱动渲染)。
+  for (const method of ['ui.suggest.show', 'ui.suggest.hide']) {
+    assert.match(text, new RegExp("registerHandler\\('" + method.replace(/\./g, '\\.') + "'"),
+      method + ' handler 必须在案(P4-002)');
+  }
+  assert.match(text, /manager\.suggestSurfaces\.set\(identity \+ '#' \+ suggestId, surface\)/,
+    'Suggest 在途表键必须带身份段(插件只能寻址自己的在途面)');
+  // 建议值不进宿主:items 只是显示描述符,点选回推只带 index(端口链纪律)。
+  assert.match(text, /new LexiPluginSuggestSurface\(\)/, 'Suggest 在途面会话类必须实例化');
+  // 回推链:choose/dismiss 双入口(点选 item / 点外 closed),与 Menu 同一信任形态。
+  assert.match(text,
+    /choosePluginSuggestion\(pluginId: string, suggestId: string, itemId: number\): void \{[\s\S]{0,400}notifySandboxUiEvent\(pluginId, 'suggest', suggestId, 'item', itemId, null\)/,
+    '用户点选必须回流 manager 并回推 sandbox.ui{kind:suggest,event:item,itemId}');
+  assert.match(text,
+    /dismissPluginSuggest\(pluginId: string, suggestId: string, reason: string\): void \{[\s\S]{0,400}notifySandboxUiEvent\(pluginId, 'suggest', suggestId, 'closed', -1, null\)/,
+    '点外/插件关闭必须回流 manager 并回推 sandbox.ui{kind:suggest,event:closed}');
+  assert.match(text, /pluginSuggestSurfaces\(\): LexiPluginSuggestSurface\[\]/,
+    '渲染读取面(pluginSuggestSurfaces)必须在案');
+  // 销毁回收:dropPluginSurfaces 覆盖 suggestSurfaces(在途建议浮层不残留)。
+  const dropAt = text.indexOf('dropPluginSurfaces(pluginId: string): void {');
+  const dropBody = dropAt >= 0 ? text.slice(dropAt, dropAt + 900) : '';
+  assert.match(dropBody, /suggestSurfaces/, '销毁回收必须覆盖 Suggest 在途面(dropPluginSurfaces)');
+  // 宿主渲染层:LexiPluginSurfaceHost 的 Suggest 层(点选/点外回流)。
+  const surfaceHost = fs.readFileSync(path.join(REPO_ROOT, 'entry', 'src', 'main', 'ets', 'components',
+    'plugin', 'LexiPluginSurfaceHost.ets'), 'utf8');
+  assert.match(surfaceHost, /choosePluginSuggestion\(/, '建议点选必须回流 manager(回推 item)');
+  assert.match(surfaceHost, /dismissPluginSuggest\(/, '建议浮层点外关闭必须回流 manager(回推 closed)');
+  assert.match(surfaceHost, /LexiPluginSuggestSurface/, '渲染层必须消费 Suggest 会话类');
+  // 网关 schema + broker 矩阵(ui-domain,与 Modal/Menu 同批)。
+  const gatewayText = fs.readFileSync(path.join(REPO_ROOT, 'entry', 'src', 'main', 'ets', 'core', 'plugin',
+    'LexiRpcGateway.ets'), 'utf8');
+  assert.match(gatewayText, /schema\.set\('ui\.suggest\.show', \[field\('suggestId', 'string'\), field\('query', 'string'\), field\('items', 'array'\)\]\)/,
+    'ui.suggest.show 网关 schema 必须在案(建议描述符出站的入口闸)');
+  assert.match(gatewayText, /schema\.set\('ui\.suggest\.hide', \[field\('suggestId', 'string'\)\]\)/,
+    'ui.suggest.hide 网关 schema 必须在案');
+  const brokerText = fs.readFileSync(path.join(REPO_ROOT, 'entry', 'src', 'main', 'ets', 'core', 'plugin',
+    'LexiPermissionBroker.ets'), 'utf8');
+  assert.match(brokerText, /'ui\.suggest\.show', 'ui\.suggest\.hide'/,
+    'ui.suggest.* 必须登记 broker ui-domain 矩阵(M1.2:每个 handler 都要有矩阵条目)');
+  // 沙箱基类:真实面(不只类型声明)——基类形状 + 回推分支 + 值不出 iframe 的投影。
+  const sandboxText = fs.readFileSync(path.join(REPO_ROOT, 'entry', 'src', 'main', 'resources', 'rawfile',
+    'lexinote_plugin_sandbox.html'), 'utf8');
+  assert.match(sandboxText, /function SandboxEditorSuggest\(/, '沙箱 EditorSuggest 基类必须在案');
+  assert.match(sandboxText, /EditorSuggest: SandboxEditorSuggest/, '沙箱 namespace 必须导出 EditorSuggest');
+  for (const hook of ['prototype\\.onTrigger', 'prototype\\.getSuggestions', 'prototype\\.selectSuggestion',
+    'prototype\\.setSuggestions', 'prototype\\.open', 'prototype\\.close']) {
+    assert.match(sandboxText, new RegExp(hook), 'SandboxEditorSuggest.' + hook.replace('prototype\\.', '') + ' 必须在案');
+  }
+  assert.match(sandboxText, /kind === 'suggest'/, 'sandbox.ui 回推必须有 suggest 分支');
+  assert.match(sandboxText, /ui\.suggest\.show', \{ suggestId: self\._suggestId, query: self\._query, items: items \}/,
+    '建议出站必须走描述符投影(items 只带显示字段)');
+  // 内置夹具对账:ui-suggest 命令 + readActive 档(光标派生 query 需要编辑器快照)。
+  const fixturePath = path.join(REPO_ROOT, 'entry', 'src', 'main', 'resources', 'rawfile', 'plugins',
+    'sandbox-ui-min', 'main.js');
+  if (fs.existsSync(fixturePath)) {
+    const fixture = fs.readFileSync(fixturePath, 'utf8');
+    assert.match(fixture, /id: 'ui-suggest'/, '交互面夹具必须有 ui-suggest 命令(建议浮层全链)');
+    assert.match(fixture, /extends EditorSuggest|new EditorSuggest\(/,
+      '夹具必须经 EditorSuggest 基类行使建议面');
+    const fixtureManifest = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'entry', 'src', 'main',
+      'resources', 'rawfile', 'plugins', 'sandbox-ui-min', 'manifest.json'), 'utf8'));
+    assert.equal(fixtureManifest.capabilities && fixtureManifest.capabilities.editor &&
+      fixtureManifest.capabilities.editor.readActive, true,
+      'Suggest 夹具必须声明 editor.readActive(光标派生 query 走 P2-005 readActive 档)');
   }
 });
 

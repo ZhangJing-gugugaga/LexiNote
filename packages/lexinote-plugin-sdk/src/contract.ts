@@ -65,6 +65,8 @@ export const SDK_METHODS: SdkMethodEntry[] = [
   { method: 'ui.notice', domain: 'ui', kind: 'ui-domain', status: 'stable' },
   { method: 'ui.placeholder', domain: 'ui', kind: 'ui-domain', status: 'stable' },
   { method: 'ui.removeRibbon', domain: 'ui', kind: 'ui-domain', status: 'stable' },
+  { method: 'ui.suggest.hide', domain: 'ui', kind: 'ui-domain', status: 'stable' },
+  { method: 'ui.suggest.show', domain: 'ui', kind: 'ui-domain', status: 'stable' },
   { method: 'vault.append', domain: 'vault', kind: 'fs-write', status: 'stable' },
   { method: 'vault.create', domain: 'vault', kind: 'fs-write', status: 'stable' },
   { method: 'vault.delete', domain: 'vault', kind: 'fs-write', status: 'stable' },

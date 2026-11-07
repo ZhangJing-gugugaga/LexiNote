@@ -192,6 +192,22 @@ if (fs.existsSync(SANDBOX_HTML)) {
     /definitionsOf = function/.test(sandbox) &&
     /控件缺 key,声明式定义跳过/.test(sandbox),
     '收集窗口缺失 = Setting Builder 不落账;缺 key 静默入定义 = 宿主写值不可寻址');
+  // R41(P4-002):EditorSuggest 建议浮层——描述符经 ui.suggest.* 出站,点选回推按 index
+  // 回取原值(建议值不出 iframe);触发走显式 open(editor)(宿主无编辑器事件流)。
+  ok('S35 沙箱 EditorSuggest 交互面在案(基类形状 + ui.suggest.* 出站 + 回推分支)',
+    /function SandboxEditorSuggest\(/.test(sandbox) &&
+    /prototype\.onTrigger/.test(sandbox) && /prototype\.getSuggestions/.test(sandbox) &&
+    /prototype\.selectSuggestion/.test(sandbox) &&
+    /'ui\.suggest\.show'/.test(sandbox) && /'ui\.suggest\.hide'/.test(sandbox) &&
+    /EditorSuggest: SandboxEditorSuggest/.test(sandbox) &&
+    /kind === 'suggest'/.test(sandbox) && /'suggest#'/.test(sandbox),
+    '建议浮面缺失任一形状即 P4-002 回退为 no-op 桩(不只类型声明)');
+  ok('S35b Suggest 显示投影在案(宿主只收 index/title/detail/icon,value 按 index 回取)',
+    /_displayOf = function/.test(sandbox) &&
+    /prototype\.setSuggestions[\s\S]{0,900}pool\.slice\(0, cap\)/.test(sandbox) &&
+    /self\.selectSuggestion\(value, null\)/.test(sandbox) &&
+    /suggest 点选越界/.test(sandbox),
+    '投影缺失 = 值对象整包越链(端口链纪律);越界 index 无守卫 = 回取错值静默发生');
 }
 {
   const runtimeHtml = fs.readFileSync(path.join(RAWFILE, 'lexinote_plugin_runtime.html'), 'utf8');
@@ -389,6 +405,25 @@ console.log('== S42 P4-001 交互面回推链(容器路由 + 宿主接线) ==');
   ok('S42e 交互面随插件销毁回收(disable 尾序 dropPluginSurfaces)',
     /dropPluginSurfaces\(pluginId\)/.test(runtimeSrc),
     '在途弹层/菜单残留 = 插件销毁后宿主仍渲染其 UI(销毁闭环缺口)');
+  // R41(P4-002):Suggest 宿主执行端——handler/capability 映射与 Modal/Menu 同款。
+  ok('S42f 宿主 Suggest handler 在案且 capability 映射 notifications(与 Modal/Menu 同域)',
+    /registerHandler\('ui\.suggest\.show'/.test(runtimeSrc) &&
+    /registerHandler\('ui\.suggest\.hide'/.test(runtimeSrc) &&
+    /method === 'ui\.suggest\.show' \|\| method === 'ui\.suggest\.hide'\) \{ return caps\.notifications; \}/.test(runtimeSrc) &&
+    /suggestSurfaces\.set\(identity \+ '#' \+ suggestId, surface\)/.test(runtimeSrc),
+    'handler 缺失 = 建议描述符出站 unknown_method;capability 映射缺失 = 未声明 notifications 可弹建议浮层');
+  ok('S42g 宿主渲染组件 Suggest 层在案(点选/点外回流 manager,回推 item/closed)',
+    /choosePluginSuggestion\(/.test(surfaceHost) && /dismissPluginSuggest\(/.test(surfaceHost) &&
+    /pluginSuggestSurfaces\(\): LexiPluginSuggestSurface\[\]/.test(runtimeSrc) &&
+    /choosePluginSuggestion\(pluginId: string, suggestId: string, itemId: number\)/.test(runtimeSrc),
+    '渲染层缺失 = 描述符出站后无宿主面(建议浮层不出现/点选无回流)');
+  ok('S42h Suggest 在途面随插件销毁回收(dropPluginSurfaces 覆盖 suggestSurfaces)',
+    (() => {
+      const at = runtimeSrc.indexOf('dropPluginSurfaces(pluginId: string): void {');
+      const body = at >= 0 ? runtimeSrc.slice(at, at + 900) : '';
+      return body.indexOf('suggestSurfaces') >= 0;
+    })(),
+    '在途建议浮层残留 = 插件销毁后宿主仍渲染其 UI(销毁闭环缺口)');
 }
 
 // ---------------------------------------------------------------- E1/E2 vm 求值探针
@@ -635,12 +670,14 @@ async function assertBusinessProbe(label, mode) {
 }
 
 /**
- * E4 交互面业务链探针(P4-001/R37):与 E3 同一容器轨 vm 环境(真实沙箱页脚本),
- * 装载 sandbox-ui-min 夹具,Modal/Menu/Setting 三面全链行为级——
- *   出站:命令回推驱动 Modal/Menu 描述符帧(ui.modal.open/ui.menu.show)、
+ * E4 交互面业务链探针(P4-001/R37 + P4-002/R41):与 E3 同一容器轨 vm 环境(真实沙箱页脚本),
+ * 装载 sandbox-ui-min 夹具,Modal/Menu/Setting/Suggest 四面全链行为级——
+ *   出站:命令回推驱动 Modal/Menu 描述符帧(ui.modal.open/ui.menu.show)、编辑器命令帧
+ *         (带快照)驱动 EditorSuggest 触发链(ui.suggest.show 只带显示描述符)、
  *         addSettingTab 驱动 Setting Builder 定义帧(settings.register);
- *   回流:宿主侧以 sandbox.ui 帧回推(用户关闭/点选/设置值变更),插件回调
- *         (onClose/onClick/onHide/控件 onChange/onSettingsChanged)经 data.save 落账对账。
+ *   回流:宿主侧以 sandbox.ui 帧回推(用户关闭/点选/建议点选/设置值变更),插件回调
+ *         (onClose/onClick/onHide/selectSuggestion/控件 onChange/onSettingsChanged)
+ *         经 data.save 落账对账。
  * 宿主 ArkTS 渲染端的行为级验收归设备批次(本探针证明 iframe 侧全链 + 帧协议两端形状)。
  */
 async function assertUiProbe(label, mode) {
@@ -719,7 +756,44 @@ async function assertUiProbe(label, mode) {
     lastSave.controlFired >= 1 && lastSave.changes >= 1 && lastSave.lastChanged &&
     lastSave.lastChanged.uiLevel === 'pro' && lastSave.lastChanged.showBadge === false,
     'state=' + JSON.stringify(lastSave).slice(0, 200));
-  // 5. 身份纪律 + boot 收尾(与 E3 同判)。
+  // 5. Suggest(P4-002):编辑器命令帧带快照(readActive 档,同宿主 invokeEditorCommand 形状)
+  //    → onTrigger 派生 query → ui.suggest.show 只带显示描述符;点选回推 → selectSuggestion
+  //    (按 index 回取原值)落账;点外关闭回推 → Promise 兑现落账。
+  env.__deliver({ __lexiSandbox: true, type: 'sandbox.command', fullId: UI_PLUGIN_ID + ':ui-suggest',
+    editor: { text: 'note le alpha', selection: { start: 7, end: 7 } } });
+  await until(() => requestFrames('ui.suggest.show').length > 0, 'ui.suggest.show');
+  const suggestFrame = requestFrames('ui.suggest.show')[0];
+  const suggestItems = suggestFrame && Array.isArray(suggestFrame.params.items) ? suggestFrame.params.items : [];
+  ok(label + ' i Suggest 触发链出站(query 从快照光标派生,描述符只带显示字段)',
+    !!suggestFrame && typeof suggestFrame.params.suggestId === 'string' &&
+    suggestFrame.params.suggestId.length > 0 && suggestFrame.params.query === 'le' &&
+    suggestItems.length === 2 && suggestItems[0].title === 'legal note' &&
+    suggestItems[1].title === 'letter count' &&
+    suggestItems.every((item) => item.id === undefined),
+    'params=' + JSON.stringify(suggestFrame && suggestFrame.params).slice(0, 200));
+  env.__deliver({ __lexiSandbox: true, type: 'sandbox.ui', kind: 'suggest',
+    id: suggestFrame.params.suggestId, event: 'item', itemId: 1 });
+  await until(() => lastSaveJson().indexOf('suggestPick') >= 0, 'suggest selectSuggestion data.save');
+  ok(label + ' j Suggest 点选回推兑现 selectSuggestion(index 回取原值 suggestPick=letter)',
+    lastSaveJson().indexOf('letter') >= 0, '最后一次 data.save=' + lastSaveJson().slice(0, 160));
+  // 点外关闭:第二次打开后 closed 回推 → open() Promise 兑现(closedBy=host 落账);
+  // 已 settle 的在途面重复回推按"无在途面"留痕 no-op(幂等,不抛)。
+  env.__deliver({ __lexiSandbox: true, type: 'sandbox.command', fullId: UI_PLUGIN_ID + ':ui-suggest',
+    editor: { text: 'note le alpha', selection: { start: 7, end: 7 } } });
+  await until(() => requestFrames('ui.suggest.show').length >= 2, 'ui.suggest.show #2');
+  env.__deliver({ __lexiSandbox: true, type: 'sandbox.ui', kind: 'suggest',
+    id: requestFrames('ui.suggest.show')[1].params.suggestId, event: 'closed' });
+  await until(() => lastSaveJson().indexOf('suggestClosedAt') >= 0, 'suggest closed data.save');
+  env.__deliver({ __lexiSandbox: true, type: 'sandbox.ui', kind: 'suggest',
+    id: requestFrames('ui.suggest.show')[1].params.suggestId, event: 'closed' });
+  await new Promise((resolve) => setImmediate(resolve));
+  let suggestSave = {};
+  try { suggestSave = JSON.parse(requestFrames('data.save').slice(-1)[0].params.dataJson); } catch (err) { suggestSave = {}; }
+  ok(label + ' k Suggest 点外关闭兑现 Promise + 重复回推幂等(settle 一次即焚)',
+    suggestSave.suggestClosedAt > 0 && suggestSave.suggestSettled === 'host' &&
+    suggestSave.suggests === 2 && suggestSave.suggestPick === 'letter',
+    'state=' + JSON.stringify(suggestSave).slice(0, 200));
+  // 6. 身份纪律 + boot 收尾(与 E3 同判)。
   const leakyIdentity = env.__frames.filter((f) => f && (f.pluginId !== undefined || f.token !== undefined ||
     f.activationId !== undefined || (f.params && (f.params.pluginId !== undefined || f.params.token !== undefined))));
   ok(label + ' g 交互全链 iframe 帧零身份字段(身份只在宿主侧)', leakyIdentity.length === 0,
@@ -763,7 +837,7 @@ async function main() {
     // 新 require 管线装载(ADR-R25-01 遗留项收口的行为级证明)。
     await assertBusinessProbe('E3b', 'iife');
   }
-  console.log('== E4 交互面业务链探针(P4-001/R37:Modal/Menu/Setting 三面全链) ==');
+  console.log('== E4 交互面业务链探针(P4-001/R37 + P4-002/R41:Modal/Menu/Setting/Suggest 四面全链) ==');
   if (!fs.existsSync(UI_FIXTURE_MAIN)) {
     console.log('  [skip] E4/E4b: 交互面夹具未暂存(plugins/sandbox-ui-min,夹具环境约定)');
   } else {

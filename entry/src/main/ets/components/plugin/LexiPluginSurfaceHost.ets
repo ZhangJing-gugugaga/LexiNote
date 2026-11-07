@@ -1,12 +1,15 @@
-// P4-001:插件 Modal/Menu 宿主原生渲染面(沙箱插件交互面的宿主执行端)。
+// P4-001/P4-002:插件 Modal/Menu/Suggest 宿主原生渲染面(沙箱插件交互面的宿主执行端)。
 // 形态纪律:观察 lexiPluginRevision 修订号(与 Ribbon 行同款),从 manager 读在途交互面表;
 // 渲染用宿主自身组件(Stack/Column/Button)——iframe 不持有任何宿主 UI 句柄,插件只递交
-// 内容描述符(ui.modal.open / ui.menu.show),用户关闭/点选经 manager.dismiss/choose 落账
-// 并回推沙箱(sandbox.ui 帧),插件侧回调(onClose/onClick/onHide)在 iframe 兑现。
-// 诚实边界:本组件覆盖"弹层/菜单出现 + 用户操作回流"的最小真实面;菜单坐标按插件递交的
-// x/y 钳制呈现(沙箱侧坐标与宿主视口无换算基准,精确锚定归设备批次校准)。
+// 内容描述符(ui.modal.open / ui.menu.show / ui.suggest.show),用户关闭/点选经
+// manager.dismiss/choose 落账并回推沙箱(sandbox.ui 帧),插件侧回调(onClose/onClick/
+// onHide/selectSuggestion)在 iframe 兑现。
+// 诚实边界:本组件覆盖"弹层/菜单/建议浮层出现 + 用户操作回流"的最小真实面;菜单坐标按
+// 插件递交的 x/y 钳制呈现,Suggest 浮层用固定钳制锚点(沙箱侧坐标与宿主视口无换算基准,
+// 编辑器光标级精确锚定归设备批次校准)。
 
-import { LexiPluginManager, LexiPluginModalSurface, LexiPluginMenuSurface } from '../../core/plugin/LexiPluginRuntime';
+import { LexiPluginManager, LexiPluginModalSurface, LexiPluginMenuSurface,
+  LexiPluginSuggestSurface } from '../../core/plugin/LexiPluginRuntime';
 
 interface LexiPluginMenuItemState {
   index: number;
@@ -14,6 +17,12 @@ interface LexiPluginMenuItemState {
   checked: boolean;
   disabled: boolean;
   separator: boolean;
+}
+
+interface LexiPluginSuggestionState {
+  index: number;
+  title: string;
+  detail: string;
 }
 
 @Component
@@ -24,6 +33,8 @@ export struct LexiPluginSurfaceHost {
   @State private menuItems: LexiPluginMenuItemState[] = [];
   @State private menuX: number = 24;
   @State private menuY: number = 96;
+  @State private suggest: LexiPluginSuggestSurface | null = null;
+  @State private suggestions: LexiPluginSuggestionState[] = [];
 
   aboutToAppear(): void {
     this.refresh();
@@ -39,6 +50,8 @@ export struct LexiPluginSurfaceHost {
       this.modal = null;
       this.menu = null;
       this.menuItems = [];
+      this.suggest = null;
+      this.suggestions = [];
       return;
     }
     const modals: LexiPluginModalSurface[] = manager.pluginModalSurfaces();
@@ -68,6 +81,27 @@ export struct LexiPluginSurfaceHost {
       this.menuY = Math.min(Math.max(80, this.menu.y), 520);
     }
     this.menuItems = items;
+    // P4-002:Suggest 浮层(显示描述符 {index,title,detail,icon};建议值从不进宿主)。
+    const suggests: LexiPluginSuggestSurface[] = manager.pluginSuggestSurfaces();
+    this.suggest = suggests.length > 0 ? suggests[0] : null;
+    const rows: LexiPluginSuggestionState[] = [];
+    if (this.suggest !== null) {
+      try {
+        const parsed = JSON.parse(this.suggest.itemsJson) as Object[];
+        for (const raw of parsed) {
+          if (!raw || typeof raw !== 'object') { continue; }
+          const record = raw as Record<string, Object>;
+          rows.push({
+            index: typeof record['index'] === 'number' ? record['index'] as number : rows.length,
+            title: typeof record['title'] === 'string' ? record['title'] as string : '',
+            detail: typeof record['detail'] === 'string' ? record['detail'] as string : ''
+          });
+        }
+      } catch {
+        /* 描述符解析失败按空浮层呈现(外点关闭仍可用) */
+      }
+    }
+    this.suggestions = rows;
   }
 
   private dismissModal(): void {
@@ -89,6 +123,20 @@ export struct LexiPluginSurfaceHost {
     const manager = LexiPluginManager.shared;
     if (!current || !manager || item.disabled || item.separator) { return; }
     manager.choosePluginMenuItem(current.pluginId, current.menuId, item.index);
+  }
+
+  private dismissSuggest(): void {
+    const current = this.suggest;
+    const manager = LexiPluginManager.shared;
+    if (!current || !manager) { return; }
+    manager.dismissPluginSuggest(current.pluginId, current.suggestId, 'user');
+  }
+
+  private chooseSuggestion(row: LexiPluginSuggestionState): void {
+    const current = this.suggest;
+    const manager = LexiPluginManager.shared;
+    if (!current || !manager) { return; }
+    manager.choosePluginSuggestion(current.pluginId, current.suggestId, row.index);
   }
 
   @Builder
@@ -168,6 +216,50 @@ export struct LexiPluginSurfaceHost {
     .onClick((): void => { this.dismissMenu(); })
   }
 
+  @Builder
+  private suggestLayer() {
+    // P4-002:编辑器锚定建议浮层。固定钳制锚点呈现(沙箱坐标与宿主视口无换算基准,
+    // 光标级锚定归设备批次校准);全屏近透明捕捉层:点外关闭(Obsidian suggest 语义)。
+    Column() {
+      Column({ space: 2 }) {
+        Text(this.suggest?.query && this.suggest.query.length > 0 ? '建议: ' + this.suggest.query : '建议')
+          .fontSize(11)
+          .fontColor($r('app.color.text_secondary'))
+          .width('100%')
+          .padding({ left: 10, right: 10, top: 4, bottom: 2 })
+        ForEach(this.suggestions, (row: LexiPluginSuggestionState) => {
+          Column({ space: 1 }) {
+            Text(row.title)
+              .fontSize(14)
+              .fontColor($r('app.color.text_primary'))
+              .width('100%')
+            if (row.detail.length > 0) {
+              Text(row.detail)
+                .fontSize(11)
+                .fontColor($r('app.color.text_secondary'))
+                .width('100%')
+            }
+          }
+          .alignItems(HorizontalAlign.Start)
+          .width('100%')
+          .padding({ left: 10, right: 10, top: 7, bottom: 7 })
+          .borderRadius(8)
+          .onClick((): void => { this.chooseSuggestion(row); })
+        }, (row: LexiPluginSuggestionState): string => row.index.toString())
+      }
+      .backgroundColor($r('app.color.surface'))
+      .borderRadius(14)
+      .padding(6)
+      .width(240)
+      .margin({ left: 24, top: 96 })
+    }
+    .width('100%')
+    .height('100%')
+    .alignItems(HorizontalAlign.Start)
+    .backgroundColor('rgba(0,0,0,0.001)')
+    .onClick((): void => { this.dismissSuggest(); })
+  }
+
   build() {
     Stack() {
       if (this.modal !== null) {
@@ -176,9 +268,13 @@ export struct LexiPluginSurfaceHost {
       if (this.menu !== null) {
         this.menuLayer()
       }
+      if (this.suggest !== null) {
+        this.suggestLayer()
+      }
     }
     .width('100%')
     .height('100%')
-    .hitTestBehavior(this.modal !== null || this.menu !== null ? HitTestMode.Default : HitTestMode.None)
+    .hitTestBehavior(this.modal !== null || this.menu !== null || this.suggest !== null
+      ? HitTestMode.Default : HitTestMode.None)
   }
 }

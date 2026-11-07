@@ -645,6 +645,30 @@
       "bridge": false
     },
     {
+      "method": "ui.suggest.hide",
+      "domain": "ui",
+      "kind": "ui-domain",
+      "roles": [
+        "session",
+        "plugin"
+      ],
+      "status": "stable",
+      "hostHandler": true,
+      "bridge": false
+    },
+    {
+      "method": "ui.suggest.show",
+      "domain": "ui",
+      "kind": "ui-domain",
+      "roles": [
+        "session",
+        "plugin"
+      ],
+      "status": "stable",
+      "hostHandler": true,
+      "bridge": false
+    },
+    {
       "method": "vault.append",
       "domain": "vault",
       "kind": "fs-write",

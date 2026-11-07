@@ -223,6 +223,14 @@
       "kind": "ui-domain"
     },
     {
+      "method": "ui.suggest.hide",
+      "kind": "ui-domain"
+    },
+    {
+      "method": "ui.suggest.show",
+      "kind": "ui-domain"
+    },
+    {
       "method": "vault.append",
       "kind": "fs-write"
     },

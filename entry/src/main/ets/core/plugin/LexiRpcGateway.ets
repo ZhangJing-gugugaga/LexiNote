@@ -128,6 +128,9 @@ export class LexiRpcGateway {
     schema.set('ui.modal.close', [field('modalId', 'string')]);
     schema.set('ui.menu.show', [field('menuId', 'string'), field('items', 'array')]);
     schema.set('ui.menu.hide', [field('menuId', 'string')]);
+    // --- P4-002 插件 EditorSuggest 宿主面（ui-domain 家族；items 只是显示描述符） ---
+    schema.set('ui.suggest.show', [field('suggestId', 'string'), field('query', 'string'), field('items', 'array')]);
+    schema.set('ui.suggest.hide', [field('suggestId', 'string')]);
     return schema;
   }
 
