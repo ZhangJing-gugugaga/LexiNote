@@ -39,14 +39,17 @@ export function lexiIconResource(name: string, muted: boolean = false): Resource
     case 'tag':
       return muted ? $r('app.media.ic_tag_muted') : $r('app.media.ic_tag');
     case 'star':
+    case 'spark':
       return muted ? $r('app.media.ic_star_muted') : $r('app.media.ic_star');
     case 'pin':
       return muted ? $r('app.media.ic_pin_muted') : $r('app.media.ic_pin');
     case 'trash':
       return muted ? $r('app.media.ic_trash_muted') : $r('app.media.ic_trash');
     case 'back':
+    case 'chevron_left':
       return muted ? $r('app.media.ic_back_muted') : $r('app.media.ic_back');
     case 'chevron':
+    case 'chevron_right':
       return muted ? $r('app.media.ic_chevron_muted') : $r('app.media.ic_chevron');
     case 'sun':
       return muted ? $r('app.media.ic_sun_muted') : $r('app.media.ic_sun');

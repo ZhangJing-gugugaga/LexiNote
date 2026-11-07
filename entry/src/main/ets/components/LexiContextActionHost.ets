@@ -3,6 +3,7 @@ import { CanvasBoard, LexiProject, MindMapDoc, NoteItem, NoteRevision, VaultItem
 import { LexiContextCommand, LexiContextTarget } from '../core/LexiContextModels';
 import { LexiStorageService as Storage } from '../core/LexiStorageService';
 import { LexiFileActions } from '../core/LexiFileActions';
+import { LexiShareService } from '../core/LexiShareService';
 import { MarkdownEngine } from '../core/MarkdownEngine';
 
 @Component
@@ -68,6 +69,10 @@ export struct LexiContextActionHost {
     if (action === 'save-template' && this.target.kind === 'note') {
       await Storage.saveNoteAsTemplate(this.target.id);
       this.toast('已添加到独立模板库，可在“模板”中编辑'); return;
+    }
+    if (action === 'share-file' && this.target.kind === 'note') {
+      await LexiShareService.shareNoteById(this.context(), this.target.id, `context-trigger-note-${this.target.id}`);
+      return;
     }
     if (action === 'copy-path' || action === 'copy-relative') {
       await LexiFileActions.copyPath(this.context(), this.target, action === 'copy-relative'); this.toast('路径已复制'); return;

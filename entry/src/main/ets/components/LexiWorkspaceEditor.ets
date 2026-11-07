@@ -11,6 +11,7 @@ import { LexiLiveEditorController } from '../core/LexiLiveMarkdown';
 import { NoteItem, NoteLink, OutlineHeading } from '../core/LexiModels';
 import { LexiWorkspaceEditorController } from '../core/LexiWorkspaceModels';
 import { LexiStorageService } from '../core/LexiStorageService';
+import { LexiShareService } from '../core/LexiShareService';
 import { MarkdownEngine } from '../core/MarkdownEngine';
 import { LexiContinuationData, LexiContinuationDraft } from '../core/LexiContinuationData';
 import { LexiContinuationSession } from '../core/LexiContinuationSession';
@@ -430,6 +431,22 @@ export struct LexiWorkspaceEditor {
     }
   }
 
+  private async shareDocument(): Promise<void> {
+    try {
+      await this.flush();
+      await LexiShareService.shareDraftNote(
+        this.context(),
+        this.note,
+        this.titleText,
+        this.bodyText,
+        this.note.notebook,
+        'workspace-document-more'
+      );
+    } catch (error) {
+      this.getUIContext().getPromptAction().showToast({ message: (error as Error).message || '系统分享未完成' });
+    }
+  }
+
   private restoreEditorSelection(start: number, end: number, expectedBody: string, requestFocus: boolean): void {
     const revision = ++this.focusRevision;
     const sourceMode = this.editing;
@@ -535,6 +552,16 @@ export struct LexiWorkspaceEditor {
     } catch { return; }
     this.liveController.finishEditing(); this.completionItems = [];
     this.showCaptureAssistant = true;
+  }
+
+  private requestVoiceCapture(): void {
+    if (!this.editorAttached || !this.loaded || this.loadFailed || this.conflictResolving ||
+      this.showCaptureAssistant || this.pendingCaptureOpen) { return; }
+    this.toolSelectionStart = this.selectionStart; this.toolSelectionEnd = this.selectionEnd;
+    this.toolSelectionBody = this.bodyText;
+    this.pendingToolSnippet = ''; this.pendingCaptureOpen = true;
+    if (this.showToolsPopup) { this.showToolsPopup = false; }
+    else { this.toolsPopupDidDisappear(); }
   }
 
   private captureSheetHeight(): number {
@@ -649,6 +676,7 @@ export struct LexiWorkspaceEditor {
         });
       })
       MenuItem({ content: '导出 Markdown' }).onClick((): void => { this.exportDocument(); })
+      MenuItem({ content: '系统分享文件' }).onClick((): void => { this.shareDocument(); })
       MenuItem({ content: '生成思维导图' }).onClick((): void => {
         this.flush().then((): void => { this.onConvertMap(this.noteId); }).catch((): void => {
           this.statusText = '保存失败 · 点击重试';
@@ -755,14 +783,16 @@ export struct LexiWorkspaceEditor {
                 this.loading = this.load(); this.loading.catch((): void => { this.loadFailed = true; });
               })
             } else if (this.loaded) {
-              TextInput({ text: this.titleText, placeholder: '无标题笔记' })
-                .id(`workspace-title-input-${this.noteId}-${this.continuationOwner}`).enabled(!this.conflictResolving).height(58).width('100%').padding(0)
-                .fontSize(30).fontWeight(FontWeight.Bold).fontColor($r('app.color.text_primary'))
+              TextArea({ text: this.titleText, placeholder: '无标题笔记' })
+                .id(`workspace-title-input-${this.noteId}-${this.continuationOwner}`).enabled(!this.conflictResolving)
+                .width('100%').constraintSize({ minHeight: 44 }).padding(0)
+                .fontSize(30).lineHeight(40).fontWeight(FontWeight.Bold).fontColor($r('app.color.text_primary'))
                 .placeholderColor($r('app.color.text_secondary')).caretColor($r('app.color.brand'))
                 .backgroundColor(Color.Transparent).borderRadius(0)
                 .onFocus((): void => { this.activateContinuation(true); })
                 .onChange((text: string): void => {
-                  if (text !== this.titleText) { this.titleText = text; this.changed(); }
+                  const clean = text.replace(/\r?\n/g, ' ');
+                  if (clean !== this.titleText) { this.titleText = clean; this.changed(); }
                 })
               Row({ space: 8 }) {
                 Text(this.note.noteType === 'study' ? '学习笔记' : this.note.noteType === 'quick' ? '快速笔记' : 'Markdown')
@@ -809,16 +839,33 @@ export struct LexiWorkspaceEditor {
         .align(Alignment.Top).scrollBar(BarState.Auto)
         if (this.inspectorOpen && this.paneWidth >= 680) { this.inspector(); }
       }.width('100%').layoutWeight(1)
-      Row({ space: 16 }) {
-        Text(this.editing ? 'Markdown 源码' : '实时预览 · 点按段落编辑').fontSize(11).fontColor($r('app.color.text_secondary'))
-        Blank()
-        Text(`${this.backlinks.length} 个反向链接`).fontSize(11).fontColor($r('app.color.text_secondary'))
-        Text(`${this.bodyText.length} 字符`).fontSize(11).fontColor($r('app.color.text_secondary'))
+      Row({ space: this.paneWidth >= 600 ? 16 : 8 }) {
+        Button({ type: ButtonType.Normal, buttonStyle: ButtonStyleMode.TEXTUAL }) {
+          Row({ space: 6 }) {
+            SymbolGlyph($r('sys.symbol.mic')).fontSize(15).fontColor([$r('app.color.brand_ink')])
+            Text('语音记录').fontSize(12).fontColor($r('app.color.brand_ink')).maxLines(1)
+          }
+        }.id(`workspace-voice-record-${this.noteId}`).width(104).height(32).padding({ left: 8, right: 8 }).borderRadius(8)
+          .backgroundColor($r('app.color.soft_surface')).accessibilityText('语音记录，打开离线语音速记')
+          .enabled(this.loaded && !this.loadFailed && !this.conflictResolving)
+          .onClick((): void => { this.requestVoiceCapture(); })
+        if (this.paneWidth >= 600) {
+          Text(this.editing ? 'Markdown 源码' : this.paneWidth >= 900 ? '实时预览 · 点按段落编辑' : '实时预览')
+            .fontSize(11).fontColor($r('app.color.text_secondary')).maxLines(1)
+        }
+        if (this.paneWidth >= 900) {
+          Text(`${this.backlinks.length} 个反向链接`).fontSize(11).fontColor($r('app.color.text_secondary')).maxLines(1)
+        }
+        if (this.paneWidth >= 480) {
+          Text(`${this.bodyText.length} 字符`).fontSize(11).fontColor($r('app.color.text_secondary')).maxLines(1)
+        }
         Text(this.statusText).id('workspace-save-status').fontSize(11).fontColor($r('app.color.text_secondary'))
+          .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).textAlign(TextAlign.End)
           .onClick((): void => { this.flush().catch((): void => { this.statusText = '保存失败 · 点击重试'; }); })
       }
-      .height(deviceInfo.deviceType === '2in1' ? 30 : 34).width('100%')
-      .padding({ left: 24, right: 20, bottom: deviceInfo.deviceType === '2in1' ? 0 : 4 })
+      .height(deviceInfo.deviceType === '2in1' ? 40 : 44).width('100%')
+      .padding({ left: this.paneWidth >= 600 ? 24 : 12, right: this.paneWidth >= 600 ? 20 : 12,
+        bottom: deviceInfo.deviceType === '2in1' ? 0 : 4 })
       .border({ width: { top: 0.5 }, color: $r('app.color.workspace_line') })
     }.id(`workspace-editor-${this.noteId}-${this.continuationOwner}`).width('100%').height('100%').backgroundColor($r('app.color.workspace_page'))
       .onVisibleAreaChange([0], (visible: boolean, _ratio: number): void => {

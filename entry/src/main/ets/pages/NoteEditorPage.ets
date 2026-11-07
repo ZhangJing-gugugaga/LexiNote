@@ -1,4 +1,5 @@
 import { common } from '@kit.AbilityKit';
+import { util } from '@kit.ArkTS';
 import { KeyCode } from '@kit.InputKit';
 import { LexiCompletionPanel } from '../components/LexiCompletionPanel';
 import { LexiCompletion, LexiCompletionCandidate, LexiCompletionContext } from '../core/LexiCompletion';
@@ -19,9 +20,14 @@ import {
   OutlineHeading
 } from '../core/LexiModels';
 import { MarkdownEngine } from '../core/MarkdownEngine';
+import { LexiFrontmatter } from '../core/LexiFrontmatter';
+import { LexiShareCapture } from '../core/LexiShareCapture';
+import { LexiSharableNoteSnapshot, LexiShareService } from '../core/LexiShareService';
 import { LexiStorageService } from '../core/LexiStorageService';
 import { LexiTemplateItem, LexiTemplateLibrary } from '../core/LexiTemplateLibrary';
 import { LexiCaptureAssistantPanel } from '../components/LexiCaptureAssistantPanel';
+import { LexiHarnessModalDialog } from '../components/LexiHarnessPanel';
+import { LexiHarnessService } from '../harness/LexiHarnessService';
 import { LexiContinuationData, LexiContinuationDraft } from '../core/LexiContinuationData';
 import { LexiContinuationSession } from '../core/LexiContinuationSession';
 
@@ -68,6 +74,9 @@ export struct NoteEditorPage {
   private previewScroller: Scroller = new Scroller();
   @State private note: NoteItem = new NoteItem();
   @State private templateMode: boolean = false;
+  @State private externalFileMode: boolean = false;
+  @State private deferredCreation: boolean = false;
+  private externalFileUri: string = '';
   private templateRecord: LexiTemplateItem = new LexiTemplateItem();
   @State private titleText: string = '';
   @State private contentText: string = '';
@@ -110,6 +119,7 @@ export struct NoteEditorPage {
   private leavingEditor: boolean = false;
   private pendingToolSnippet: string = '';
   @State private showAssistantPanel: boolean = false;
+  @State private showHarnessDialog: boolean = false;
   private pendingAssistantOpen: boolean = false;
   private pendingAssistantSnippet: string = '';
   private assistantSelectionStart: number = 0;
@@ -126,6 +136,18 @@ export struct NoteEditorPage {
 
   aboutToAppear(): void {
     this.pageAttached = true; this.pageVisible = true;
+    LexiShareService.activateKnockSource(this.continuationOwner, (): LexiSharableNoteSnapshot | undefined => {
+      if (!this.pageAttached || !this.pageVisible || !this.pageLoaded || this.templateMode || this.deferredCreation) {
+        return undefined;
+      }
+      const snapshot = new LexiSharableNoteSnapshot();
+      snapshot.noteId = this.note.id;
+      snapshot.title = this.titleText;
+      snapshot.content = this.contentText;
+      snapshot.notebook = this.notebookText;
+      snapshot.tags = this.note.tags.slice();
+      return snapshot;
+    });
     try {
       this.previousKeyboardMode = this.getUIContext().getKeyboardAvoidMode();
       this.getUIContext().setKeyboardAvoidMode(UIKeyboardAvoidMode.RESIZE);
@@ -134,6 +156,7 @@ export struct NoteEditorPage {
 
   aboutToDisappear(): void {
     this.pageAttached = false; this.pageVisible = false; this.focusRevision++; this.externalReadRevision++;
+    LexiShareService.deactivateKnockSource(this.continuationOwner);
     this.releaseContinuation();
     this.pendingAssistantOpen = false; this.pendingAssistantSnippet = ''; this.showAssistantPanel = false;
     this.pendingToolSnippet = '';
@@ -158,11 +181,48 @@ export struct NoteEditorPage {
   private async loadFromRoute(param: NoteEditorRouteParam | undefined): Promise<void> {
     await LexiStorageService.init(this.context());
     this.pageLoaded = false;
+    this.deferredCreation = false;
     this.templateMode = !!(param && param.templateId);
+    this.externalFileMode = !!(param && param.externalFileMode);
+    this.externalFileUri = param && param.externalFileUri ? param.externalFileUri : '';
     const vaultId = param && param.vaultId ? param.vaultId : await LexiStorageService.getActiveVaultId();
     this.allVaultNotes = (await LexiStorageService.getNotes(vaultId)).filter(
       (n: NoteItem): boolean => n.trashedAt === 0
     );
+
+    if (this.externalFileMode && param) {
+      const extNote = new NoteItem();
+      extNote.vaultId = vaultId;
+      extNote.projectId = param.projectId || await LexiStorageService.getActiveProjectId(vaultId);
+      extNote.noteType = param.initialType || 'markdown';
+      extNote.editorLevel = param.initialTier || 'pro';
+      extNote.title = param.initialTitle || '外部 Markdown';
+      extNote.content = param.initialContent || '';
+      extNote.notebook = '外部导入';
+      extNote.path = this.externalFileUri;
+      LexiFrontmatter.apply(extNote, extNote.content);
+      const notebookProp = extNote.properties.find((prop: NoteProperty): boolean => prop.key === 'notebook' && !!prop.propValue.trim());
+      if (notebookProp) {
+        extNote.notebook = notebookProp.propValue.trim().slice(0, 80);
+      }
+      const titleProp = extNote.properties.find((prop: NoteProperty): boolean => prop.key === 'title' && !!prop.propValue.trim());
+      const fileStem = LexiShareCapture.fileNameFromUri(this.externalFileUri).replace(/\.(md|markdown)$/i, '').trim();
+      if (titleProp && (!extNote.title.trim() || extNote.title.trim() === fileStem)) {
+        extNote.title = titleProp.propValue.trim().slice(0, 160);
+      }
+      if (!extNote.title.trim()) {
+        extNote.title = param.initialTitle || '外部 Markdown';
+      }
+      this.note = extNote;
+      this.titleText = this.note.title;
+      this.contentText = this.note.content;
+      this.notebookText = this.note.notebook;
+      this.editorTier = this.note.editorLevel;
+      this.saveStatus = '外部 Markdown 文件 · 点击保存可添加到工作区';
+      this.refreshDerived();
+      this.finishLoadingRoute(param);
+      return;
+    }
 
     if (this.templateMode && param) {
       const template = (await LexiStorageService.getTemplates()).find((item: LexiTemplateItem): boolean => item.id === param.templateId);
@@ -204,14 +264,22 @@ export struct NoteEditorPage {
           : 'simple';
     fresh.title = param && param.initialTitle ? param.initialTitle : '';
     fresh.content = param && param.initialContent ? param.initialContent : '';
-    fresh.notebook = '笔记';
-    this.note = await LexiStorageService.saveNote(this.context(), fresh);
+    fresh.notebook = param && param.initialNotebook ? param.initialNotebook : '笔记';
+    if (param && param.createNew && param.deferCreationUntilInput) {
+      // Keep a stable editor identity without adding a catalog entry or Markdown file.
+      fresh.id = util.generateRandomUUID(true);
+      this.note = fresh; this.deferredCreation = true;
+      this.saveStatus = '输入内容后自动保存';
+    } else {
+      this.note = await LexiStorageService.saveNote(this.context(), fresh);
+    }
     this.titleText = this.note.title;
     this.contentText = this.note.content;
     this.notebookText = this.note.notebook;
     this.editorTier = this.note.editorLevel;
     this.refreshDerived();
     this.finishLoadingRoute(param);
+    if (this.deferredCreation && (this.titleText.trim() || this.contentText.trim())) { this.scheduleSave(); }
   }
 
   private templateNote(template: LexiTemplateItem): NoteItem {
@@ -275,16 +343,25 @@ export struct NoteEditorPage {
 
   private scheduleSave(): void {
     this.editRevision++;
-    this.saveStatus = '正在自动保存…';
     if (this.viewMode !== 'edit') {
       this.blocks = MarkdownEngine.parseBlocks(this.contentText);
     }
     if (this.showOutlinePanel || this.editorTier !== 'simple') {
       this.outlineHeadings = MarkdownEngine.extractOutline(this.contentText);
     }
+    if (this.externalFileMode) {
+      this.saveStatus = '已编辑 · 点击保存可添加到工作区';
+      return;
+    }
     if (this.saveTimer >= 0) {
       clearTimeout(this.saveTimer);
+      this.saveTimer = -1;
     }
+    if (this.deferredCreation && !this.titleText.trim() && !this.contentText.trim()) {
+      this.saveStatus = '输入内容后自动保存';
+      return;
+    }
+    this.saveStatus = '正在自动保存…';
     this.saveTimer = setTimeout(() => {
       this.persistNow().catch((error: Error): void => {
         this.saveStatus = error.message === 'DOCUMENT_CHANGED_ELSEWHERE' ? '其他位置已更新，当前草稿已保留' : '待重试保存';
@@ -293,9 +370,14 @@ export struct NoteEditorPage {
   }
 
   private async persistNow(): Promise<void> {
+    if (this.externalFileMode) { return; }
     while (this.pendingSave) { await this.pendingSave; }
     if (this.conflictResolving) { throw new Error('正在保存冲突副本，请稍候'); }
     if (!this.templateMode && (!this.pageLoaded || !this.hasUnsavedChanges())) { return; }
+    if (this.deferredCreation && !this.titleText.trim() && !this.contentText.trim()) {
+      this.saveStatus = '输入内容后自动保存';
+      return;
+    }
     if (!this.note.id && !this.titleText.trim() && !this.contentText.trim()) {
       return;
     }
@@ -314,6 +396,7 @@ export struct NoteEditorPage {
     const revision = this.editRevision;
     const savingContent = this.contentText;
     const noteId = this.note.id;
+    const creatingDraft = this.deferredCreation;
     const snapshot = JSON.parse(JSON.stringify(this.note)) as NoteItem;
     snapshot.title = this.titleText.trim(); snapshot.content = savingContent;
     snapshot.notebook = this.notebookText.trim() || '速记收件箱'; snapshot.editorLevel = this.editorTier;
@@ -326,7 +409,10 @@ export struct NoteEditorPage {
       this.templateRecord = await LexiStorageService.saveTemplate(template);
       saved = this.templateNote(this.templateRecord);
     } else {
-      try { saved = await LexiStorageService.saveNoteIfCurrent(this.context(), snapshot, this.baseTitle, this.baseContent); }
+      try {
+        saved = creatingDraft ? await LexiStorageService.saveNote(this.context(), snapshot) :
+          await LexiStorageService.saveNoteIfCurrent(this.context(), snapshot, this.baseTitle, this.baseContent);
+      }
       catch (error) {
         if ((error as Error).message === 'DOCUMENT_CHANGED_ELSEWHERE') {
           this.saveStatus = '其他位置已更新，当前草稿已保留'; this.showSaveConflict();
@@ -338,6 +424,7 @@ export struct NoteEditorPage {
     const pendingTags = this.note.tags.slice();
     const pendingProperties = this.note.properties.map((prop: NoteProperty): NoteProperty => new NoteProperty(prop.key, prop.propValue));
     this.note = saved;
+    if (creatingDraft) { this.deferredCreation = false; this.activateContinuation(); }
     if (!this.templateMode) {
       this.baseTitle = saved.title; this.baseContent = saved.content; this.savedEditRevision = revision;
       if (revision !== this.editRevision) { this.note.tags = pendingTags; this.note.properties = pendingProperties; }
@@ -411,7 +498,7 @@ export struct NoteEditorPage {
   }
 
   private async refreshExternalNote(): Promise<void> {
-    if (!this.pageAttached || !this.pageVisible || !this.abilityForeground || !this.pageLoaded || this.templateMode || this.pendingSave || this.conflictResolving) { return; }
+    if (this.deferredCreation || this.externalFileMode || !this.pageAttached || !this.pageVisible || !this.abilityForeground || !this.pageLoaded || this.templateMode || this.pendingSave || this.conflictResolving) { return; }
     this.liveController.finishEditing();
     if (this.hasUnsavedChanges()) { return; }
     const sequence = ++this.externalReadRevision; const revision = this.editRevision; const noteId = this.note.id;
@@ -520,10 +607,25 @@ export struct NoteEditorPage {
   private async openWikiLinkTarget(rawTarget: string): Promise<void> {
     if (this.templateMode) { this.toast('模板中的链接会保留到新建笔记中'); return; }
     try {
-      await this.persistNow();
+      if (!this.externalFileMode) {
+        await this.persistNow();
+      }
       const parsed = LexiCompletion.splitTarget(rawTarget);
+      const currentTitle = (this.titleText.trim() || MarkdownEngine.displayTitle(this.note)).trim().toLowerCase();
+      if (!parsed.noteName || parsed.noteName === this.note.id || parsed.noteName.trim().toLowerCase() === currentTitle) {
+        if (parsed.anchor) {
+          this.jumpToAnchor(parsed.anchor);
+        } else {
+          this.toast('当前已是该笔记');
+        }
+        return;
+      }
+      const activeVaultId = this.note.vaultId || await LexiStorageService.getActiveVaultId();
+      this.allVaultNotes = (await LexiStorageService.getNotes(activeVaultId)).filter(
+        (n: NoteItem): boolean => n.trashedAt === 0
+      );
       const target = this.allVaultNotes.find((n: NoteItem): boolean =>
-        parsed.noteName ? n.id === parsed.noteName || n.title.trim().toLowerCase() === parsed.noteName.toLowerCase() : n.id === this.note.id);
+        n.id === parsed.noteName || n.title.trim().toLowerCase() === parsed.noteName.trim().toLowerCase());
       if (target) {
         if (target.id === this.note.id) { this.jumpToAnchor(parsed.anchor); return; }
         LexiAnchorNavigation.request(target.id, parsed.anchor);
@@ -532,14 +634,14 @@ export struct NoteEditorPage {
         this.pathStack.pushPathByName('noteEditor', param);
         return;
       }
-      if (!parsed.noteName) { return; }
       const created = new NoteItem();
-      created.vaultId = this.note.vaultId;
+      created.vaultId = activeVaultId;
       created.projectId = this.note.projectId || '';
-      created.title = parsed.noteName;
+      created.title = parsed.noteName.trim();
       created.notebook = this.notebookText;
       created.noteType = 'study'; created.editorLevel = 'study';
       const saved = await LexiStorageService.saveNote(this.context(), created);
+      this.allVaultNotes.push(saved);
       LexiAnchorNavigation.request(saved.id, parsed.anchor);
       const param = new NoteEditorRouteParam();
       param.noteId = saved.id; param.vaultId = saved.vaultId;
@@ -646,6 +748,7 @@ export struct NoteEditorPage {
 
   private async convertToMindMap(): Promise<void> {
     await this.persistNow();
+    if (this.deferredCreation) { this.toast('请先输入笔记内容，再生成思维导图'); return; }
     const param = new MindMapRouteParam();
     param.createNew = true;
     param.fromNoteId = this.note.id;
@@ -663,6 +766,60 @@ export struct NoteEditorPage {
     }
   }
 
+  private async shareCurrentMarkdown(): Promise<void> {
+    try {
+      if (!this.externalFileMode) {
+        await this.persistNow();
+      }
+      await LexiShareService.shareDraftNote(
+        this.context(),
+        this.note,
+        this.titleText,
+        this.contentText,
+        this.notebookText,
+        'note-tools-open'
+      );
+    } catch (error) {
+      this.toast((error as Error).message || '系统分享面板暂时无法打开');
+    }
+  }
+
+  private async openCurrentNoteInLexiGlow(): Promise<void> {
+    if (!this.contentText.trim()) {
+      this.toast('当前笔记还没有正文内容');
+      return;
+    }
+    try {
+      if (!this.externalFileMode) {
+        await this.persistNow();
+      }
+      await this.context().startAbility({
+        bundleName: 'com.lovexjy.lexiglow',
+        abilityName: 'EntryAbility',
+        parameters: {
+          route: 'sharedArticle',
+          lexiglowSharedTitle: (this.titleText.trim() || MarkdownEngine.displayTitle(this.note)).slice(0, 80),
+          lexiglowSharedArticle: this.contentText.slice(0, 60000)
+        }
+      });
+    } catch (_) {
+      await this.shareCurrentMarkdown();
+    }
+  }
+
+  private async openLumiKitTool(toolId: string): Promise<void> {
+    const uri = `lumikit://tool?id=${encodeURIComponent(toolId)}`;
+    try {
+      await this.context().startAbility({
+        action: 'ohos.want.action.viewData',
+        entities: ['entity.system.browsable'],
+        uri: uri
+      });
+    } catch (_) {
+      this.toast('未检测到集萤 LumiKit，请先安装或打开集萤');
+    }
+  }
+
   private filteredLinkCandidates(): NoteItem[] {
     const q = this.linkSearchText.trim().toLowerCase();
     return this.allVaultNotes
@@ -671,10 +828,119 @@ export struct NoteEditorPage {
       .slice(0, 8);
   }
 
+  private promptSaveExternalFile(closeAfter: boolean = false): void {
+    this.liveController.finishEditing();
+    try {
+      this.getUIContext().showAlertDialog({
+        title: '是否要添加到工作区？',
+        message: '已编辑当前 Markdown 文件。是否将其添加到当前工作区知识库？',
+        primaryButton: {
+          value: '不添加（仅保存）',
+          action: (): void => {
+            this.saveExternalFileOnly(closeAfter);
+          }
+        },
+        secondaryButton: {
+          value: '添加到工作区',
+          action: (): void => {
+            this.addExternalFileToWorkspace(closeAfter);
+          }
+        },
+        cancel: (): void => {
+          this.leavingEditor = false;
+        }
+      });
+    } catch {
+      this.addExternalFileToWorkspace(closeAfter);
+    }
+  }
+
+  private async saveExternalFileOnly(closeAfter: boolean): Promise<void> {
+    const wrote = this.externalFileUri ? LexiShareCapture.writeUriText(this.externalFileUri, this.contentText) : false;
+    if (wrote) {
+      this.baseTitle = this.titleText.trim();
+      this.baseContent = this.contentText;
+      this.savedEditRevision = this.editRevision;
+      this.saveStatus = '已保存到原 Markdown 文件';
+      this.toast('已保存到原 Markdown 文件');
+    } else {
+      const name = `${this.titleText.trim() || MarkdownEngine.displayTitle(this.note)}.md`;
+      try {
+        await LexiStorageService.saveViaDocumentPicker(this.context(), name, this.contentText);
+        this.baseTitle = this.titleText.trim();
+        this.baseContent = this.contentText;
+        this.savedEditRevision = this.editRevision;
+        this.saveStatus = '已导出保存 Markdown 文件';
+        this.toast('已保存 Markdown 文件');
+      } catch (error) {
+        this.leavingEditor = false;
+        this.toast((error as Error).message || '保存取消');
+        return;
+      }
+    }
+    if (closeAfter) {
+      this.pathStack.pop();
+    }
+  }
+
+  private async addExternalFileToWorkspace(closeAfter: boolean): Promise<void> {
+    if (this.externalFileUri) {
+      LexiShareCapture.writeUriText(this.externalFileUri, this.contentText);
+    }
+    const fresh = new NoteItem();
+    fresh.vaultId = this.note.vaultId || await LexiStorageService.getActiveVaultId();
+    fresh.projectId = this.note.projectId || await LexiStorageService.getActiveProjectId(fresh.vaultId);
+    fresh.noteType = 'markdown';
+    fresh.editorLevel = this.editorTier || 'pro';
+    fresh.title = this.titleText.trim() || '外部 Markdown';
+    fresh.content = this.contentText;
+    fresh.notebook = this.notebookText.trim() || '外部导入';
+    fresh.tags = this.note.tags.slice();
+    fresh.properties = this.note.properties.map((prop: NoteProperty): NoteProperty => new NoteProperty(prop.key, prop.propValue));
+    LexiFrontmatter.apply(fresh, this.contentText);
+    const notebookProp = fresh.properties.find((prop: NoteProperty): boolean => prop.key === 'notebook' && !!prop.propValue.trim());
+    if (notebookProp && (!this.notebookText.trim() || this.notebookText.trim() === '外部导入')) {
+      fresh.notebook = notebookProp.propValue.trim().slice(0, 80);
+    }
+    if (this.titleText.trim()) {
+      fresh.title = this.titleText.trim();
+    }
+    try {
+      const saved = await LexiStorageService.saveNote(this.context(), fresh);
+      this.externalFileMode = false;
+      this.note = saved;
+      this.titleText = saved.title;
+      this.contentText = saved.content;
+      this.baseTitle = saved.title;
+      this.baseContent = saved.content;
+      this.savedEditRevision = this.editRevision;
+      this.allVaultNotes = (await LexiStorageService.getNotes(saved.vaultId)).filter((n: NoteItem): boolean => n.trashedAt === 0);
+      this.refreshDerived();
+      this.activateContinuation();
+      this.saveStatus = '已保存并添加到工作区';
+      this.toast('已保存并添加到工作区');
+      if (closeAfter) {
+        this.pathStack.pop();
+      }
+    } catch (error) {
+      this.leavingEditor = false;
+      this.toast((error as Error).message || '添加到工作区失败');
+    }
+  }
+
   private leaveEditor(): void {
     if (this.leavingEditor) { return; }
     if (this.templateMode && !this.note.id) { this.pathStack.pop(); return; }
     this.liveController.finishEditing();
+    if (this.externalFileMode) {
+      if (this.hasUnsavedChanges()) {
+        this.leavingEditor = true;
+        this.promptSaveExternalFile(true);
+      } else {
+        this.pathStack.pop();
+      }
+      return;
+    }
     this.leavingEditor = true;
     this.persistNow().then(() => {
       this.pathStack.pop();
@@ -688,12 +954,17 @@ export struct NoteEditorPage {
   @Builder
   private pageTitleBar() {
     LexiBackHeader({
-      title: this.templateMode ? '模板' : this.viewportWidth < 840 ? '笔记' : MarkdownEngine.displayTitle(this.note),
+      title: this.templateMode ? '模板' : this.externalFileMode ? (this.titleText.trim() || '外部 Markdown') :
+        this.viewportWidth < 840 ? '笔记' : MarkdownEngine.displayTitle(this.note),
       subtitle: this.saveStatus,
-      actionLabel: this.viewportWidth < 840 ? '' : '导出 .md',
+      actionLabel: this.externalFileMode ? '保存' : this.viewportWidth < 840 ? '' : '导出 .md',
       onBack: () => { this.leaveEditor(); },
       onAction: () => {
-        this.exportCurrentMarkdown();
+        if (this.externalFileMode) {
+          this.promptSaveExternalFile(false);
+        } else {
+          this.exportCurrentMarkdown();
+        }
       }
     })
   }
@@ -777,7 +1048,10 @@ export struct NoteEditorPage {
       this.popupAction('全文源码', (): void => { this.selectViewMode('edit'); })
       this.popupAction('源码对照', (): void => { this.selectViewMode('split'); })
       this.popupAction('导出 .md', (): void => { this.showToolsPanel = false; this.exportCurrentMarkdown(); })
+      this.popupAction('系统分享', (): void => { this.showToolsPanel = false; this.shareCurrentMarkdown(); })
       if (!this.templateMode) {
+        this.popupAction('词萤伴读', (): void => { this.showToolsPanel = false; this.openCurrentNoteInLexiGlow(); })
+        this.popupAction('集萤 OCR', (): void => { this.showToolsPanel = false; this.openLumiKitTool('image-ocr'); })
         this.popupAction('语音 / 整理', (): void => { this.requestAssistant(); })
         this.popupAction('转思维导图', (): void => { this.showToolsPanel = false; this.convertToMindMap(); })
         this.popupAction(this.note.favorite ? '取消收藏' : '收藏笔记', (): void => {
@@ -981,7 +1255,7 @@ export struct NoteEditorPage {
   }
 
   private activateContinuation(): void {
-    if (!this.pageAttached || !this.pageVisible || !this.pageLoaded || this.templateMode || !this.note.id) { return; }
+    if (this.deferredCreation || this.externalFileMode || !this.pageAttached || !this.pageVisible || !this.pageLoaded || this.templateMode || !this.note.id) { return; }
     LexiContinuationSession.activate(this.context(), this.continuationOwner, (): LexiContinuationDraft => {
       const draft = LexiContinuationData.capture(this.note, this.titleText, this.contentText,
         this.selectionStart, this.selectionEnd, this.viewMode === 'edit' || this.viewMode === 'split');
@@ -991,12 +1265,15 @@ export struct NoteEditorPage {
   }
 
   private releaseContinuation(): void {
-    if (this.templateMode) { return; }
+    if (this.templateMode || this.externalFileMode) { return; }
     try { LexiContinuationSession.deactivate(this.context(), this.continuationOwner); } catch {}
   }
 
   private editorShown(): void {
     this.pageVisible = true;
+    if (this.note.id) {
+      LexiHarnessService.setActiveEditorNoteId(this.note.id);
+    }
     this.activateContinuation(); this.restoreRouteSelection();
     if (this.pendingAssistantOpen && !this.showToolsPanel) { this.presentAssistant(); }
     this.workspaceRefreshed();
@@ -1006,7 +1283,7 @@ export struct NoteEditorPage {
     this.pageVisible = false; this.focusRevision++;
     this.releaseContinuation();
     this.pendingToolSnippet = ''; this.pendingAssistantOpen = false; this.pendingAssistantSnippet = '';
-    this.showToolsPanel = false; this.showAssistantPanel = false;
+    this.showToolsPanel = false; this.showAssistantPanel = false; this.showHarnessDialog = false;
   }
 
   private requestAssistant(): void {
@@ -1022,11 +1299,13 @@ export struct NoteEditorPage {
   private presentAssistant(): void {
     if (!this.pendingAssistantOpen || !this.pageLoaded || this.templateMode) { return; }
     const noteId = this.note.id;
-    this.getUIContext().postFrameCallback(new LexiNoteEditorFrame((): void => {
+    // A direct toolbar tap need not produce another render frame. Open on the
+    // next event turn rather than waiting indefinitely for a frame's idle phase.
+    setTimeout((): void => {
       if (!this.pendingAssistantOpen || !this.pageAttached || !this.pageVisible || this.note.id !== noteId || this.showToolsPanel || this.templateMode) { return; }
       this.pendingAssistantOpen = false; this.completionItems = []; this.focusRevision++;
       this.showAssistantPanel = true;
-    }));
+    }, 0);
   }
 
   private queueAssistantInsertion(text: string): void {
@@ -1081,12 +1360,14 @@ export struct NoteEditorPage {
   @Builder
   private compactWritingSurface() {
     Column() {
-      TextInput({ text: this.titleText, placeholder: this.templateMode ? '模板名称' : '标题（选填）' })
-        .id('note-title-input').width('100%').height(60).fontSize(25).fontWeight(FontWeight.Bold)
+      TextArea({ text: this.titleText, placeholder: this.templateMode ? '模板名称' : '标题（选填）' })
+        .id('note-title-input').width('100%').constraintSize({ minHeight: 42 }).fontSize(25).lineHeight(34).fontWeight(FontWeight.Bold)
         .fontColor($r('app.color.text_primary')).placeholderColor($r('app.color.text_secondary'))
+        .caretColor($r('app.color.brand')).borderRadius(0)
         .backgroundColor(Color.Transparent).padding({ left: 24, right: 24, top: 8, bottom: 4 })
         .onChange((text: string): void => {
-          if (text !== this.titleText) { this.pushHistory(); this.titleText = text; this.scheduleSave(); }
+          const clean = text.replace(/\r?\n/g, ' ');
+          if (clean !== this.titleText) { this.pushHistory(); this.titleText = clean; this.scheduleSave(); }
         })
       Scroll(this.previewScroller) {
         Column({ space: 12 }) {
@@ -1109,9 +1390,10 @@ export struct NoteEditorPage {
         }.width('100%').padding({ left: 24, right: 24, top: 8, bottom: 80 }).alignItems(HorizontalAlign.Start)
       }.id(`note-preview-scroll-${this.note.id}`).width('100%').layoutWeight(1).align(Alignment.Top).scrollBar(BarState.Auto)
       this.inlineCompletion()
-      Row({ space: 12 }) {
+      Row({ space: 8 }) {
         Button('工具', { type: ButtonType.Normal, buttonStyle: ButtonStyleMode.TEXTUAL })
           .id('note-tools-open').height(44).fontSize(14).fontColor($r('app.color.brand_ink'))
+          .padding({ left: 8, right: 8 })
           .onClick((): void => { this.toolPage = 'format'; this.showToolsPanel = !this.showToolsPanel; })
           .bindPopup(this.showToolsPanel, {
             builder: this.compactToolsPopup, placement: Placement.TopLeft, width: this.toolPopupWidth(),
@@ -1119,12 +1401,53 @@ export struct NoteEditorPage {
             keyboardAvoidMode: KeyboardAvoidMode.DEFAULT,
             onStateChange: (event: LexiNotePopupState): void => { this.showToolsPanel = event.isVisible; }
           })
-        Text(`${this.contentText.length} 字`).fontSize(11).fontColor($r('app.color.text_secondary')).layoutWeight(1)
-        Text(this.viewMode === 'live' ? '实时预览' : this.viewMode === 'preview' ? '只读' : '源码')
-          .fontSize(11).fontColor($r('app.color.text_secondary'))
+        if (!this.templateMode) {
+          Button({ type: ButtonType.Normal, buttonStyle: ButtonStyleMode.TEXTUAL }) {
+            Row({ space: 4 }) {
+              LexiIcon({ name: 'spark', iconSize: 16 })
+              Text('AI 助手').fontSize(14).fontWeight(FontWeight.Medium).fontColor($r('app.color.brand_ink')).maxLines(1)
+            }
+          }.id('note-ai-harness').height(44).padding({ left: 8, right: 8 }).borderRadius(10)
+            .accessibilityText('打开知萤 AI 助手对话框')
+            .onClick((): void => {
+              this.liveController.finishEditing();
+              if (this.note.id) {
+                LexiHarnessService.setActiveEditorNoteId(this.note.id);
+              }
+              this.showHarnessDialog = true;
+            })
+
+          Button({ type: ButtonType.Normal, buttonStyle: ButtonStyleMode.TEXTUAL }) {
+            Row({ space: 4 }) {
+              SymbolGlyph($r('sys.symbol.mic')).fontSize(16).fontColor([$r('app.color.brand_ink')])
+                .accessibilityLevel('no')
+              Text('语音记录').fontSize(14).fontColor($r('app.color.brand_ink')).maxLines(1)
+            }
+          }.id('note-voice-record').height(44).padding({ left: 8, right: 8 }).borderRadius(10)
+            .accessibilityText('语音记录，打开离线语音记录面板')
+            .enabled(this.pageLoaded && !this.showAssistantPanel)
+            .onClick((): void => { this.requestAssistant(); })
+        }
+        if (!this.externalFileMode || this.viewportWidth >= 440) {
+          Text(`${this.contentText.length} 字`).fontSize(11).fontColor($r('app.color.text_secondary'))
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+        } else {
+          Blank().layoutWeight(1)
+        }
+        if (this.viewportWidth >= 480) {
+          Text(this.viewMode === 'live' ? '实时预览' : this.viewMode === 'preview' ? '只读' : '源码')
+            .fontSize(11).fontColor($r('app.color.text_secondary'))
+        }
         Button(this.viewMode === 'preview' ? '继续编辑' : '阅读', { type: ButtonType.Normal, buttonStyle: ButtonStyleMode.TEXTUAL })
           .id('note-preview-toggle').height(44).fontSize(14).fontColor($r('app.color.brand_ink'))
+          .padding({ left: 8, right: 8 })
           .onClick((): void => { this.liveController.finishEditing(); this.selectViewMode(this.viewMode === 'preview' ? 'live' : 'preview'); })
+        if (this.externalFileMode) {
+          Button('保存', { type: ButtonType.Normal, buttonStyle: ButtonStyleMode.TEXTUAL })
+            .id('note-external-save').height(44).fontSize(14).fontColor($r('app.color.brand_ink'))
+            .padding({ left: 8, right: 8 })
+            .onClick((): void => { this.promptSaveExternalFile(false); })
+        }
       }.width('100%').height(48).padding({ left: 12, right: 12 })
         .border({ width: { top: 0.5 }, color: $r('app.color.divider') })
     }.id(`note-writing-surface-${this.note.id}-${this.continuationOwner}`).width('100%').constraintSize({ maxWidth: 1040 }).height('100%')
@@ -1135,7 +1458,23 @@ export struct NoteEditorPage {
 
   build() {
     NavDestination() {
-      Stack({ alignContent: Alignment.Top }) { this.compactWritingSurface(); }.width('100%').height('100%')
+      Stack({ alignContent: Alignment.Top }) {
+        this.compactWritingSurface()
+        if (this.showHarnessDialog) {
+          LexiHarnessModalDialog({
+            activeNoteIdProp: this.note.id,
+            onClose: (): void => {
+              this.showHarnessDialog = false;
+            },
+            onInsertToEditor: (markdownText: string): void => {
+              this.pushHistory(true);
+              this.contentText = `${this.contentText.trimEnd()}\n\n${markdownText}`;
+              this.scheduleSave();
+              this.showHarnessDialog = false;
+            }
+          })
+        }
+      }.width('100%').height('100%')
     }
     .hideBackButton(true)
     .onShown((): void => { this.editorShown(); })
@@ -1145,6 +1484,10 @@ export struct NoteEditorPage {
       backgroundColor: $r('app.color.surface'), onDisappear: (): void => { this.assistantDisappeared(); }
     })
     .onBackPressed((): boolean => {
+      if (this.showHarnessDialog) {
+        this.showHarnessDialog = false;
+        return true;
+      }
       this.leaveEditor();
       return true;
     })

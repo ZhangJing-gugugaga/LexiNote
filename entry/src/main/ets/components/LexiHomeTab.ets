@@ -52,6 +52,7 @@ export struct LexiHomeTab {
   onViewAllNotes: () => void = () => {};
   onOpenDaily: () => void = (): void => {};
   onOpenTemplates: () => void = (): void => {};
+  onOpenAi: () => void = (): void => {};
 
   aboutToAppear(): void {
     this.recompute();
@@ -152,13 +153,28 @@ export struct LexiHomeTab {
       }
 
       // Keep quick capture compact so recent notes are visible on the home screen.
-      Row({ space: 10 }) {
+      Row({ space: 8 }) {
         Button('今日笔记', { type: ButtonType.Normal }).id('home-daily-note').layoutWeight(1).height(44)
-          .fontSize(14).borderRadius(16).backgroundColor($r('app.color.brand')).fontColor($r('app.color.inverse_text'))
+          .fontSize(13).borderRadius(16).backgroundColor($r('app.color.brand')).fontColor($r('app.color.inverse_text'))
           .onClick(this.onOpenDaily)
         Button('从模板新建', { type: ButtonType.Normal, buttonStyle: ButtonStyleMode.TEXTUAL })
-          .id('home-templates').layoutWeight(1).height(44).fontSize(14).borderRadius(16)
+          .id('home-templates').layoutWeight(1).height(44).fontSize(13).borderRadius(16)
           .backgroundColor($r('app.color.surface')).fontColor($r('app.color.brand_ink')).onClick(this.onOpenTemplates)
+        Button({ type: ButtonType.Normal, buttonStyle: ButtonStyleMode.TEXTUAL }) {
+          Row({ space: 5 }) {
+            LexiIcon({ name: 'spark', iconSize: 16 })
+            Text('AI 助手')
+              .fontSize(13)
+              .fontWeight(FontWeight.Bold)
+              .fontColor($r('app.color.brand_ink'))
+          }
+        }
+        .id('home-ai-harness')
+        .layoutWeight(1)
+        .height(44)
+        .borderRadius(16)
+        .backgroundColor($r('app.color.soft_surface'))
+        .onClick(this.onOpenAi)
       }.width('100%')
       Column({ space: 10 }) {
         Row() {

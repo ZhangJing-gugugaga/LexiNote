@@ -1,5 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
+import { util } from '@kit.ArkTS';
 import { fileIo as fs, fileShare, fileUri, picker } from '@kit.CoreFileKit';
 import { CanvasBoard, MindMapDoc, NoteItem } from './LexiModels';
 import { LexiFolderPolicy } from './LexiFolderPolicy';
@@ -39,42 +40,88 @@ class LexiFolderRecovery {
 
 export class LexiFolderStore {
   private static activated: Set<string> = new Set<string>();
+  private static grantedFileUris: Map<string, string[]> = new Map<string, string[]>();
 
   static supported(): boolean {
-    return canIUse('SystemCapability.FileManagement.AppFileService.FolderAuthorization') &&
-      canIUse('SystemCapability.FileManagement.UserFileService.FolderSelection');
+    return canIUse('SystemCapability.FileManagement.UserFileService') ||
+      canIUse('SystemCapability.FileManagement.UserFileService.FolderSelection') ||
+      canIUse('SystemCapability.FileManagement.AppFileService.FolderAuthorization');
   }
 
   static path(uri: string): string {
-    return uri ? new fileUri.FileUri(uri).path.replace(/\/+$/, '') : '';
+    if (!uri) { return ''; }
+    const raw = uri.startsWith('file:') ? new fileUri.FileUri(uri).path : uri;
+    return raw.replace(/\/+$/, '');
   }
 
   static folderName(uri: string): string {
     const path = LexiFolderStore.path(uri);
-    return path.substring(path.lastIndexOf('/') + 1) || '工作区';
+    return decodeURIComponent(path.substring(path.lastIndexOf('/') + 1)) || '工作区';
   }
 
   private static policy(uri: string): fileShare.PolicyInfo {
     return { uri: uri, operationMode: fileShare.OperationMode.READ_MODE | fileShare.OperationMode.WRITE_MODE };
   }
 
+  private static async tryPersistAndActivate(uri: string): Promise<void> {
+    if (!uri) { return; }
+    const policies: fileShare.PolicyInfo[] = [LexiFolderStore.policy(uri)];
+    if (canIUse('SystemCapability.FileManagement.AppFileService.FolderAuthorization')) {
+      try {
+        await fileShare.persistPermission(policies);
+        await fileShare.activatePermission(policies);
+      } catch (error) {
+        const code = (error as BusinessError).code;
+        if (code !== 201 && code !== 801 && code !== 401 && code !== 13900001) {
+          throw error as Error;
+        }
+      }
+    }
+    LexiFolderStore.activated.add(uri);
+  }
+
   static async choose(context: common.UIAbilityContext, initialUri: string = ''): Promise<string> {
-    if (!LexiFolderStore.supported()) { throw new Error('当前设备暂不支持长期访问文件夹，已有应用内工作区仍可使用。'); }
     const viewPicker = new picker.DocumentViewPicker(context);
     const options = new picker.DocumentSelectOptions();
     options.selectMode = picker.DocumentSelectMode.FOLDER;
-    options.maxSelectNumber = 1;
+    options.maxSelectNumber = 500;
     if (initialUri) { options.defaultFilePathUri = initialUri; }
-    const uris = await viewPicker.select(options);
-    if (uris.length === 0) { return ''; }
+    let uris: string[] = [];
+    try {
+      uris = await viewPicker.select(options);
+    } catch {
+      const fallback = new picker.DocumentSelectOptions();
+      fallback.fileSuffixFilters = ['Markdown 笔记|.md,.markdown'];
+      fallback.maxSelectNumber = 500;
+      if (initialUri) { fallback.defaultFilePathUri = initialUri; }
+      uris = await viewPicker.select(fallback);
+    }
+    if (!uris || uris.length === 0) { return ''; }
     const uri = uris[0];
-    const policies: fileShare.PolicyInfo[] = [LexiFolderStore.policy(uri)];
-    await fileShare.persistPermission(policies);
-    await fileShare.activatePermission(policies);
-    LexiFolderStore.activated.add(uri);
-    const info = await fs.stat(LexiFolderStore.path(uri));
-    if (!info.isDirectory()) { throw new Error('请选择文件夹'); }
-    return uri;
+    await LexiFolderStore.tryPersistAndActivate(uri);
+    const chosenPath = LexiFolderStore.path(uri);
+    let isDir = false;
+    try {
+      const info = await fs.stat(chosenPath);
+      isDir = info.isDirectory();
+    } catch {
+      isDir = false;
+    }
+    if (isDir) {
+      return uri;
+    }
+    // When a device picker selects file(s) inside a folder instead of the directory itself,
+    // bind the parent folder and scan both the folder (if accessible) and the selected .md files.
+    const slash = uri.lastIndexOf('/');
+    if (slash <= 'file://'.length) { throw new Error('请选择文件夹'); }
+    const folderUri = uri.substring(0, slash);
+    const folderPath = LexiFolderStore.path(folderUri);
+    try { await LexiFolderStore.tryPersistAndActivate(folderUri); } catch {}
+    for (const itemUri of uris) {
+      try { await LexiFolderStore.tryPersistAndActivate(itemUri); } catch {}
+    }
+    LexiFolderStore.grantedFileUris.set(folderPath, uris.slice());
+    return folderUri;
   }
 
   static async activate(binding: LexiFolderBinding): Promise<string> {
@@ -82,13 +129,27 @@ export class LexiFolderStore {
     const permissionUri = binding.permissionUri || binding.folderUri;
     if (!LexiFolderStore.activated.has(permissionUri)) {
       try {
-        await fileShare.activatePermission([LexiFolderStore.policy(permissionUri)]);
+        if (canIUse('SystemCapability.FileManagement.AppFileService.FolderAuthorization')) {
+          await fileShare.activatePermission([LexiFolderStore.policy(permissionUri)]);
+        }
         LexiFolderStore.activated.add(permissionUri);
-      } catch { throw new Error('文件夹授权已失效，请在工作区管理中重新授权。'); }
+      } catch (error) {
+        const code = (error as BusinessError).code;
+        if (code !== 201 && code !== 801 && code !== 401) {
+          throw new Error('文件夹授权已失效，请在工作区管理中重新授权。');
+        }
+        LexiFolderStore.activated.add(permissionUri);
+      }
     }
     const root = LexiFolderStore.path(binding.folderUri);
-    const stat = await fs.stat(root);
-    if (!stat.isDirectory()) { throw new Error('工作区文件夹不存在，请重新选择。'); }
+    try {
+      const stat = await fs.stat(root);
+      if (!stat.isDirectory()) { throw new Error('工作区文件夹不存在，请重新选择。'); }
+    } catch (error) {
+      if ((error as Error).message === '工作区文件夹不存在，请重新选择。') { throw error as Error; }
+      if (LexiFolderStore.grantedFileUris.has(root)) { return root; }
+      throw new Error('文件夹授权已失效，请在工作区管理中重新授权。');
+    }
     return root;
   }
 
@@ -228,19 +289,36 @@ export class LexiFolderStore {
     LexiFolderStore.writeAtomic(root, `${directory}/catalog.json`, JSON.stringify(catalog, null, 2));
   }
 
+  private static async readFileText(pathOrUri: string): Promise<string> {
+    try {
+      const text = await fs.readText(pathOrUri);
+      if (typeof text === 'string') { return text.replace(/^\uFEFF/, ''); }
+    } catch {}
+    const file = await fs.open(pathOrUri, fs.OpenMode.READ_ONLY);
+    try {
+      const stat = await fs.stat(file.fd);
+      if (stat.size <= 0) { return ''; }
+      const buffer = new ArrayBuffer(stat.size);
+      const readLen = await fs.read(file.fd, buffer);
+      return new util.TextDecoder('utf-8').decodeToString(new Uint8Array(buffer, 0, readLen)).replace(/^\uFEFF/, '');
+    } finally {
+      await fs.close(file);
+    }
+  }
+
   static async read(binding: LexiFolderBinding, excludedRoots: string[] = []): Promise<LexiFolderSnapshot> {
     const root = await LexiFolderStore.activate(binding);
     const snapshot = new LexiFolderSnapshot();
     const catalogPath = `${root}/.lexinote/catalog.json`;
-    LexiFolderStore.recoverWrite(root, catalogPath);
+    try { LexiFolderStore.recoverWrite(root, catalogPath); } catch {}
     let hasCatalog = false;
     try { hasCatalog = fs.accessSync(catalogPath); }
-    catch (error) { throw new Error(`无法读取文件夹索引：${(error as Error).message}`); }
+    catch { hasCatalog = false; }
     if (hasCatalog) {
       LexiFolderStore.guardPath(root, catalogPath);
       const stat = await fs.stat(catalogPath);
       if (stat.size > 16 * 1024 * 1024) { throw new Error('工作区目录信息过大，暂时无法读取'); }
-      const parsed = JSON.parse(await fs.readText(catalogPath)) as LexiFolderCatalog;
+      const parsed = JSON.parse(await LexiFolderStore.readFileText(catalogPath)) as LexiFolderCatalog;
       if (parsed.format !== 'LexiNote.Folder' || parsed.version !== 1 || !Array.isArray(parsed.notes) ||
         !Array.isArray(parsed.mindMaps) || !Array.isArray(parsed.canvases)) {
         throw new Error('文件夹中存在无法识别的知萤目录信息，未作修改');
@@ -252,9 +330,17 @@ export class LexiFolderStore {
   }
 
   private static async walk(root: string, directory: string, excluded: string[], documents: LexiFolderDocument[]): Promise<void> {
-    let names: string[];
-    try { names = (await fs.listFile(directory, { recursion: false })).sort(); }
-    catch (error) { throw new Error(`无法列出文件夹内容：${(error as Error).message}`); }
+    let rawNames: string[] = [];
+    try {
+      rawNames = (await fs.listFile(directory, { recursion: false })).sort();
+    } catch (error) {
+      if (directory === root && LexiFolderStore.grantedFileUris.has(root)) {
+        rawNames = [];
+      } else {
+        throw new Error(`无法列出文件夹内容：${(error as Error).message}`);
+      }
+    }
+    const names = rawNames.map((item: string): string => item.replace(/^\/+/, '')).filter((item: string): boolean => item.length > 0);
     for (const name of names) {
       if (/\.(md|markdown)\.lexinote-recovery$/i.test(name)) {
         LexiFolderStore.recoverWrite(root, `${directory}/${name.replace(/\.lexinote-recovery$/, '')}`);
@@ -264,8 +350,14 @@ export class LexiFolderStore {
       if (name === '.lexinote' || name === '.git' || name === 'node_modules' || name.startsWith('.')) { continue; }
       const path = `${directory}/${name}`;
       if (excluded.some((skip: string): boolean => path === skip || path.startsWith(`${skip}/`))) { continue; }
-      if (!fs.accessSync(path)) { continue; }
-      const stat = await fs.lstat(path);
+      let stat: fs.Stat;
+      try {
+        if (!fs.accessSync(path)) { continue; }
+        stat = await fs.lstat(path);
+      } catch {
+        try { stat = await fs.stat(path); }
+        catch { continue; }
+      }
       if (stat.isSymbolicLink()) { continue; }
       if (stat.isDirectory()) { await LexiFolderStore.walk(root, path, excluded, documents); }
       else if (stat.isFile() && /\.(md|markdown)$/i.test(name)) {
@@ -273,9 +365,26 @@ export class LexiFolderStore {
         if (stat.size > 8 * 1024 * 1024) { throw new Error(`「${name}」超过 8 MB，请将它拆分后再打开`); }
         const document = new LexiFolderDocument();
         document.relativePath = path.substring(root.length + 1);
-        document.content = await fs.readText(path);
+        document.content = await LexiFolderStore.readFileText(path);
         document.modifiedAt = stat.mtime * 1000;
         documents.push(document);
+      }
+    }
+    if (directory === root && LexiFolderStore.grantedFileUris.has(root)) {
+      const granted = LexiFolderStore.grantedFileUris.get(root) ?? [];
+      for (const uri of granted) {
+        const filePath = LexiFolderStore.path(uri);
+        const fileName = filePath.substring(filePath.lastIndexOf('/') + 1);
+        if (!/\.(md|markdown)$/i.test(fileName)) { continue; }
+        const relativePath = LexiFolderPolicy.within(root, filePath) ? filePath.substring(root.length + 1) : fileName;
+        if (documents.some((doc: LexiFolderDocument): boolean => doc.relativePath === relativePath)) { continue; }
+        try {
+          const document = new LexiFolderDocument();
+          document.relativePath = relativePath;
+          document.content = await LexiFolderStore.readFileText(uri);
+          document.modifiedAt = Date.now();
+          documents.push(document);
+        } catch {}
       }
     }
   }

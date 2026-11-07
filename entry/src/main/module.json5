@@ -69,6 +69,52 @@
             "actions": [
               "ohos.want.action.home"
             ]
+          },
+          {
+            "entities": [
+              "entity.system.browsable"
+            ],
+            "actions": [
+              "ohos.want.action.viewData"
+            ],
+            "uris": [
+              {
+                "scheme": "lexinote"
+              }
+            ]
+          },
+          {
+            "entities": [
+              "entity.system.default",
+              "entity.system.browsable"
+            ],
+            "actions": [
+              "ohos.want.action.viewData",
+              "ohos.want.action.editData",
+              "ohos.want.action.sendData"
+            ],
+            "uris": [
+              {
+                "scheme": "file",
+                "utd": "general.markdown",
+                "maxFileSupported": 1
+              },
+              {
+                "scheme": "file",
+                "utd": "general.plain-text",
+                "maxFileSupported": 1
+              },
+              {
+                "scheme": "file",
+                "utd": "general.text",
+                "maxFileSupported": 1
+              },
+              {
+                "scheme": "content",
+                "utd": "general.markdown",
+                "maxFileSupported": 1
+              }
+            ]
           }
         ],
         "continuable": true,
@@ -115,6 +161,11 @@
             "uris": [
               {
                 "scheme": "file",
+                "utd": "general.markdown",
+                "maxFileSupported": 1
+              },
+              {
+                "scheme": "file",
                 "utd": "general.text",
                 "maxFileSupported": 1
               },
@@ -131,6 +182,11 @@
               {
                 "scheme": "file",
                 "utd": "general.hyperlink",
+                "maxFileSupported": 1
+              },
+              {
+                "scheme": "file",
+                "utd": "general.file",
                 "maxFileSupported": 1
               }
             ]

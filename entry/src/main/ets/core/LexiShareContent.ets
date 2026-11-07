@@ -6,6 +6,8 @@ export class LexiShareRecord {
   title: string = '';
   description: string = '';
   plainContent: string = '';
+  fileUri: string = '';
+  isMarkdownFile: boolean = false;
 }
 
 export class LexiShareDraft {
@@ -16,12 +18,15 @@ export class LexiShareDraft {
   sourceUrl: string = '';
   quote: string = '';
   notice: string = '';
+  fileUri: string = '';
+  isMarkdownFile: boolean = false;
 }
 
-/** Text-only clipping. No HTML renderer, attachment reads, or network requests are used. */
+/** Text-only clipping and Markdown file editing. No HTML renderer or network requests are used. */
 export class LexiShareContent {
   static readonly MAX_BYTES: number = 200 * 1024;
   static readonly MAX_QUOTE_BYTES: number = 100 * 1024;
+  static readonly MAX_MARKDOWN_FILE_BYTES: number = 8 * 1024 * 1024;
   static readonly MAX_RECORDS: number = 32;
 
   static bytes(text: string): number {
@@ -87,6 +92,12 @@ export class LexiShareContent {
     return `${(first >>> 0).toString(16).padStart(8, '0')}${(second >>> 0).toString(16).padStart(8, '0')}-${text.length}`;
   }
 
+  static isMarkdownRecord(record: LexiShareRecord): boolean {
+    if (record.isMarkdownFile || record.utd === 'general.markdown') { return true; }
+    const uri = (record.fileUri || '').split('?')[0];
+    return /\.(md|markdown)$/i.test(uri) || /\.(md|markdown)$/i.test(record.title);
+  }
+
   static fromRecords(records: LexiShareRecord[], captureId: string, now: number): LexiShareDraft {
     if (!records.length || records.length > LexiShareContent.MAX_RECORDS) { throw new Error('一次最多接收 32 条文本或链接，请缩小分享范围'); }
     const draft = new LexiShareDraft(); draft.captureId = captureId; draft.receivedAt = now;
@@ -96,9 +107,20 @@ export class LexiShareContent {
       if (typeof record.content !== 'string' || typeof record.title !== 'string' || typeof record.description !== 'string' || typeof record.plainContent !== 'string') {
         throw new Error('分享内容格式不正确');
       }
+      const isMd = LexiShareContent.isMarkdownRecord(record);
+      const limit = isMd ? LexiShareContent.MAX_MARKDOWN_FILE_BYTES : LexiShareContent.MAX_BYTES;
       total += LexiShareContent.bytes(record.content + record.title + record.description + record.plainContent);
-      if (total > LexiShareContent.MAX_BYTES) { throw new Error('分享内容超过 200 KB，请缩小选中范围'); }
+      if (total > limit) { throw new Error(isMd ? 'Markdown 文件超过 8 MB，请拆分后打开' : '分享内容超过 200 KB，请缩小选中范围'); }
       const type = record.utd;
+      if (isMd) {
+        draft.isMarkdownFile = true;
+        if (!draft.fileUri && record.fileUri) { draft.fileUri = record.fileUri; }
+        const cleanTitle = LexiShareContent.cleanText(record.title).replace(/\.(md|markdown)$/i, '').replace(/\n/g, ' ').slice(0, 160);
+        if (!draft.title && cleanTitle) { draft.title = cleanTitle; }
+        const mdText = record.content.replace(/\r\n?/g, '\n').replace(/^\uFEFF/, '');
+        texts.push(mdText);
+        continue;
+      }
       if (!['general.text', 'general.plain-text', 'general.html', 'general.hyperlink'].includes(type)) {
         draft.notice = '已跳过不支持的附件，仅保留文本与网页链接。'; continue;
       }
@@ -121,8 +143,15 @@ export class LexiShareContent {
       }
     }
     draft.quote = texts.join('\n\n');
-    if (!draft.title) { draft.title = draft.quote.split('\n')[0].slice(0, 60) || '网页剪藏'; }
-    draft.receivedFingerprint = LexiShareContent.fingerprint(`${draft.title}\n${draft.sourceUrl}\n${draft.quote}`);
+    if (!draft.title) {
+      if (draft.isMarkdownFile) {
+        const firstHeading = draft.quote.split('\n').find((line: string): boolean => /^#{1,6}\s+\S/.test(line.trim()));
+        draft.title = firstHeading ? firstHeading.replace(/^#{1,6}\s+/, '').trim().slice(0, 80) : (draft.quote.split('\n')[0].trim().slice(0, 60) || '未命名笔记');
+      } else {
+        draft.title = draft.quote.split('\n')[0].slice(0, 60) || '网页剪藏';
+      }
+    }
+    draft.receivedFingerprint = LexiShareContent.fingerprint(`${draft.title}\n${draft.sourceUrl}\n${draft.quote}\n${draft.fileUri}`);
     LexiShareContent.validate(draft);
     return draft;
   }
@@ -130,9 +159,12 @@ export class LexiShareContent {
   static validate(draft: LexiShareDraft): void {
     if (!/^[A-Za-z0-9-]{8,80}$/.test(draft.captureId) || !/^[a-f0-9]{16}-\d+$/.test(draft.receivedFingerprint)) { throw new Error('剪藏会话无效，请重新分享'); }
     if (draft.title.trim().length > 160 || /[\r\n\u0000-\u001f]/.test(draft.title)) { throw new Error('标题最多 160 字，且不能包含换行'); }
-    if (LexiShareContent.bytes(draft.quote) > LexiShareContent.MAX_QUOTE_BYTES) { throw new Error('引用文本超过 100 KB，请缩小选中范围'); }
+    const maxBytes = draft.isMarkdownFile ? LexiShareContent.MAX_MARKDOWN_FILE_BYTES : LexiShareContent.MAX_QUOTE_BYTES;
+    if (LexiShareContent.bytes(draft.quote) > maxBytes) {
+      throw new Error(draft.isMarkdownFile ? 'Markdown 文件超过 8 MB，请缩小内容范围' : '引用文本超过 100 KB，请缩小选中范围');
+    }
     const source = LexiShareContent.safeUrl(draft.sourceUrl);
-    if (!LexiShareContent.cleanText(draft.quote) && !source) { throw new Error('没有可剪藏的文本或安全网页链接'); }
+    if (!draft.isMarkdownFile && !LexiShareContent.cleanText(draft.quote) && !source) { throw new Error('没有可剪藏的文本或安全网页链接'); }
     if (!Number.isFinite(draft.receivedAt) || draft.receivedAt <= 0) { throw new Error('剪藏时间无效'); }
   }
 
@@ -142,6 +174,10 @@ export class LexiShareContent {
 
   static markdown(draft: LexiShareDraft): string {
     LexiShareContent.validate(draft);
+    if (draft.isMarkdownFile) {
+      const body = draft.quote.replace(/\r\n?/g, '\n');
+      return body.endsWith('\n') || body.length === 0 ? body : `${body}\n`;
+    }
     const title = LexiShareContent.cleanText(draft.title) || '未命名剪藏';
     const quote = LexiShareContent.cleanText(draft.quote);
     const source = LexiShareContent.safeUrl(draft.sourceUrl).replace(/[()<>]/g, (mark: string): string => `%${mark.charCodeAt(0).toString(16).toUpperCase()}`);

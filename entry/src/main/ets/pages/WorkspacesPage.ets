@@ -4,7 +4,7 @@ import { LexiBackHeader } from '../components/LexiBackHeader';
 import { LexiContextSurface } from '../components/LexiContextSurface';
 import { LexiContextTarget } from '../core/LexiContextModels';
 import { LexiIcon } from '../components/LexiIcon';
-import { LexiProject, VaultItem } from '../core/LexiModels';
+import { LexiProject, NoteItem, VaultItem } from '../core/LexiModels';
 import { LexiFolderStore } from '../core/LexiFolderStore';
 import { LexiStorageService } from '../core/LexiStorageService';
 
@@ -84,14 +84,18 @@ export struct WorkspacesPage {
     if (this.working) { return; }
     if (!this.draftFolder) { this.message = '请先选择文件夹'; return; }
     if (!this.draftName.trim()) { this.message = '请输入名称'; return; }
-    this.working = true; this.message = '正在打开文件夹…';
+    this.working = true; this.message = '正在扫描文件夹中的 Markdown 文件…';
     try {
+      let scannedCount = 0;
       if (this.formKind === 'workspace') {
-        await LexiStorageService.createFolderWorkspace(this.draftName, this.draftFolder, this.createChild, this.draftPermission);
+        const created = await LexiStorageService.createFolderWorkspace(this.draftName, this.draftFolder, this.createChild, this.draftPermission);
+        scannedCount = (await LexiStorageService.getNotes(created.id)).filter((item: NoteItem): boolean => item.trashedAt === 0).length;
       } else {
-        await LexiStorageService.createFolderProject(this.activeVaultId, this.draftName, this.draftFolder, this.createChild, this.draftPermission);
+        const createdProject = await LexiStorageService.createFolderProject(this.activeVaultId, this.draftName, this.draftFolder, this.createChild, this.draftPermission);
+        scannedCount = (await LexiStorageService.getNotes(this.activeVaultId)).filter((item: NoteItem): boolean => item.trashedAt === 0 && item.projectId === createdProject.id).length;
       }
-      await this.reload(); this.formKind = ''; this.message = '已保存，选择项目即可开始记录。';
+      await this.reload(); this.formKind = '';
+      this.message = `已保存并扫描完成，共导入 ${scannedCount} 篇 Markdown 文件。`;
       this.notifySelection();
     } catch (error) { this.message = (error as Error).message || '打开文件夹失败，已有内容已保留'; }
     finally { this.working = false; }

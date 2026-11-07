@@ -174,10 +174,14 @@ export class NoteEditorRouteParam {
   projectId: string = '';
   noteId: string = '';
   createNew: boolean = false;
+  deferCreationUntilInput: boolean = false;
   initialType: string = 'quick';
   initialTier: string = 'simple';
   initialTitle: string = '';
+  initialNotebook: string = '';
   initialContent: string = '';
+  externalFileMode: boolean = false;
+  externalFileUri: string = '';
 }
 
 export class MindMapRouteParam {

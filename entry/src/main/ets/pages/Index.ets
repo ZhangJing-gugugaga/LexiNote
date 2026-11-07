@@ -14,6 +14,9 @@ import { LexiContextActionHost } from '../components/LexiContextActionHost';
 import { LexiContextTarget } from '../core/LexiContextModels';
 import { LexiNoteDestinationPicker } from '../components/LexiNoteDestinationPicker';
 import { LexiSettingsTab } from '../components/LexiSettingsTab';
+import { LexiHarnessModalDialog } from '../components/LexiHarnessPanel';
+import { LexiHarnessService } from '../harness/LexiHarnessService';
+import { LexiHarnessUiActionRequest } from '../harness/LexiHarnessTools';
 import { LexiTemplatePicker } from '../components/LexiTemplatePicker';
 import { LexiTemplateItem } from '../core/LexiTemplateLibrary';
 import { LexiTemplates } from '../core/LexiTemplates';
@@ -25,6 +28,8 @@ import { LexiContinuationReceiver } from '../core/LexiContinuationReceiver';
 import { LexiContinuationSession } from '../core/LexiContinuationSession';
 import { LexiLiveMarkdown } from '../core/LexiLiveMarkdown';
 import { LexiLinkActions } from '../core/LexiLinkActions';
+import { LexiShareDraft } from '../core/LexiShareContent';
+import { LexiShareCapture } from '../core/LexiShareCapture';
 import { LexiStorageService } from '../core/LexiStorageService';
 import { MarkdownEngine } from '../core/MarkdownEngine';
 import { GraphData, GraphLayout } from '../core/GraphLayout';
@@ -48,6 +53,8 @@ import {
 struct Index {
   @StorageProp('lexiContinuationIncoming') @Watch('nativeLaunchChanged') private continuationIncoming: string = '';
   @StorageProp('lexiFormLaunch') @Watch('nativeLaunchChanged') private formLaunch: string = '';
+  @StorageProp('lexiDeepLinkLaunch') @Watch('nativeLaunchChanged') private deepLinkLaunch: string = '';
+  @StorageProp('lexiExternalMarkdownIncoming') @Watch('nativeLaunchChanged') private externalMarkdownIncoming: string = '';
   private handlingNativeLaunch: boolean = false;
   private nativeLaunchAgain: boolean = false;
   @StorageProp('lexiTopInset') titleTopInset: number = 0;
@@ -85,6 +92,7 @@ struct Index {
   @State quickText: string = '';
   @State quickSaving: boolean = false;
   @State private showTemplates: boolean = false;
+  @State private showHarnessDialog: boolean = false;
   @State private noteTemplates: LexiTemplateItem[] = [];
   @State private dailyTemplateId: string = '';
   @State private templateBusy: boolean = false;
@@ -182,10 +190,36 @@ struct Index {
   }
 
   onBackPress(): boolean {
+    if (this.showHarnessDialog) { this.showHarnessDialog = false; return true; }
     if (this.showWelcome) { this.finishWelcome(); return true; }
     if (this.pathStack.size() > 0) { return false; }
     if (this.activeTab !== 0) { this.selectTab(0); return true; }
     return false;
+  }
+
+  private handleHarnessUiAction(req: LexiHarnessUiActionRequest): void {
+    this.refresh().then((): void => {
+      if (req.action === 'open-note' && req.targetId) {
+        this.showHarnessDialog = false;
+        this.openNote(req.targetId);
+      } else if (req.action === 'open-group' && req.targetId) {
+        this.openContextContent(req.targetId, 'group');
+      } else if (req.action === 'open-map' && req.targetId) {
+        this.showHarnessDialog = false;
+        this.openMap(req.targetId);
+      } else if (req.action === 'open-canvas' && req.targetId) {
+        this.showHarnessDialog = false;
+        this.openCanvas(req.targetId);
+      } else if (req.action === 'select-section' && req.targetId) {
+        const sec = Number(req.targetId);
+        if (!Number.isNaN(sec)) {
+          this.showHarnessDialog = false;
+          this.selectTab(sec);
+        }
+      } else if (req.action === 'set-theme' && req.targetId) {
+        this.setTheme(req.targetId);
+      }
+    }).catch((): void => {});
   }
 
   private context(): common.UIAbilityContext { return this.getUIContext().getHostContext() as common.UIAbilityContext; }
@@ -206,6 +240,10 @@ struct Index {
     this.startupStep = 0;
     try {
       await LexiStorageService.init(this.context());
+      await LexiHarnessService.init(this.context());
+      LexiHarnessService.setUiActionHandler((req: LexiHarnessUiActionRequest): void => {
+        this.handleHarnessUiAction(req);
+      });
       this.startupStep = 1;
       this.theme = await LexiStorageService.getSetting('theme', 'system');
       this.applyTheme(this.theme);
@@ -218,7 +256,7 @@ struct Index {
       catch (error) { this.dataStatus = (error as Error).message; this.toast(this.dataStatus); }
       await this.refresh();
       this.showWelcome = await LexiStorageService.getSetting('onboarding_completed_v1', '') !== 'true';
-      if (this.continuationIncoming || this.formLaunch) { this.showWelcome = false; }
+      if (this.continuationIncoming || this.formLaunch || this.deepLinkLaunch || this.externalMarkdownIncoming) { this.showWelcome = false; }
       this.ready = true;
       this.nativeLaunchChanged();
     } catch {
@@ -235,7 +273,7 @@ struct Index {
 
   private nativeLaunchChanged(): void {
     if (!this.ready) { return; }
-    if (!this.continuationIncoming && !this.formLaunch) { return; }
+    if (!this.continuationIncoming && !this.formLaunch && !this.deepLinkLaunch && !this.externalMarkdownIncoming) { return; }
     if (this.handlingNativeLaunch) { this.nativeLaunchAgain = true; return; }
     this.handleNativeLaunches().catch((): void => { this.toast('系统入口暂时不可用，请从应用内重试'); });
   }
@@ -246,6 +284,35 @@ struct Index {
     try {
       do {
         this.nativeLaunchAgain = false;
+        if (this.externalMarkdownIncoming) {
+          const raw = this.externalMarkdownIncoming;
+          this.externalMarkdownIncoming = '';
+          AppStorage.setOrCreate('lexiExternalMarkdownIncoming', '');
+          try {
+            const draft = JSON.parse(raw) as LexiShareDraft;
+            const ecoApp = LexiShareCapture.detectEcosystemApp(draft.quote || '');
+            if (ecoApp) {
+              const saved = await LexiShareCapture.saveToEcosystemWorkspace(this.context(), draft, ecoApp);
+              await this.refresh();
+              this.openNote(saved.id);
+              const wsLabel = ecoApp === 'LumiKit' ? '集萤' : '词萤';
+              this.toast(`已自动保存到「${wsLabel}」工作区`);
+            } else {
+              const param = new NoteEditorRouteParam();
+              param.externalFileMode = true;
+              param.externalFileUri = draft.fileUri || '';
+              param.vaultId = this.activeVaultId || await LexiStorageService.getActiveVaultId();
+              param.projectId = this.activeProjectId;
+              param.initialType = 'markdown';
+              param.initialTier = 'pro';
+              param.initialTitle = draft.title || '未命名笔记';
+              param.initialContent = draft.quote || '';
+              this.pathStack.pushPathByName('noteEditor', param);
+            }
+          } catch (error) {
+            this.toast((error as Error).message || '无法打开该 Markdown 文件');
+          }
+        }
         if (this.continuationIncoming) {
           const raw = this.continuationIncoming; this.continuationIncoming = ''; AppStorage.setOrCreate('lexiContinuationIncoming', '');
           try {
@@ -270,6 +337,7 @@ struct Index {
             await LexiStorageService.setActiveVaultId(vaultId); await this.refresh();
             if (request.lexiFormAction === 'quick' || request.lexiFormAction === 'voice') {
               const param = new NoteEditorRouteParam(); param.createNew = true; param.initialType = 'quick';
+              param.deferCreationUntilInput = true;
               param.vaultId = vaultId; param.projectId = this.activeProjectId; param.initialTier = this.defaultTier;
               param.launchAssistant = request.lexiFormAction === 'voice';
               this.pathStack.pushPathByName('noteEditor', param);
@@ -296,7 +364,53 @@ struct Index {
             await this.syncDesktopCards();
           } catch (error) { this.toast((error as Error).message || '卡片操作暂时不可用'); }
         }
-      } while (this.nativeLaunchAgain || this.continuationIncoming || this.formLaunch);
+        if (this.deepLinkLaunch) {
+          const raw = this.deepLinkLaunch;
+          this.deepLinkLaunch = '';
+          AppStorage.setOrCreate('lexiDeepLinkLaunch', '');
+          try {
+            const req = LexiNativeLaunch.decodeDeepLink(raw).request;
+            await this.refresh();
+            if (req.action === 'daily') {
+              await this.openDailyNote();
+            } else if (req.action === 'quick') {
+              const param = new NoteEditorRouteParam();
+              param.createNew = true;
+              param.initialType = 'quick';
+              param.vaultId = this.activeVaultId || await LexiStorageService.getActiveVaultId();
+              param.projectId = this.activeProjectId;
+              param.initialTier = this.defaultTier;
+              this.pathStack.pushPathByName('noteEditor', param);
+            } else if (req.action === 'open') {
+              const found = this.notes.find((n: NoteItem): boolean =>
+                n.trashedAt === 0 && (
+                  (!!req.noteId && n.id === req.noteId) ||
+                  (!!req.title && n.title.trim().toLowerCase() === req.title.trim().toLowerCase())
+                )
+              );
+              if (found) {
+                this.openNote(found.id);
+              } else if (req.title) {
+                const param = new NoteEditorRouteParam();
+                param.createNew = true;
+                param.initialType = 'markdown';
+                param.initialTier = 'pro';
+                param.initialTitle = req.title;
+                if (req.notebook) {
+                  param.initialNotebook = req.notebook;
+                }
+                param.vaultId = this.activeVaultId || await LexiStorageService.getActiveVaultId();
+                param.projectId = this.activeProjectId;
+                this.pathStack.pushPathByName('noteEditor', param);
+              } else {
+                this.toast('未找到目标笔记');
+              }
+            }
+          } catch (error) {
+            this.toast((error as Error).message || '无法打开该笔记链接');
+          }
+        }
+      } while (this.nativeLaunchAgain || this.continuationIncoming || this.formLaunch || this.deepLinkLaunch || this.externalMarkdownIncoming);
     } finally { this.handlingNativeLaunch = false; }
   }
 
@@ -1002,6 +1116,20 @@ struct Index {
         Blank()
 
         Button({ type: ButtonType.Circle, buttonStyle: ButtonStyleMode.TEXTUAL }) {
+          LexiIcon({ name: 'spark', iconSize: 19 })
+        }
+        .id(`header-ai-${index}`)
+        .width(40)
+        .height(40)
+        .padding(0)
+        .backgroundColor(this.immersiveSupported ? Color.Transparent : $r('app.color.brand_soft'))
+        .systemMaterial(this.immersiveSupported ? this.titleActiveChipMaterial : undefined)
+        .accessibilityText('打开知萤 AI 助手')
+        .onClick((): void => {
+          this.showHarnessDialog = true;
+        })
+
+        Button({ type: ButtonType.Circle, buttonStyle: ButtonStyleMode.TEXTUAL }) {
           LexiIcon({ name: 'plus', iconSize: 20 })
         }
         .id(`header-create-${index}`)
@@ -1045,6 +1173,7 @@ struct Index {
               quickSaving: this.quickSaving,
               onOpenDaily: (): void => { this.openDailyNote(); },
               onOpenTemplates: (): void => { this.openTemplates(); },
+              onOpenAi: (): void => { this.showHarnessDialog = true; },
               onQuickTextChange: (val: string): void => { this.quickText = val; },
               onSaveQuick: (): void => { this.saveQuick(); },
               onExpandQuick: (): void => { this.expandQuick(); },
@@ -1367,6 +1496,14 @@ struct Index {
       }
       LexiContextActionHost({ onOpen: (id: string, mode: string): void => { this.openContextContent(id, mode); },
         onSearch: (target: LexiContextTarget): void => { this.searchContext(target); } })
+      if (this.showHarnessDialog) {
+        LexiHarnessModalDialog({
+          activeNoteIdProp: this.lastEditedNoteId,
+          onClose: (): void => {
+            this.showHarnessDialog = false;
+          }
+        })
+      }
       }.width('100%').height('100%')
         .bindSheet($$this.showTemplates, this.templateSheet, {
           height: this.wide() ? Math.min(720, Math.max(280, this.viewportHeight - this.titleTopInset - this.bottomInset - 96)) : SheetSize.LARGE,

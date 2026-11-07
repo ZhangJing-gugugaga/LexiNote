@@ -11,6 +11,8 @@ import { LexiSearch } from '../core/LexiSearch';
 import { LexiCommandPalette } from './LexiCommandPalette';
 import { FrameCallback } from '@kit.ArkUI';
 import { LexiTabStripLayout } from '../core/LexiTabStripLayout';
+import { LexiHarnessPanel } from './LexiHarnessPanel';
+import { LexiHarnessService } from '../harness/LexiHarnessService';
 
 class LexiWorkspaceTabFrame extends FrameCallback {
   private perform: () => void;
@@ -63,6 +65,8 @@ export struct LexiDesktopWorkspace {
   @State private switchingVault: boolean = false;
   @State private showPalette: boolean = false;
   @State private paletteMode: string = 'commands';
+  @State private harnessOpen: boolean = true;
+  @State private harnessWide: boolean = false;
   routingStack: NavPathStack = new NavPathStack();
   @BuilderParam auxiliaryContent: () => void = lexiWorkspaceEmptySlot;
   onSelectProject: (projectId: string) => Promise<void> = async (_id: string): Promise<void> => {};
@@ -172,6 +176,7 @@ export struct LexiDesktopWorkspace {
       this.tabs = this.tabs.concat([new LexiWorkspaceTab(noteId)]);
     }
     this.selectedId = noteId;
+    LexiHarnessService.setActiveEditorNoteId(noteId.startsWith('map:') ? '' : noteId);
     if (activatePane) {
       this.routingStack.clear();
       if (this.activeSection > 1) { this.onSelectSection(1); }
@@ -615,10 +620,25 @@ export struct LexiDesktopWorkspace {
         }
       }.id('workspace-create-menu').width(76).height(36).padding({ left: 8, right: 8 }).borderRadius(7)
         .backgroundColor($r('app.color.workspace_selection')).accessibilityText('新建内容').bindMenu(this.createMenu())
+      Button({ type: ButtonType.Normal, buttonStyle: ButtonStyleMode.TEXTUAL }) {
+        Row({ space: 5 }) {
+          LexiIcon({ name: 'star', iconSize: 15, muted: !this.harnessOpen })
+          Text('AI').fontSize(12).fontWeight(FontWeight.Bold)
+            .fontColor(this.harnessOpen ? $r('app.color.brand_ink') : $r('app.color.text_secondary'))
+        }
+      }.id('workspace-ai-toggle').height(36).padding({ left: 10, right: 10 }).borderRadius(7)
+        .backgroundColor(this.harnessOpen ? $r('app.color.workspace_selection') : Color.Transparent)
+        .accessibilityText('展开或收起右侧 AI Harness 栏')
+        .onClick((): void => { this.harnessOpen = !this.harnessOpen; })
     }
     .width('100%').height(52 + this.topInset).padding({ left: 8, right: 12 + this.windowButtonsInset, top: 4 + this.topInset })
     .backgroundColor($r('app.color.workspace_tabs'))
     .border({ width: { bottom: 0.5 }, color: $r('app.color.workspace_line') })
+  }
+
+  private rightHarnessWidth(): number {
+    if (!this.harnessOpen) { return 0; }
+    return this.harnessWide ? 430 : 352;
   }
 
   build() {
@@ -643,80 +663,99 @@ export struct LexiDesktopWorkspace {
       .border({ width: { right: 0.5 }, color: $r('app.color.workspace_line') })
       Column() {
         this.tabStrip()
-        Navigation(this.routingStack) {
-          Row() {
-          Stack() {
-            // Keep document instances mounted when opening auxiliary sections or switching tabs.
-            ForEach(this.tabs, (tab: LexiWorkspaceTab) => {
+        Row() {
+          Navigation(this.routingStack) {
+            Row() {
+            Stack() {
+              // Keep document instances mounted when opening auxiliary sections or switching tabs.
+              ForEach(this.tabs, (tab: LexiWorkspaceTab) => {
+                Column() {
+                  if (tab.noteId.startsWith('map:')) {
+                    LexiWorkspaceMindMap({
+                      mapId: tab.noteId.substring(4),
+                      editorController: tab.controller,
+                      paneWidth: Math.max(360, (this.viewportWidth - (this.sidebarOpen ? 300 : 56) - this.rightHarnessWidth()) / (this.groupTabs.length > 0 ? 2 : 1)),
+                      vaultNotes: this.notes,
+                      onRequestReadingSpace: (): void => { this.sidebarOpen = false; },
+                      onSaved: (doc: MindMapDoc): void => { this.onMapSaved(doc); },
+                      onSavedNote: (note: NoteItem): void => { this.onSaved(note); },
+                      onOpenNote: (noteId: string): void => { this.openDocument(noteId); }
+                    })
+                  } else {
+                    LexiWorkspaceEditor({ noteId: tab.noteId, editorController: tab.controller,
+                      continuationActive: this.selectedId === tab.noteId && this.activeSection <= 1 && !this.routeActive,
+                      paneWidth: Math.max(360, (this.viewportWidth - (this.sidebarOpen ? 300 : 56) - this.rightHarnessWidth()) / (this.groupTabs.length > 0 ? 2 : 1)), vaultNotes: this.notes,
+                      onRequestReadingSpace: (): void => { this.sidebarOpen = false; },
+                      onSaved: (note: NoteItem): void => { this.onSaved(note); },
+                      onOpenNote: (noteId: string): void => { this.openDocument(noteId); },
+                      onConvertMap: (noteId: string): void => { this.onConvertMap(noteId); },
+                      onOpenAdvancedNote: (noteId: string): void => { this.onOpenAdvancedNote(noteId); }
+                    })
+                  }
+                }.width('100%').height('100%').visibility(this.selectedId === tab.noteId && this.activeSection <= 1 ? Visibility.Visible : Visibility.Hidden)
+              }, (tab: LexiWorkspaceTab): string => tab.noteId)
+              if (this.activeSection > 1) {
+                this.auxiliaryContent()
+              } else if (this.tabs.length === 0 || !this.selectedId) {
+                Column({ space: 12 }) {
+                  LexiIcon({ name: 'note', iconSize: 32 })
+                  Text('选择或新建一篇笔记').fontSize(20).fontWeight(FontWeight.Medium).fontColor($r('app.color.text_primary'))
+                  Text('从左侧打开已有笔记，或点击右上角“新建”开始记录。').fontSize(13).fontColor($r('app.color.text_secondary'))
+                }.width('100%').height('100%').justifyContent(FlexAlign.Center)
+                  .backgroundColor($r('app.color.workspace_page'))
+              }
+            }.layoutWeight(1).height('100%')
+            if (this.groupTabs.length > 0 && this.activeSection <= 1) {
               Column() {
-                if (tab.noteId.startsWith('map:')) {
-                  LexiWorkspaceMindMap({
-                    mapId: tab.noteId.substring(4),
-                    editorController: tab.controller,
-                    paneWidth: (this.viewportWidth - (this.sidebarOpen ? 300 : 56)) / (this.groupTabs.length > 0 ? 2 : 1),
-                    vaultNotes: this.notes,
-                    onRequestReadingSpace: (): void => { this.sidebarOpen = false; },
-                    onSaved: (doc: MindMapDoc): void => { this.onMapSaved(doc); },
-                    onSavedNote: (note: NoteItem): void => { this.onSaved(note); },
-                    onOpenNote: (noteId: string): void => { this.openDocument(noteId); }
-                  })
-                } else {
-                  LexiWorkspaceEditor({ noteId: tab.noteId, editorController: tab.controller,
-                    continuationActive: this.selectedId === tab.noteId && this.activeSection <= 1 && !this.routeActive,
-                    paneWidth: (this.viewportWidth - (this.sidebarOpen ? 300 : 56)) / (this.groupTabs.length > 0 ? 2 : 1), vaultNotes: this.notes,
-                    onRequestReadingSpace: (): void => { this.sidebarOpen = false; },
-                    onSaved: (note: NoteItem): void => { this.onSaved(note); },
-                    onOpenNote: (noteId: string): void => { this.openDocument(noteId); },
-                    onConvertMap: (noteId: string): void => { this.onConvertMap(noteId); },
-                    onOpenAdvancedNote: (noteId: string): void => { this.onOpenAdvancedNote(noteId); }
-                  })
-                }
-              }.width('100%').height('100%').visibility(this.selectedId === tab.noteId && this.activeSection <= 1 ? Visibility.Visible : Visibility.Hidden)
-            }, (tab: LexiWorkspaceTab): string => tab.noteId)
-            if (this.activeSection > 1) {
-              this.auxiliaryContent()
-            } else if (this.tabs.length === 0 || !this.selectedId) {
-              Column({ space: 12 }) {
-                LexiIcon({ name: 'note', iconSize: 32 })
-                Text('选择或新建一篇笔记').fontSize(20).fontWeight(FontWeight.Medium).fontColor($r('app.color.text_primary'))
-                Text('从左侧打开已有笔记，或点击右上角“新建”开始记录。').fontSize(13).fontColor($r('app.color.text_secondary'))
-              }.width('100%').height('100%').justifyContent(FlexAlign.Center)
-                .backgroundColor($r('app.color.workspace_page'))
+                Row() {
+                  Text('标签组').fontSize(12).fontColor($r('app.color.text_secondary')).layoutWeight(1)
+                  Button('关闭分组', { buttonStyle: ButtonStyleMode.TEXTUAL }).height(40).fontSize(12)
+                    .fontColor($r('app.color.brand')).onClick((): void => { this.closeGroup(); })
+                }.width('100%').padding({ left: 16, right: 8 })
+                Column() {
+                ForEach(this.groupTabs, (groupTab: LexiWorkspaceTab) => {
+                  if (groupTab.noteId.startsWith('map:')) {
+                    LexiWorkspaceMindMap({
+                      mapId: groupTab.noteId.substring(4),
+                      editorController: groupTab.controller,
+                      paneWidth: Math.max(320, (this.viewportWidth - 56 - this.rightHarnessWidth()) / 2),
+                      vaultNotes: this.notes,
+                      onSaved: (doc: MindMapDoc): void => { this.onMapSaved(doc); },
+                      onSavedNote: (note: NoteItem): void => { this.onSaved(note); },
+                      onOpenNote: (id: string): void => { this.openGroup(id); }
+                    })
+                  } else {
+                    LexiWorkspaceEditor({ noteId: groupTab.noteId, editorController: groupTab.controller,
+                      continuationActive: false,
+                      paneWidth: Math.max(320, (this.viewportWidth - 56 - this.rightHarnessWidth()) / 2), vaultNotes: this.notes,
+                      onSaved: (note: NoteItem): void => { this.onSaved(note); },
+                      onOpenNote: (id: string): void => { this.openGroup(id); },
+                      onOpenAdvancedNote: (id: string): void => { this.onOpenAdvancedNote(id); } })
+                  }
+                }, (groupTab: LexiWorkspaceTab): string => groupTab.noteId)
+                }.width('100%').layoutWeight(1)
+              }.layoutWeight(1).height('100%').border({ width: { left: 1 }, color: $r('app.color.workspace_line') })
             }
-          }.layoutWeight(1).height('100%')
-          if (this.groupTabs.length > 0 && this.activeSection <= 1) {
+            }.width('100%').height('100%').visibility(this.routeActive ? Visibility.Hidden : Visibility.Visible)
+          }.mode(NavigationMode.Stack).hideTitleBar(true).layoutWeight(1).height('100%').clip(true)
+
+          if (this.harnessOpen) {
             Column() {
-              Row() {
-                Text('标签组').fontSize(12).fontColor($r('app.color.text_secondary')).layoutWeight(1)
-                Button('关闭分组', { buttonStyle: ButtonStyleMode.TEXTUAL }).height(40).fontSize(12)
-                  .fontColor($r('app.color.brand')).onClick((): void => { this.closeGroup(); })
-              }.width('100%').padding({ left: 16, right: 8 })
-              Column() {
-              ForEach(this.groupTabs, (groupTab: LexiWorkspaceTab) => {
-                if (groupTab.noteId.startsWith('map:')) {
-                  LexiWorkspaceMindMap({
-                    mapId: groupTab.noteId.substring(4),
-                    editorController: groupTab.controller,
-                    paneWidth: (this.viewportWidth - 56) / 2,
-                    vaultNotes: this.notes,
-                    onSaved: (doc: MindMapDoc): void => { this.onMapSaved(doc); },
-                    onSavedNote: (note: NoteItem): void => { this.onSaved(note); },
-                    onOpenNote: (id: string): void => { this.openGroup(id); }
-                  })
-                } else {
-                  LexiWorkspaceEditor({ noteId: groupTab.noteId, editorController: groupTab.controller,
-                    continuationActive: false,
-                    paneWidth: (this.viewportWidth - 56) / 2, vaultNotes: this.notes,
-                    onSaved: (note: NoteItem): void => { this.onSaved(note); },
-                    onOpenNote: (id: string): void => { this.openGroup(id); },
-                    onOpenAdvancedNote: (id: string): void => { this.onOpenAdvancedNote(id); } })
-                }
-              }, (groupTab: LexiWorkspaceTab): string => groupTab.noteId)
-              }.width('100%').layoutWeight(1)
-            }.layoutWeight(1).height('100%').border({ width: { left: 1 }, color: $r('app.color.workspace_line') })
+              LexiHarnessPanel({
+                isDialogMode: false,
+                isWidePanel: this.harnessWide,
+                activeNoteIdProp: this.selectedId.startsWith('map:') ? '' : this.selectedId,
+                onClose: (): void => { this.harnessOpen = false; },
+                onToggleWide: (): void => { this.harnessWide = !this.harnessWide; }
+              })
+            }
+            .width(this.rightHarnessWidth())
+            .height('100%')
+            .backgroundColor($r('app.color.workspace_sidebar'))
+            .border({ width: { left: 0.5 }, color: $r('app.color.workspace_line') })
+            .zIndex(2)
           }
-          }.width('100%').height('100%').visibility(this.routeActive ? Visibility.Hidden : Visibility.Visible)
-        }.mode(NavigationMode.Stack).hideTitleBar(true).width('100%').layoutWeight(1).clip(true)
+        }.width('100%').layoutWeight(1)
       }.layoutWeight(1).height('100%')
         .backgroundColor($r('app.color.workspace_page')).clip(true).zIndex(1)
     }
@@ -729,6 +768,7 @@ export struct LexiDesktopWorkspace {
         if (key === 'o') { this.openPalette('switcher'); event.stopPropagation(); }
         else if (key === 'p') { this.openPalette('commands'); event.stopPropagation(); }
         else if (key === 'e') { this.executeCommand('reading'); event.stopPropagation(); }
+        else if (key === 'i') { this.harnessOpen = !this.harnessOpen; event.stopPropagation(); }
       }
     })
     .bindSheet($$this.showPalette, this.paletteSheet, {

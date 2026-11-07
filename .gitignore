@@ -1,5 +1,7 @@
 # DevEco Studio, Hvigor and dependencies
 .idea/
+.agents/
+.codex/
 .hvigor/
 **/build/
 **/oh_modules/

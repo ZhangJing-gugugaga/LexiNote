@@ -74,6 +74,7 @@ export class LexiContextBridge {
     if (target.kind === 'note') {
       actions.push(new LexiContextAction('history', '打开版本历史', '文件'));
       actions.push(new LexiContextAction('save-template', '设为模板', '整理'));
+      actions.push(new LexiContextAction('share-file', '系统分享文件', '文件'));
       actions.push(new LexiContextAction('open-external', '使用默认应用打开', '文件'));
     }
     actions.push(new LexiContextAction('reveal', '在文件管理中显示', '文件'));

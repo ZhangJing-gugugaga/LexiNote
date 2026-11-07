@@ -8,13 +8,14 @@ const source=fs.readFileSync(path.join(root,'pages/NoteEditorPage.ets'),'utf8');
 function section(start,end){const i=source.indexOf(start);assert.ok(i>=0,start);const j=source.indexOf(end,i);assert.ok(j>i,end);return source.slice(i,j);}
 const selected=section('  private sourceInputId(','  @Builder\n  private assistantSheet(')+section('  private mapSavedCursor(','  private refreshCompletion(')+section('  private insertPendingToolSnippet(','  private insertWikiLink(');
 const frame=section('class LexiNoteEditorFrame extends FrameCallback','interface LexiNotePopupState');
-const sandbox={FrameCallback:class{},LexiContinuationSession:Session,LexiContinuationData:Data};vm.createContext(sandbox);vm.runInContext(ts.transpileModule(frame+'\nclass Editor {'+selected+'};globalThis.Editor=Editor;',{compilerOptions:{target:ts.ScriptTarget.ES2021}}).outputText,sandbox);
+const openingTasks=[];
+const sandbox={setTimeout:fn=>openingTasks.push(fn),FrameCallback:class{},LexiContinuationSession:Session,LexiContinuationData:Data};vm.createContext(sandbox);vm.runInContext(ts.transpileModule(frame+'\nclass Editor {'+selected+'};globalThis.Editor=Editor;',{compilerOptions:{target:ts.ScriptTarget.ES2021}}).outputText,sandbox);
 function editor(id='noteA'){
  const p=new sandbox.Editor();const frames=[];const calls=[];const nodeState={attached:true,visible:true};
  const ui={postFrameCallback:f=>frames.push(f),getAttachedFrameNodeById:id=>({isAttached:()=>nodeState.attached,isVisible:()=>nodeState.visible}),getFocusController:()=>({requestFocus:id=>calls.push(['focus',id])})};
  const context={abilityInfo:{name:'EntryAbility'},setMissionContinueState:async state=>calls.push(['continuation',state])};const note=new NoteItem();note.id=id;note.title='Saved title';note.content='abc SELECT xyz';
  Object.assign(p,{note,continuationOwner:Session.newOwner(),titleText:'Draft title',contentText:note.content,notebookText:'当前分类',editorTier:'study',selectionStart:4,selectionEnd:10,viewMode:'live',pageAttached:true,pageVisible:true,pageLoaded:true,templateMode:false,focusRevision:0,pendingRouteRestore:false,pendingAssistantOpen:false,pendingAssistantSnippet:'',pendingToolSnippet:'',showToolsPanel:false,showAssistantPanel:false,context:()=>context,getUIContext:()=>ui,refreshDerived(){},pushHistory(force){calls.push(['history',force]);},scheduleSave(){calls.push(['save']);},bodyController:{setTextSelection:(a,b)=>calls.push(['source',a,b])},liveController:{finishEditing(){calls.push(['finish']);},setTextSelection(a,b){calls.push(['live',a,b]);}}});
- return{p,frames,calls,nodeState,flush(){while(frames.length)frames.shift().onIdle(1);}};
+ return{p,frames,calls,nodeState,flush(){while(openingTasks.length)openingTasks.shift()();while(frames.length)frames.shift().onIdle(1);}};
 }
 let count=0;function test(name,run){Session.owner='';Session.getter=undefined;run();count++;console.log('PASS '+name);}
 test('visible ordinary editor exports the latest unsaved title/body/cursor and current metadata',()=>{
@@ -32,6 +33,10 @@ test('native route selection restores directly against saved Markdown on a visib
 });
 test('hidden or detached restored pages never touch the native input controller',()=>{
  for(const state of ['hidden','detached']){const {p,calls,nodeState,flush}=editor();p.finishLoadingRoute({restoreSelectionStart:3,restoreSelectionEnd:3,restoreSourceMode:true});if(state==='hidden')p.pageVisible=false;else nodeState.attached=false;flush();assert.equal(calls.some(c=>c[0]==='source'),false);}
+});
+test('bottom voice entry opens without receiving any render-frame callback',()=>{
+ const {p,frames}=editor();p.requestAssistant();assert.equal(p.showAssistantPanel,false);assert.equal(frames.length,0);
+ while(openingTasks.length)openingTasks.shift()();assert.equal(p.showAssistantPanel,true);assert.equal(frames.length,0);
 });
 test('assistant opens only after popup disappearance and never starts recording by itself',()=>{
  const {p,calls,flush}=editor();p.showToolsPanel=true;p.requestAssistant();assert.equal(p.showToolsPanel,false);assert.equal(p.showAssistantPanel,false);flush();assert.equal(p.showAssistantPanel,false);p.insertPendingToolSnippet();assert.equal(p.showAssistantPanel,false);flush();assert.equal(p.showAssistantPanel,true);assert.ok(calls.every(c=>['finish'].includes(c[0])));

@@ -1,6 +1,8 @@
 import { MarkdownBlock, NoteItem, NoteLink, OutlineHeading } from '../core/LexiModels';
 import { LexiIcon } from './LexiIcon';
 import { MarkdownEngine, LexiMarkdownInlineSpan } from '../core/MarkdownEngine';
+import { LexiEcosystemLink } from '../core/LexiEcosystemLink';
+import { LexiNativeLaunch } from '../core/LexiNativeLaunch';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { common } from '@kit.AbilityKit';
 import { LexiCodeHighlight, LexiCodeToken } from '../core/LexiCodeHighlight';
@@ -206,12 +208,27 @@ struct LexiPreviewInlineText {
     this.onInteractiveAction();
     if (segment.kind === 'link') { this.onOpenTarget(segment.target); }
     if (segment.kind === 'url') {
-      if (!/^https?:\/\//i.test(segment.target) && !/^mailto:/i.test(segment.target)) {
+      const localDeepLink = LexiEcosystemLink.parseLexiNoteUri(segment.target);
+      if (localDeepLink) {
+        if (localDeepLink.action === 'open') {
+          this.onOpenTarget(localDeepLink.noteId || localDeepLink.title);
+        } else {
+          LexiNativeLaunch.receive({ uri: segment.target });
+        }
+        return;
+      }
+      if (!LexiEcosystemLink.isExternalDeepLink(segment.target)) {
         this.onOpenTarget(segment.target.replace(/\.md(?=#|$)/i, '')); return;
       }
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      context.startAbility({ action: 'ohos.want.action.viewData', uri: segment.target })
-        .catch((): void => { this.getUIContext().getPromptAction().showToast({ message: '无法打开此链接' }); });
+      context.startAbility({
+        action: 'ohos.want.action.viewData',
+        entities: ['entity.system.browsable'],
+        uri: segment.target
+      }).catch((): void => {
+        context.startAbility({ action: 'ohos.want.action.viewData', uri: segment.target })
+          .catch((): void => { this.getUIContext().getPromptAction().showToast({ message: '无法打开此链接' }); });
+      });
     }
   }
 

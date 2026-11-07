@@ -415,6 +415,7 @@ export class LexiStorageService {
     LexiStorageService.mutationQueue = operation.catch((): void => {});
     await operation;
     await LexiStorageService.setActiveVaultIdUnlocked(vault.id);
+    await LexiStorageService.setActiveProjectIdUnlocked(vault.id, '');
     return vault;
   }
 
@@ -522,9 +523,11 @@ export class LexiStorageService {
       for (const card of board.cards) { card.noteRefId = noteIds.get(card.noteRefId) || card.noteRefId; }
       boards.push(board);
     }
-    await LexiFolderStore.writeCatalog(binding, notes.filter((n: NoteItem): boolean => n.vaultId === vault.id && (n.projectId || '') === projectId),
-      maps.filter((doc: MindMapDoc): boolean => doc.vaultId === vault.id && (doc.projectId || '') === projectId),
-      boards.filter((board: CanvasBoard): boolean => board.vaultId === vault.id && (board.projectId || '') === projectId));
+    try {
+      await LexiFolderStore.writeCatalog(binding, notes.filter((n: NoteItem): boolean => n.vaultId === vault.id && (n.projectId || '') === projectId),
+        maps.filter((doc: MindMapDoc): boolean => doc.vaultId === vault.id && (doc.projectId || '') === projectId),
+        boards.filter((board: CanvasBoard): boolean => board.vaultId === vault.id && (board.projectId || '') === projectId));
+    } catch {}
     const keys: string[] = ['vaults', 'projects', 'notes', 'mindmaps', 'canvases'];
     const values: string[] = [JSON.stringify(vaults), JSON.stringify(projects), JSON.stringify(notes), JSON.stringify(maps), JSON.stringify(boards)];
     await LexiStorageService.enqueueWrite(async (): Promise<void> => {
@@ -565,7 +568,7 @@ export class LexiStorageService {
     const notes = (await LexiStorageService.noteMetadata()).filter((note: NoteItem): boolean => note.vaultId === vaultId && (note.projectId || '') === projectId);
     const maps = (await LexiStorageService.getMindMaps(vaultId)).filter((doc: MindMapDoc): boolean => (doc.projectId || '') === projectId);
     const boards = (await LexiStorageService.getCanvases(vaultId)).filter((board: CanvasBoard): boolean => (board.projectId || '') === projectId);
-    await LexiFolderStore.writeCatalog(binding, notes, maps, boards);
+    try { await LexiFolderStore.writeCatalog(binding, notes, maps, boards); } catch {}
   }
 
   static async setActiveVaultId(vaultId: string): Promise<void> {
@@ -583,6 +586,12 @@ export class LexiStorageService {
   }
 
   private static async createVaultUnlocked(context: common.Context, name: string, description: string): Promise<VaultItem> {
+    const trimmedDesc = description.trim();
+    if (trimmedDesc.startsWith('file://') || (trimmedDesc.startsWith('/') && fs.accessSync(trimmedDesc))) {
+      try {
+        return await LexiStorageService.createFolderWorkspaceUnlocked(name, trimmedDesc, false, trimmedDesc);
+      } catch {}
+    }
     const vaults = await LexiStorageService.getVaults(true);
     const vault = new VaultItem();
     vault.id = `vault-${util.generateRandomUUID(true)}`;

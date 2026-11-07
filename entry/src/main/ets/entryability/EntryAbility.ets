@@ -6,6 +6,8 @@ import { LexiContinuationSession } from '../core/LexiContinuationSession';
 import { LexiContinuationData } from '../core/LexiContinuationData';
 import { LexiNativeLaunch } from '../core/LexiNativeLaunch';
 import { LexiOfflineSpeech } from '../core/LexiOfflineSpeech';
+import { LexiShareCapture } from '../core/LexiShareCapture';
+import { LexiShareService } from '../core/LexiShareService';
 
 const DOMAIN = 0x1050;
 
@@ -46,10 +48,12 @@ export default class EntryAbility extends UIAbility {
   onBackground(): void {
     AppStorage.setOrCreate<boolean>('lexiAbilityForeground', false);
     LexiOfflineSpeech.interruptAll();
+    LexiShareService.unregisterWindow('EntryAbility');
   }
 
   onForeground(): void {
     AppStorage.setOrCreate<boolean>('lexiAbilityForeground', true);
+    LexiShareService.registerWindow('EntryAbility', this.context, this.mainWindow);
     // Share/Form extensions may have saved while this process was in the background.
     AppStorage.setOrCreate<number>('lexiWorkspaceRevision', (AppStorage.get<number>('lexiWorkspaceRevision') || 0) + 1);
   }
@@ -61,7 +65,10 @@ export default class EntryAbility extends UIAbility {
         if (typeof raw !== 'string') { throw new Error('未收到接续草稿'); }
         LexiContinuationData.decode(raw); this.pendingContinuation = raw;
         this.context.restoreWindowStage(new LocalStorage());
-      } else { LexiNativeLaunch.receive(want); }
+      } else {
+        LexiNativeLaunch.receive(want);
+        LexiShareCapture.receiveWantMarkdown(want);
+      }
     } catch { hilog.warn(DOMAIN, 'LexiNote', 'A native launch request was invalid or unavailable'); }
   }
 
@@ -113,6 +120,7 @@ export default class EntryAbility extends UIAbility {
         this.sizeListening = false;
       }
       this.updateBars(this.context.config);
+      LexiShareService.registerWindow('EntryAbility', this.context, this.mainWindow);
       if (this.pendingContinuation) {
         const raw = this.pendingContinuation; this.pendingContinuation = '';
         try { LexiContinuationSession.publishIncoming(raw); } catch { hilog.warn(DOMAIN, 'LexiNote', 'Continuation draft could not be staged'); }
@@ -233,6 +241,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageDestroy(): void {
+    LexiShareService.unregisterWindow('EntryAbility');
     this.restorePcTitleBar();
     if (this.mainWindow && this.avoidListening) {
       try {

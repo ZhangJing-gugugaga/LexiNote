@@ -4,6 +4,7 @@ import { LexiWorkspaceMindMap } from '../components/LexiWorkspaceMindMap';
 import { LexiWorkspaceTab } from '../core/LexiWorkspaceModels';
 import { MindMapDoc, NoteItem } from '../core/LexiModels';
 import { LexiStorageService } from '../core/LexiStorageService';
+import { LexiSharableNoteSnapshot, LexiShareService } from '../core/LexiShareService';
 
 @Entry({ useSharedStorage: true })
 @Component
@@ -14,8 +15,10 @@ struct DocumentWindow {
   @State private notes: NoteItem[] = [];
   @State private tabs: LexiWorkspaceTab[] = [];
   @State private ready: boolean = false;
+  private knockOwner: string = `document-window:${Date.now()}:${Math.floor(Math.random() * 10000)}`;
   private context(): common.UIAbilityContext { return this.getUIContext().getHostContext() as common.UIAbilityContext; }
   aboutToAppear(): void { this.open(this.documentId); }
+  aboutToDisappear(): void { LexiShareService.deactivateKnockSource(this.knockOwner); }
   private async refresh(): Promise<void> {
     const activeId = this.tabs[0]?.noteId || this.documentId;
     if (activeId.startsWith('map:')) {
@@ -30,6 +33,7 @@ struct DocumentWindow {
     for (const tab of this.tabs) { await tab.controller.flush(); }
     await LexiStorageService.init(this.context());
     if (id.startsWith('map:')) {
+      LexiShareService.deactivateKnockSource(this.knockOwner);
       const map = await LexiStorageService.getMindMapById(id.substring(4));
       if (!map) { this.getUIContext().getPromptAction().showToast({ message: '该思维导图已不存在' }); return; }
       this.notes = await LexiStorageService.getNotes(map.vaultId);
@@ -40,6 +44,16 @@ struct DocumentWindow {
     if (!note) { this.getUIContext().getPromptAction().showToast({ message: '该笔记已不存在' }); return; }
     this.notes = await LexiStorageService.getNotes(note.vaultId);
     this.tabs = [new LexiWorkspaceTab(id)]; this.ready = true;
+    LexiShareService.activateKnockSource(this.knockOwner, (): LexiSharableNoteSnapshot | undefined => {
+      const current = this.notes.find((item: NoteItem): boolean => item.id === id) || note;
+      const snapshot = new LexiSharableNoteSnapshot();
+      snapshot.noteId = current.id;
+      snapshot.title = current.title;
+      snapshot.content = current.content;
+      snapshot.notebook = current.notebook;
+      snapshot.tags = current.tags.slice();
+      return snapshot;
+    });
   }
   build() {
     Column() {

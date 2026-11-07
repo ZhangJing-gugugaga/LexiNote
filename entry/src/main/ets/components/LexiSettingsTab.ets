@@ -173,6 +173,10 @@ export struct LexiSettingsTab {
       .borderRadius(22)
 
       Column({ space: 10 }) {
+        Text('知萤 LexiNote · 1.2.0')
+          .fontSize(13)
+          .fontColor($r('app.color.text_secondary'))
+          .width('100%')
         Text('关于与帮助')
           .fontSize(15)
           .fontWeight(FontWeight.Bold)
