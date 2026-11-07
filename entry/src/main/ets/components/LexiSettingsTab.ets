@@ -162,6 +162,10 @@ export struct LexiSettingsTab {
   private async togglePlugin(id: string, enabled: boolean): Promise<void> {
     const manager = LexiPluginManager.shared;
     if (!manager) { return; }
+    // P2-013:重入守卫——一次交互只允许一次 manager 调用。合成单击(uitest)会在手势
+    // 落定窗口内补发反向 onChange(R28 观测 false→true→false,偶数次净零变化):
+    // 在途(pluginBusy)事件一律丢弃;落定后的同值重放由下方幂等守卫按 manager 现值拦截。
+    if (this.pluginBusy) { return; }
     // 幂等守卫:受控 Toggle 在重渲染时可能补发一次反向事件,状态已一致则忽略
     const current = manager.installedPlugins().find((plugin): boolean => plugin.manifest.id === id);
     if (!current || current.enabled === enabled) {
@@ -196,7 +200,19 @@ export struct LexiSettingsTab {
   private async toggleSafeMode(safeMode: boolean): Promise<void> {
     const manager = LexiPluginManager.shared;
     if (!manager) { return; }
+    // P2-013:与 togglePlugin 同一纪律——重入吞没 + 值幂等:在途反向补发事件丢弃,
+    // manager 现值已一致的重放不再发起第二次调用(一次交互 = 一次状态变更)。
+    if (this.pluginBusy) { return; }
+    if (manager.isSafeMode() === safeMode) {
+      this.pluginSafeMode = safeMode;
+      this.refreshPlugins();
+      return;
+    }
     this.pluginBusy = true;
+    // P2-013:乐观同步绑定值——await 窗口内受控 Toggle 的 isOn 恒等于用户意图,
+    // 框架不会在在途重渲染里用旧值把开关拉回、再补发一次反向 onChange
+    // (R28 观测 false→true→false、偶数次净零变化的直接来源)。
+    this.pluginSafeMode = safeMode;
     try {
       await manager.setSafeMode(safeMode);
     } finally {
@@ -209,7 +225,17 @@ export struct LexiSettingsTab {
   private async toggleLegacyTrack(enabled: boolean): Promise<void> {
     const manager = LexiPluginManager.shared;
     if (!manager) { return; }
+    // P2-013:与 togglePlugin 同一纪律——重入吞没 + 值幂等:在途反向补发事件丢弃,
+    // manager 现值已一致的重放不再发起第二次调用(一次交互 = 一次状态变更)。
+    if (this.pluginBusy) { return; }
+    if (manager.isLegacyTrackEnabled() === enabled) {
+      this.pluginLegacyTrack = enabled;
+      this.refreshPlugins();
+      return;
+    }
     this.pluginBusy = true;
+    // P2-013:乐观同步绑定值(await 前固定为用户意图),理由同 toggleSafeMode。
+    this.pluginLegacyTrack = enabled;
     try {
       await manager.setLegacyTrackEnabled(enabled);
     } finally {

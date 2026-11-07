@@ -124,4 +124,215 @@ assert.ok(bridgeSrc.includes("ERR_PLUGIN_TRACK_REFUSED: string = 'plugin_track_r
 assert.ok(bridgeSrc.includes("ERR_PLUGIN_CONSENT_REQUIRED: string = 'plugin_consent_required'"),
   'P1-011: 同意拒绝必须带机器可读错误码');
 assert.ok(bridgeSrc.includes('P4-005'), 'P1-011: 沙箱拒绝信息必须指明视图载体收敛去向(P4-005)');
-console.log(`${count} workspace tool regression groups passed`);
+
+// --- P2-013(R37-B) 设置页 Toggle 单击多次触发门:单发射路径形状 + 守卫行为级真跑 -----------
+// R28 设备事实:对插件启用/legacy 轨 Toggle 的一次 uitest 单击产生 2-3 次 onChange
+// (legacy 轨观测 false→true→false,偶数次净零变化,开关无法经 UI 稳定置位)。
+// 根因面(源码审查结论):
+//   ① Toggle 所在 Row/父容器没有 onClick —— "行点击 + 开关 onChange 双注册"不成立,排除;
+//   ② 受控 Toggle 的 isOn 绑定 @State,而 handler 在 await 窗口内不更新绑定值
+//      (pluginSafeMode/pluginLegacyTrack 停留旧值),finally 里 refreshPlugins 才重绑;
+//      在途重渲染/禁用-重启用(.enabled(!pluginBusy))把开关往旧值拉 → 补发反向 onChange;
+//   ③ toggleSafeMode/toggleLegacyTrack 完全无守卫,togglePlugin 只有值幂等没有重入守卫
+//      → 每次补发都是一次真实 manager 调用,偶数次净零。
+// 修复(LexiSettingsTab/LexiSettingsWindow 同一纪律):handler 入口
+//   1) pluginBusy 重入吞没(在途补发事件丢弃,不触发 manager 调用、不 stomping 乐观态);
+//   2) manager 现值幂等短路(落定后的同值重放不发第二次调用);
+//   3) await 前乐观同步绑定值(在途窗口内 isOn 恒等于用户意图,旧值拉回机制消失)。
+// 门禁钉住:每个 Toggle 恰有一条 onChange 发射路径(链上无 onClick 双注册、单点委托),
+// 且守卫行为级真跑:一次单击 + 在途反向补发 = 恰好一次 manager 调用。
+// (设备真机触摸复验仍待主线程批次 —— 本门禁只证明接线与守卫逻辑,不证明框架事件面。)
+const TAB_ETS = fs.readFileSync(path.resolve(__dirname, '../../entry/src/main/ets/components/LexiSettingsTab.ets'), 'utf8').replace(/\r\n/g, '\n');
+const WIN_ETS = fs.readFileSync(path.resolve(__dirname, '../../entry/src/main/ets/components/LexiSettingsWindow.ets'), 'utf8').replace(/\r\n/g, '\n');
+
+function toggleChains(src) {
+  const lines = src.split('\n');
+  const chains = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].indexOf('Toggle({') < 0) { continue; }
+    let chain = lines[i];
+    let j = i + 1;
+    let inChangeBody = false; // .onChange( ... }) 多行体也要算进同一条发射链
+    while (j < lines.length) {
+      const line = lines[j];
+      if (!inChangeBody && /^\s*\.[A-Za-z]+\(/.test(line)) {
+        chain += '\n' + line;
+        if (/\{\s*$/.test(line)) { inChangeBody = true; }
+        j++;
+        continue;
+      }
+      if (inChangeBody) {
+        chain += '\n' + line;
+        if (/^\s*\}\)\s*$/.test(line)) { break; }
+        j++;
+        continue;
+      }
+      break;
+    }
+    chains.push(chain);
+  }
+  return chains;
+}
+
+function handlerSlice(src, name) {
+  const marker = 'private async ' + name + '(';
+  const start = src.indexOf(marker);
+  assert.ok(start >= 0, 'P2-013: ' + name + ' 必须存在');
+  const end = src.indexOf('\n  }', start); // 方法收尾大括号恰在 2 空格缩进,内层嵌套均 ≥4 空格
+  assert.ok(end > start, 'P2-013: ' + name + ' 方法切片失败');
+  return src.slice(start, end);
+}
+
+for (const [label, src, minChains] of [['LexiSettingsTab', TAB_ETS, 3], ['LexiSettingsWindow', WIN_ETS, 4]]) {
+  const chains = toggleChains(src);
+  assert.ok(chains.length >= minChains,
+    'P2-013(' + label + '): Toggle 链提取异常,期望≥' + minChains + ' 实得 ' + chains.length);
+  for (const chain of chains) {
+    assert.equal((chain.match(/\.onChange\(/g) || []).length, 1,
+      'P2-013(' + label + '): 每个 Toggle 必须恰有一条 onChange 发射路径(不得双注册)');
+    assert.ok(!chain.includes('.onClick('),
+      'P2-013(' + label + '): Toggle 链上禁止 onClick 双注册(R28 多触发怀疑面之一)');
+    assert.equal((chain.match(/this\.(togglePlugin|toggleSafeMode|toggleLegacyTrack|onToggleRow|onToggleArkuiEditor)\(/g) || []).length, 1,
+      'P2-013(' + label + '): onChange 必须单点委托给唯一 handler');
+  }
+  // 三个插件开关 handler 的守卫形状:重入吞没 → 值幂等 → 乐观同步
+  const pluginSlice = handlerSlice(src, 'togglePlugin');
+  assert.ok(pluginSlice.includes('if (this.pluginBusy) { return; }'),
+    'P2-013(' + label + '): togglePlugin 必须有重入守卫(在途反向补发事件必须被丢弃)');
+  assert.ok(pluginSlice.includes('current.enabled === enabled'),
+    'P2-013(' + label + '): togglePlugin 必须有值幂等守卫');
+  assert.ok(pluginSlice.includes('row.enabled = enabled'),
+    'P2-013(' + label + '): togglePlugin 必须乐观同步行绑定值');
+  const safeSlice = handlerSlice(src, 'toggleSafeMode');
+  assert.ok(safeSlice.includes('if (this.pluginBusy) { return; }'),
+    'P2-013(' + label + '): toggleSafeMode 必须有重入守卫');
+  assert.ok(safeSlice.includes('manager.isSafeMode() === safeMode'),
+    'P2-013(' + label + '): toggleSafeMode 必须有值幂等守卫');
+  assert.ok(safeSlice.indexOf('this.pluginSafeMode = safeMode;') >= 0 &&
+    safeSlice.indexOf('this.pluginSafeMode = safeMode;') < safeSlice.indexOf('await manager.setSafeMode'),
+    'P2-013(' + label + '): toggleSafeMode 必须在 await 前乐观同步绑定值');
+  const legacySlice = handlerSlice(src, 'toggleLegacyTrack');
+  assert.ok(legacySlice.includes('if (this.pluginBusy) { return; }'),
+    'P2-013(' + label + '): toggleLegacyTrack 必须有重入守卫');
+  assert.ok(legacySlice.includes('manager.isLegacyTrackEnabled() === enabled'),
+    'P2-013(' + label + '): toggleLegacyTrack 必须有值幂等守卫');
+  assert.ok(legacySlice.indexOf('this.pluginLegacyTrack = enabled;') >= 0 &&
+    legacySlice.indexOf('this.pluginLegacyTrack = enabled;') < legacySlice.indexOf('await manager.setLegacyTrackEnabled'),
+    'P2-013(' + label + '): toggleLegacyTrack 必须在 await 前乐观同步绑定值');
+}
+
+// 行为级真跑:从 LexiSettingsTab 切出三个 handler,注入假 manager,重放 R28 设备事件序
+// (一次合成单击 + 在途到达的反向补发)。LexiSettingsWindow 与 Tab 是同一份守卫文本,
+// 上面已按形状逐条钉住,这里不必重复跑两遍。
+const toggleHarnessSrc = `
+class ToggleHarness {
+  pluginBusy = false;
+  pluginSafeMode = false;
+  pluginLegacyTrack = true;
+  pluginRows = [];
+  refreshCount = 0;
+  refreshPlugins() { this.refreshCount++; }
+  ${handlerSlice(TAB_ETS, 'togglePlugin')}
+  }
+  ${handlerSlice(TAB_ETS, 'toggleSafeMode')}
+  }
+  ${handlerSlice(TAB_ETS, 'toggleLegacyTrack')}
+  }
+}
+globalThis.ToggleHarness = ToggleHarness;`;
+const toggleSandbox = { console, LexiPluginManager: { shared: null } };
+vm.createContext(toggleSandbox);
+vm.runInContext(ts.transpileModule(toggleHarnessSrc, { compilerOptions: { target: ts.ScriptTarget.ES2021 } }).outputText, toggleSandbox);
+
+function fakePluginManager() {
+  const state = { safeMode: false, legacyTrack: false, calls: [], permission: 'granted' };
+  const plugin = { manifest: { id: 'p1', name: 'P1', version: '1.0', capabilitiesDeclared: false }, enabled: false, errorState: '' };
+  return {
+    state, plugin,
+    installedPlugins() { return [plugin]; },
+    permissionStateOf(_id) { return state.permission; },
+    permissionTagsOf(_id) { return []; },
+    hasPluginSettings(_id) { return false; },
+    isSafeMode() { return state.safeMode; },
+    async setSafeMode(v) { state.safeMode = v; state.calls.push(['setSafeMode', v]); },
+    isLegacyTrackEnabled() { return state.legacyTrack; },
+    async setLegacyTrackEnabled(v) { state.legacyTrack = v; state.calls.push(['setLegacyTrack', v]); },
+    async enablePlugin(id) { plugin.enabled = true; state.calls.push(['enablePlugin', id]); return true; },
+    async disablePlugin(id) { plugin.enabled = false; state.calls.push(['disablePlugin', id]); },
+    async consentEnablePlugin(id) { plugin.enabled = true; state.calls.push(['consentEnablePlugin', id]); }
+  };
+}
+function newToggleHarness(manager) {
+  toggleSandbox.LexiPluginManager.shared = manager;
+  return new toggleSandbox.ToggleHarness();
+}
+
+const toggleBehaviorTests = [];
+function toggleBehaviorTest(name, fn) { toggleBehaviorTests.push([name, fn]); count++; }
+
+toggleBehaviorTest('P2-013 行为真跑(legacy 轨):一次单击 + 在途反向补发(R28 设备序)= 恰好一次 manager 调用', async () => {
+  const manager = fakePluginManager(); // legacyTrack=false 起步,同 R28 观测初值
+  const h = newToggleHarness(manager);
+  const first = h.toggleLegacyTrack(true);
+  const replay = h.toggleLegacyTrack(false); // 在途到达的合成反向补发(真实现象:偶数次净零)
+  await first;
+  await replay;
+  assert.deepEqual(manager.state.calls, [['setLegacyTrack', true]],
+    '在途补发必须被重入守卫吞掉,不得产生第二次 manager 调用');
+  assert.equal(manager.isLegacyTrackEnabled(), true, '开关必须能经 UI 稳定置位(单次交互净 +1)');
+  assert.equal(h.pluginLegacyTrack, true, '绑定值必须乐观同步为用户意图');
+});
+
+toggleBehaviorTest('P2-013 行为真跑(安全模式):在途反向补发同样单发,不吞真实的后续切换', async () => {
+  const manager = fakePluginManager();
+  const h = newToggleHarness(manager);
+  const first = h.toggleSafeMode(true);
+  h.toggleSafeMode(false); // 在途补发 → 丢弃
+  await first;
+  assert.deepEqual(manager.state.calls, [['setSafeMode', true]]);
+  await h.toggleSafeMode(false); // 落定后的真实第二次交互 → 必须照常生效(快速连点不坏)
+  assert.deepEqual(manager.state.calls, [['setSafeMode', true], ['setSafeMode', false]]);
+  assert.equal(manager.isSafeMode(), false);
+});
+
+toggleBehaviorTest('P2-013 行为真跑(插件启用):在途反向补发单发,consent 路径同纪律', async () => {
+  const manager = fakePluginManager();
+  manager.state.permission = 'pending';
+  manager.plugin.manifest.capabilitiesDeclared = true;
+  const h = newToggleHarness(manager);
+  const first = h.togglePlugin('p1', true);
+  h.togglePlugin('p1', false); // 在途补发 → 丢弃
+  await first;
+  assert.deepEqual(manager.state.calls, [['consentEnablePlugin', 'p1']],
+    '未授权声明型插件的启用必须走 consent 通路且只发一次');
+  assert.equal(manager.plugin.enabled, true);
+});
+
+toggleBehaviorTest('P2-013 行为真跑(幂等重放):落定后同值重放不发第二次调用;快速顺序切换不吞', async () => {
+  const manager = fakePluginManager();
+  const h = newToggleHarness(manager);
+  await h.toggleLegacyTrack(true);
+  await h.toggleLegacyTrack(true); // 同值重放 → 值幂等短路
+  assert.deepEqual(manager.state.calls, [['setLegacyTrack', true]]);
+  await h.toggleLegacyTrack(false); // 真实第二次交互 → 照常生效
+  assert.deepEqual(manager.state.calls, [['setLegacyTrack', true], ['setLegacyTrack', false]]);
+  assert.equal(manager.isLegacyTrackEnabled(), false);
+});
+
+(async () => {
+  let failed = 0;
+  for (const [name, fn] of toggleBehaviorTests) {
+    try {
+      await fn();
+      console.log('PASS ' + name);
+    } catch (error) {
+      failed++;
+      console.error('FAIL - ' + name + '\n  ' + ((error && error.stack) || error));
+    }
+  }
+  if (failed > 0) {
+    console.error('workspace tool regression: ' + failed + ' P2-013 behavioral group(s) failed');
+    process.exitCode = 1;
+  }
+  console.log(`${count - failed} workspace tool regression groups passed`);
+})();
