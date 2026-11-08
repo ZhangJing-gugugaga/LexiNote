@@ -25,7 +25,16 @@ local.properties
 *.hsp
 *.app
 /exports/
-/docs/
+/docs/*
+!/docs/plugin-api-reference.md
+!/docs/plugin-manifest-v2.md
+!/docs/plugin-security.md
+!/docs/plugin-marketplace.md
+!/docs/plugin-development.md
+!/docs/plugin-testing.md
+!/docs/obsidian-compatibility.md
+!/docs/plugin-inspector.md
+!/docs/lexinote_plugin_bridge_spec.md
 /*.docx
 /design-qa.md
 *.log
